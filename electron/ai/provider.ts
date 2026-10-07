@@ -370,7 +370,7 @@ export class VercelAiSdkProvider implements LlmProvider {
 
   private createModel(config: AiRuntimeConfig): LanguageModel {
     return createOpenAICompatible({
-      name: 'markdown-plus',
+      name: 'inkase',
       baseURL: config.baseUrl,
       apiKey: config.apiKey
     })(config.model)

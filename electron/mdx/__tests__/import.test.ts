@@ -16,7 +16,7 @@ describe('Import Module', () => {
   let testDir: string
 
   beforeAll(() => {
-    testDir = path.join(os.tmpdir(), 'markdown-plus-import-test-' + Date.now())
+    testDir = path.join(os.tmpdir(), 'inkase-import-test-' + Date.now())
     fs.mkdirSync(testDir, { recursive: true })
   })
 

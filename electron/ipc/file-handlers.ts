@@ -231,7 +231,7 @@ export function registerFileHandlers(): void {
     const defaultOptions = {
       properties: ['openFile'],
       filters: [
-        { name: 'Markdown+ 文件', extensions: ['mdx'] },
+        { name: 'Inkase 文档', extensions: ['mdx'] },
         { name: 'Markdown 文件', extensions: ['md'] },
         { name: '所有文件', extensions: ['*'] }
       ]
@@ -258,7 +258,7 @@ export function registerFileHandlers(): void {
 
     const defaultOptions = {
       filters: [
-        { name: 'Markdown+ 文件', extensions: ['mdx'] },
+        { name: 'Inkase 文档', extensions: ['mdx'] },
         { name: 'Markdown 文件', extensions: ['md'] }
       ]
     }

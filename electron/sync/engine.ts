@@ -10,7 +10,7 @@ import type {
 } from './types'
 import { autoResolveGitignoreConflict, isUntrackedOverwrite } from './git-provider'
 import type { GitCommandResult } from './git-provider'
-import { ensureMarkdownPlusIgnored, loadSyncConfig, saveSyncConfig, syncConfigPath } from './config'
+import { ensureInkaseIgnored, loadSyncConfig, saveSyncConfig, syncConfigPath } from './config'
 
 export interface SyncEngineDeps {
   createProvider: (workspacePath: string, config: SyncConfig) => SyncProvider
@@ -120,7 +120,7 @@ export class SyncEngine {
     if (workspacePath) {
       const configPath = syncConfigPath(workspacePath)
       if (fs.existsSync(configPath)) fs.unlinkSync(configPath)
-      // 停用同步：删除 git 仓库与 .gitignore（.markdownPlus 目录保留，可能含 AI 会话等其它数据）
+      // 停用同步：删除 git 仓库与 .gitignore（.inkase 目录保留，可能含 AI 会话等其它数据）
       const gitDir = path.join(workspacePath, '.git')
       if (fs.existsSync(gitDir)) fs.rmSync(gitDir, { recursive: true, force: true })
       const gitignorePath = path.join(workspacePath, '.gitignore')
@@ -309,7 +309,7 @@ export class SyncEngine {
       }
 
       // 对齐成功（含空远端）：此时再创建/追加 .gitignore，避免先动 .gitignore 造成首次同步冲突
-      ensureMarkdownPlusIgnored(workspacePath)
+      ensureInkaseIgnored(workspacePath)
       // 本地有变更（首次内容 + .gitignore 等）则提交；空提交 guard 已由 porcelain 判断
       const porcelain = await this.deps.runGit(['status', '--porcelain'], workspacePath)
       if (porcelain.code === 0 && porcelain.stdout.trim() !== '') {

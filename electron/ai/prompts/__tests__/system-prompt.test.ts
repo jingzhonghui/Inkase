@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { SYSTEM_PROMPT } from '../markdown-plus'
+import { SYSTEM_PROMPT } from '../inkase'
 
 describe('SYSTEM_PROMPT source rules', () => {
   it('contains 19 source-safe principles covering realtime workspace search', () => {

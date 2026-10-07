@@ -1,4 +1,4 @@
-import { ref, computed } from 'vue'
+﻿import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
 
 export type ThemeType = 'light' | 'dark' | 'system'
@@ -8,7 +8,7 @@ interface ThemeState {
   followSystem: boolean
 }
 
-const THEME_STORAGE_KEY = 'markdown-plus-theme'
+const THEME_STORAGE_KEY = 'inkase-theme'
 
 /**
  * 主题状态管理 Store

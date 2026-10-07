@@ -32,7 +32,7 @@ async function handleDownload(): Promise<void> {
         <template v-if="updateStore.status === 'available'">
           <h3>发现新版本</h3>
           <p class="update-version">
-            Markdown+ v{{ updateStore.info?.version }}
+            Inkase v{{ updateStore.info?.version }}
           </p>
           <div
             v-if="releaseNotesHtml"

@@ -136,7 +136,7 @@ const emit = defineEmits<{
   (e: 'collapse'): void
 }>()
 
-const CLOSE_ALL_CONTEXT_MENUS_EVENT = 'markdown-plus:close-context-menus'
+const CLOSE_ALL_CONTEXT_MENUS_EVENT = 'inkase:close-context-menus'
 
 // ========== 右键菜单状态 ==========
 interface ContextMenuItem {
@@ -261,16 +261,18 @@ function onEmptyContextMenu(event: MouseEvent): void {
         { label: '新建文件', action: () => promptCreateFile(folderPath) },
         { label: '新建文件夹', action: () => promptCreateFolder(folderPath) },
         { label: '导入 Markdown', action: () => fileStore.importMarkdown() },
+        { label: '导入 Word 文档', action: () => fileStore.importDocx() },
         { label: '导入文件夹', action: () => fileStore.importFolder() },
         { label: '打开文件', action: () => openFile() },
         { label: '打开文件夹', action: () => openFolder() },
-        { label: '快速打开文件', action: () => window.dispatchEvent(new Event('markdown-plus:quick-open')) },
+        { label: '快速打开文件', action: () => window.dispatchEvent(new Event('inkase:quick-open')) },
         { label: '刷新', action: () => fileStore.readFolder(folderPath) },
         { label: '关闭文件夹', action: () => { void fileStore.closeFolder() } },
         { label: '粘贴', action: () => { void pasteHere(folderPath) }, disabled: () => !fileStore.clipboardFiles && !fileStore.hasSystemClipboardFiles }
       ]
     : [
         { label: '导入 Markdown', action: () => fileStore.importMarkdown() },
+        { label: '导入 Word 文档', action: () => fileStore.importDocx() },
         { label: '导入文件夹', action: () => fileStore.importFolder() },
         { label: '打开文件', action: () => openFile() },
         { label: '打开文件夹', action: () => openFolder() }
@@ -503,7 +505,7 @@ onMounted(() => {
   document.addEventListener('contextmenu', closeContextMenu, true)
   window.addEventListener(CLOSE_ALL_CONTEXT_MENUS_EVENT, closeContextMenu)
   window.addEventListener('blur', closeContextMenu)
-  window.addEventListener('markdown-plus:explorer-refocus', refocusExplorer)
+  window.addEventListener('inkase:explorer-refocus', refocusExplorer)
 })
 
 onUnmounted(() => {
@@ -512,7 +514,7 @@ onUnmounted(() => {
   document.removeEventListener('contextmenu', closeContextMenu, true)
   window.removeEventListener(CLOSE_ALL_CONTEXT_MENUS_EVENT, closeContextMenu)
   window.removeEventListener('blur', closeContextMenu)
-  window.removeEventListener('markdown-plus:explorer-refocus', refocusExplorer)
+  window.removeEventListener('inkase:explorer-refocus', refocusExplorer)
 })
 </script>
 

@@ -1,4 +1,4 @@
-!include LogicLib.nsh
+﻿!include LogicLib.nsh
 !include nsDialogs.nsh
 
 !ifndef BUILD_UNINSTALLER
@@ -12,17 +12,17 @@ Var FileContextState
 Var FolderContextState
 !endif
 
-!define MP_OPTIONS_KEY "Software\MarkdownPlus\Installer"
+!define MP_OPTIONS_KEY "Software\Inkase\Installer"
 !define MP_MDX_EXT "Software\Classes\.mdx"
 !define MP_MD_EXT "Software\Classes\.md"
-!define MP_MDX_PROGID "Software\Classes\MarkdownPlus.mdx"
-!define MP_MD_PROGID "Software\Classes\MarkdownPlus.md"
-!define MP_MDX_MENU "Software\Classes\SystemFileAssociations\.mdx\shell\MarkdownPlusOpen"
-!define MP_MD_MENU "Software\Classes\SystemFileAssociations\.md\shell\MarkdownPlusOpen"
-!define MP_FOLDER_MENU "Software\Classes\Directory\shell\MarkdownPlusOpenFolder"
+!define MP_MDX_PROGID "Software\Classes\Inkase.mdx"
+!define MP_MD_PROGID "Software\Classes\Inkase.md"
+!define MP_MDX_MENU "Software\Classes\SystemFileAssociations\.mdx\shell\InkaseOpen"
+!define MP_MD_MENU "Software\Classes\SystemFileAssociations\.md\shell\InkaseOpen"
+!define MP_FOLDER_MENU "Software\Classes\Directory\shell\InkaseOpenFolder"
 
 !ifndef BUILD_UNINSTALLER
-Function MarkdownPlusLoadOptions
+Function InkaseLoadOptions
   StrCpy $AssociateMdxState 1
   StrCpy $AssociateMdState 0
   StrCpy $FileContextState 1
@@ -49,7 +49,7 @@ Function MarkdownPlusLoadOptions
   ${EndIf}
 FunctionEnd
 
-Function MarkdownPlusOptionsCreate
+Function InkaseOptionsCreate
   nsDialogs::Create 1018
   Pop $0
   ${If} $0 == error
@@ -64,9 +64,9 @@ Function MarkdownPlusOptionsCreate
   Pop $AssociateMdCheckbox
   ${NSD_CreateLabel} 0 56u 100% 12u "资源管理器右键菜单"
   Pop $0
-  ${NSD_CreateCheckbox} 8u 74u 100% 12u "在 .mdx 和 .md 文件右键菜单中添加“使用 Markdown+ 打开”"
+  ${NSD_CreateCheckbox} 8u 74u 100% 12u "在 .mdx 和 .md 文件右键菜单中添加“使用 Inkase 打开”"
   Pop $FileContextCheckbox
-  ${NSD_CreateCheckbox} 8u 90u 100% 12u "在文件夹右键菜单中添加“使用 Markdown+ 打开文件夹”"
+  ${NSD_CreateCheckbox} 8u 90u 100% 12u "在文件夹右键菜单中添加“使用 Inkase 打开文件夹”"
   Pop $FolderContextCheckbox
 
   ${If} $AssociateMdxState == 1
@@ -84,7 +84,7 @@ Function MarkdownPlusOptionsCreate
   nsDialogs::Show
 FunctionEnd
 
-Function MarkdownPlusOptionsLeave
+Function InkaseOptionsLeave
   ${NSD_GetState} $AssociateMdxCheckbox $AssociateMdxState
   ${NSD_GetState} $AssociateMdCheckbox $AssociateMdState
   ${NSD_GetState} $FileContextCheckbox $FileContextState
@@ -96,14 +96,14 @@ Function MarkdownPlusOptionsLeave
 FunctionEnd
 !endif
 
-!macro MarkdownPlusWriteFileAssociation extension progid description
+!macro InkaseWriteFileAssociation extension progid description
   WriteRegStr SHCTX "Software\Classes\${extension}" "" "${progid}"
   WriteRegStr SHCTX "Software\Classes\${progid}" "" "${description}"
   WriteRegStr SHCTX "Software\Classes\${progid}\DefaultIcon" "" "$appExe,0"
   WriteRegStr SHCTX "Software\Classes\${progid}\shell\open\command" "" '"$appExe" "%1"'
 !macroend
 
-!macro MarkdownPlusRemoveFileAssociation extension progid
+!macro InkaseRemoveFileAssociation extension progid
   ReadRegStr $0 SHCTX "Software\Classes\${extension}" ""
   ${If} $0 == "${progid}"
     DeleteRegValue SHCTX "Software\Classes\${extension}" ""
@@ -111,7 +111,7 @@ FunctionEnd
   DeleteRegKey SHCTX "Software\Classes\${progid}"
 !macroend
 
-!macro MarkdownPlusRestoreFileAssociation extension progid backupName
+!macro InkaseRestoreFileAssociation extension progid backupName
   ReadRegStr $0 SHCTX "Software\Classes\${extension}" ""
   ${If} $0 == "${progid}"
     ReadRegStr $1 SHCTX ${MP_OPTIONS_KEY} ${backupName}
@@ -124,23 +124,23 @@ FunctionEnd
   DeleteRegKey SHCTX "Software\Classes\${progid}"
 !macroend
 
-!macro MarkdownPlusWriteFileMenu extension
-  WriteRegStr SHCTX "Software\Classes\SystemFileAssociations\${extension}\shell\MarkdownPlusOpen" "MUIVerb" "使用 Markdown+ 打开"
-  WriteRegStr SHCTX "Software\Classes\SystemFileAssociations\${extension}\shell\MarkdownPlusOpen" "Icon" "$appExe"
-  WriteRegStr SHCTX "Software\Classes\SystemFileAssociations\${extension}\shell\MarkdownPlusOpen\command" "" '"$appExe" "%1"'
+!macro InkaseWriteFileMenu extension
+  WriteRegStr SHCTX "Software\Classes\SystemFileAssociations\${extension}\shell\InkaseOpen" "MUIVerb" "使用 Inkase 打开"
+  WriteRegStr SHCTX "Software\Classes\SystemFileAssociations\${extension}\shell\InkaseOpen" "Icon" "$appExe"
+  WriteRegStr SHCTX "Software\Classes\SystemFileAssociations\${extension}\shell\InkaseOpen\command" "" '"$appExe" "%1"'
 !macroend
 
-!macro MarkdownPlusRemoveFileMenu extension
-  DeleteRegKey SHCTX "Software\Classes\SystemFileAssociations\${extension}\shell\MarkdownPlusOpen"
+!macro InkaseRemoveFileMenu extension
+  DeleteRegKey SHCTX "Software\Classes\SystemFileAssociations\${extension}\shell\InkaseOpen"
 !macroend
 
 !ifndef BUILD_UNINSTALLER
 !macro customInit
-  Call MarkdownPlusLoadOptions
+  Call InkaseLoadOptions
 !macroend
 
 !macro customPageAfterChangeDir
-  Page custom MarkdownPlusOptionsCreate MarkdownPlusOptionsLeave
+  Page custom InkaseOptionsCreate InkaseOptionsLeave
 !macroend
 !endif
 
@@ -165,24 +165,24 @@ FunctionEnd
   ${EndIf}
 
   ${If} $AssociateMdxState == 1
-    !insertmacro MarkdownPlusWriteFileAssociation ".mdx" "MarkdownPlus.mdx" "Markdown+ document"
+    !insertmacro InkaseWriteFileAssociation ".mdx" "Inkase.mdx" "Inkase document"
   ${Else}
-    !insertmacro MarkdownPlusRestoreFileAssociation ".mdx" "MarkdownPlus.mdx" PreviousMdxAssociation
+    !insertmacro InkaseRestoreFileAssociation ".mdx" "Inkase.mdx" PreviousMdxAssociation
   ${EndIf}
   ${If} $AssociateMdState == 1
-    !insertmacro MarkdownPlusWriteFileAssociation ".md" "MarkdownPlus.md" "Markdown document"
+    !insertmacro InkaseWriteFileAssociation ".md" "Inkase.md" "Markdown document"
   ${Else}
-    !insertmacro MarkdownPlusRestoreFileAssociation ".md" "MarkdownPlus.md" PreviousMdAssociation
+    !insertmacro InkaseRestoreFileAssociation ".md" "Inkase.md" PreviousMdAssociation
   ${EndIf}
   ${If} $FileContextState == 1
-    !insertmacro MarkdownPlusWriteFileMenu ".mdx"
-    !insertmacro MarkdownPlusWriteFileMenu ".md"
+    !insertmacro InkaseWriteFileMenu ".mdx"
+    !insertmacro InkaseWriteFileMenu ".md"
   ${Else}
-    !insertmacro MarkdownPlusRemoveFileMenu ".mdx"
-    !insertmacro MarkdownPlusRemoveFileMenu ".md"
+    !insertmacro InkaseRemoveFileMenu ".mdx"
+    !insertmacro InkaseRemoveFileMenu ".md"
   ${EndIf}
   ${If} $FolderContextState == 1
-    WriteRegStr SHCTX ${MP_FOLDER_MENU} "MUIVerb" "使用 Markdown+ 打开文件夹"
+    WriteRegStr SHCTX ${MP_FOLDER_MENU} "MUIVerb" "使用 Inkase 打开文件夹"
     WriteRegStr SHCTX ${MP_FOLDER_MENU} "Icon" "$appExe"
     WriteRegStr SHCTX "${MP_FOLDER_MENU}\command" "" '"$appExe" "%1"'
   ${Else}
@@ -192,10 +192,10 @@ FunctionEnd
 !macroend
 
 !macro customUnInstall
-  !insertmacro MarkdownPlusRestoreFileAssociation ".mdx" "MarkdownPlus.mdx" PreviousMdxAssociation
-  !insertmacro MarkdownPlusRestoreFileAssociation ".md" "MarkdownPlus.md" PreviousMdAssociation
-  !insertmacro MarkdownPlusRemoveFileMenu ".mdx"
-  !insertmacro MarkdownPlusRemoveFileMenu ".md"
+  !insertmacro InkaseRestoreFileAssociation ".mdx" "Inkase.mdx" PreviousMdxAssociation
+  !insertmacro InkaseRestoreFileAssociation ".md" "Inkase.md" PreviousMdAssociation
+  !insertmacro InkaseRemoveFileMenu ".mdx"
+  !insertmacro InkaseRemoveFileMenu ".md"
   DeleteRegKey SHCTX ${MP_FOLDER_MENU}
   DeleteRegKey SHCTX ${MP_OPTIONS_KEY}
   System::Call 'shell32::SHChangeNotify(i, i, p, p)' 0x08000000 0 0 0

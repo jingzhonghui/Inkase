@@ -66,14 +66,14 @@ function onPreviewScroll(ratio: number): void {
       <div class="welcome-content">
         <img
           src="../../assets/logo.svg"
-          alt="M+"
+          alt="Inkase"
           class="welcome-logo"
         >
         <h1 class="welcome-title">
-          Markdown+
+          Inkase
         </h1>
         <p class="welcome-subtitle">
-          轻量级 Markdown 编辑器
+          自包含文档工作台
         </p>
 
         <div class="welcome-actions">

@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { IconCode, IconColumns, IconFileText } from '@tabler/icons-vue'
 import { useFileStore, type EditorMode } from '../../stores/file'
+import { findCodeLanguage, languageDisplayName } from '../../utils/editor-language'
 import Tooltip from '../common/Tooltip.vue'
 
 const fileStore = useFileStore()
@@ -21,7 +22,7 @@ onMounted(async () => {
 })
 
 const appLabel = computed(() => {
-  return appVersion.value ? `Markdown+ v${appVersion.value}` : 'Markdown+'
+  return appVersion.value ? `Inkase v${appVersion.value}` : 'Inkase'
 })
 
 const fileSize = computed(() => {
@@ -68,17 +69,32 @@ const modeIcon = computed(() => {
 })
 
 /**
- * 获取模式提示文字
+ * 纯文本模式按后缀匹配到的语言展示名（如 Shell/INI），无匹配时回退“纯文本”
  */
-const modeTooltip = computed(() => {
-  const tooltips: Record<EditorMode, string> = {
+const plainLanguageLabel = computed<string | null>(() => {
+  const name = fileStore.activeTab?.fileInfo?.name
+  if (!name) return null
+  const desc = findCodeLanguage(name)
+  return desc ? languageDisplayName(desc) : null
+})
+
+/**
+ * 获取模式展示名
+ */
+const modeLabel = computed(() => {
+  if (effectiveMode.value === 'plain') return plainLanguageLabel.value ?? '纯文本'
+  const labels: Record<Exclude<EditorMode, 'plain'>, string> = {
     split: '分屏预览',
     source: '源码编辑',
-    ir: '即时渲染',
-    plain: '纯文本'
+    ir: '即时渲染'
   }
-  return `${tooltips[effectiveMode.value]} (点击切换)`
+  return labels[effectiveMode.value]
 })
+
+/**
+ * 获取模式提示文字
+ */
+const modeTooltip = computed(() => `${modeLabel.value} (点击切换)`)
 </script>
 
 <template>
@@ -108,7 +124,7 @@ const modeTooltip = computed(() => {
           <IconFileText v-else-if="modeIcon === 'ir'" />
           <!-- 源码编辑图标 -->
           <IconCode v-else />
-          <span class="mode-label">{{ modeTooltip.split(' ')[0] }}</span>
+          <span class="mode-label">{{ modeLabel }}</span>
         </button>
       </Tooltip>
 

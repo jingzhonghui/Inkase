@@ -163,7 +163,7 @@ export class SourceAccessService {
       try {
         const response = await fetch(currentUrl, {
           signal: timeout.signal,
-          headers: { accept: 'text/html,application/xhtml+xml', 'user-agent': 'MarkdownPlus/1.0' }
+          headers: { accept: 'text/html,application/xhtml+xml', 'user-agent': 'Inkase/1.0' }
         })
         if (response.status >= 300 && response.status < 400) {
           const location = response.headers.get('location')

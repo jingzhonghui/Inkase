@@ -30,7 +30,7 @@ let tempRoot: string
  */
 function getTempRoot(): string {
   if (!tempRoot) {
-    tempRoot = path.join(os.tmpdir(), 'markdown-plus', INSTANCE_ID)
+    tempRoot = path.join(os.tmpdir(), 'inkase', INSTANCE_ID)
     if (!fs.existsSync(tempRoot)) {
       fs.mkdirSync(tempRoot, { recursive: true })
     }

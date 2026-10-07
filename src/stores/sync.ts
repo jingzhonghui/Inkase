@@ -98,6 +98,7 @@ export const useSyncStore = defineStore('sync', () => {
       const tab = fileStore.tabs.find((t) => t.fileInfo?.path === filePath)
       if (!tab) continue
       if (tab.fileInfo?.modified) {
+        fileStore.markExternalHandled(filePath)
         const choice = await requestDialog({
           title: '文件已被同步更新',
           message: `"${tab.fileInfo.name}" 在远端有更新，但本地有未保存的修改。`,

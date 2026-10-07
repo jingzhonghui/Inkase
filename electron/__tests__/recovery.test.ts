@@ -3,7 +3,7 @@ import * as os from 'os'
 import * as path from 'path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'markdown-plus-recovery-'))
+const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'inkase-recovery-'))
 
 vi.mock('electron', () => ({
   app: {

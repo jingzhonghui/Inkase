@@ -14,7 +14,7 @@ async function waitFor(fn: () => boolean, timeoutMs = 4000): Promise<void> {
 
 describe('createWorkspaceWatcher', () => {
   it('reports file changes after debounce and ignores ignored dirs', async () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'markdown-plus-watcher-'))
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'inkase-watcher-'))
     const collected: string[] = []
     const handle = createWorkspaceWatcher(
       dir,
@@ -27,12 +27,12 @@ describe('createWorkspaceWatcher', () => {
       fs.writeFileSync(path.join(dir, 'docs', 'a.md'), '# a', 'utf-8')
       fs.mkdirSync(path.join(dir, '.git'), { recursive: true })
       fs.writeFileSync(path.join(dir, '.git', 'index'), 'x', 'utf-8')
-      fs.mkdirSync(path.join(dir, '.markdownPlus'), { recursive: true })
-      fs.writeFileSync(path.join(dir, '.markdownPlus', 'sync.json'), '{}', 'utf-8')
+      fs.mkdirSync(path.join(dir, '.inkase'), { recursive: true })
+      fs.writeFileSync(path.join(dir, '.inkase', 'sync.json'), '{}', 'utf-8')
 
       await waitFor(() => collected.some((p) => p.endsWith('a.md')))
       expect(collected.some((p) => p.includes('.git'))).toBe(false)
-      expect(collected.some((p) => p.includes('.markdownPlus'))).toBe(false)
+      expect(collected.some((p) => p.includes('.inkase'))).toBe(false)
       // 上报的路径必须是绝对路径
       expect(collected.some((p) => p.endsWith(path.join('docs', 'a.md')))).toBe(true)
     } finally {
@@ -42,7 +42,7 @@ describe('createWorkspaceWatcher', () => {
   })
 
   it('allows renaming a watched subdirectory (no EPERM from watcher handles)', async () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'markdown-plus-watcher-rename-'))
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'inkase-watcher-rename-'))
     const collected: string[] = []
     const handle = createWorkspaceWatcher(dir, (files) => collected.push(...files), { debounceMs: 150 })
     try {
@@ -62,7 +62,7 @@ describe('createWorkspaceWatcher', () => {
   })
 
   it('does not fire when there are no changes', async () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'markdown-plus-watcher-idle-'))
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'inkase-watcher-idle-'))
     const collected: string[] = []
     const handle = createWorkspaceWatcher(dir, (files) => collected.push(...files), { debounceMs: 100 })
     await new Promise((r) => setTimeout(r, 300))

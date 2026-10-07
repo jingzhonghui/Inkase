@@ -3,7 +3,7 @@ import * as os from 'os'
 import * as path from 'path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'markdown-plus-ai-config-'))
+const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'inkase-ai-config-'))
 const configPath = path.join(userData, 'ai-config.json')
 
 const electronMocks = vi.hoisted(() => ({

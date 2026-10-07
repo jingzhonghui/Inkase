@@ -1,6 +1,6 @@
-# Markdown+ 编辑器
+# Inkase
 
-一款桌面端 Markdown 编辑器，支持自定义的 `.mdx` 文件格式——将 Markdown 内容与图片等资源打包为单一 ZIP 文件。
+一款以自包含 `.mdx` 文件格式为核心的轻量级文档工作台——将 Markdown 内容与图片等资源打包为单一 ZIP 文件，同时支持纯文本/代码文件编辑与 PDF、图片查看。
 
 ## 特性
 
@@ -60,7 +60,7 @@ git push origin v1.0.1
 ## 项目结构
 
 ```
-markdown-plus/
+inkase/
 ├── electron/           # Electron 主进程
 │   ├── main.ts        # 主进程入口
 │   ├── preload.ts     # 预加载脚本

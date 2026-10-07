@@ -1,6 +1,6 @@
-import type { EditorMode } from './file'
+﻿import type { EditorMode } from './file'
 
-const SESSION_STORAGE_KEY = 'markdown-plus-session'
+const SESSION_STORAGE_KEY = 'inkase-session'
 
 export interface SessionState {
   openedFolderPath: string | null

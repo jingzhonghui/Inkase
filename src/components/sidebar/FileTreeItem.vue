@@ -118,7 +118,7 @@ async function onClick(event: MouseEvent): Promise<void> {
       })
     }
   }
-  window.dispatchEvent(new Event('markdown-plus:explorer-refocus'))
+  window.dispatchEvent(new Event('inkase:explorer-refocus'))
 }
 
 async function onDblClick(): Promise<void> {

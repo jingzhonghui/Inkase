@@ -184,7 +184,7 @@ describe('SourceAccessService local files', () => {
     await expect(service.readLocalFile(txt, signal())).resolves.toMatchObject({ fileType: 'text', content: 'plain text', truncated: false })
     await expect(service.readLocalFile(md, signal())).resolves.toMatchObject({ fileType: 'markdown', content: '# heading\n\nbody' })
     expect((await service.readLocalFile(SAMPLE_MDX, signal())).content).toContain('MDX material body')
-    expect((await service.readLocalFile(SAMPLE_PDF, signal())).content).toContain('Markdown+ PDF material sample')
+    expect((await service.readLocalFile(SAMPLE_PDF, signal())).content).toContain('Inkase PDF material sample')
   })
 
   it.each(['folder', 'unsupported', 'symlink', 'realpath'])('fails closed for unsafe metadata: %s', async (kind) => {

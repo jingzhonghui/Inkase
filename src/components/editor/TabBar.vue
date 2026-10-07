@@ -83,7 +83,7 @@ function getTabIcon(tab: TabInfo): Icon {
   return fileIcons[getFileIconType(getTabLabel(tab), false)]
 }
 
-const CLOSE_ALL_CONTEXT_MENUS_EVENT = 'markdown-plus:close-context-menus'
+const CLOSE_ALL_CONTEXT_MENUS_EVENT = 'inkase:close-context-menus'
 
 interface ContextMenuItem {
   label: string

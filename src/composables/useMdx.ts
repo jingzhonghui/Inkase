@@ -79,7 +79,7 @@ export function useMdx() {
         const dialogResult = await window.electronAPI.showOpenDialog({
           properties: ['openFile'],
           filters: [
-            { name: 'Markdown+ 文件', extensions: ['mdx'] },
+            { name: 'Inkase 文档', extensions: ['mdx'] },
             { name: '所有文件', extensions: ['*'] }
           ]
         })
@@ -162,7 +162,7 @@ export function useMdx() {
       const dialogResult = await window.electronAPI.showSaveDialog({
         defaultPath,
         filters: [
-          { name: 'Markdown+ 文件', extensions: ['mdx'] }
+          { name: 'Inkase 文档', extensions: ['mdx'] }
         ]
       })
 
@@ -240,7 +240,7 @@ export function useMdx() {
       const saveDialogResult = await window.electronAPI.showSaveDialog({
         defaultPath: defaultName,
         filters: [
-          { name: 'Markdown+ 文件', extensions: ['mdx'] }
+          { name: 'Inkase 文档', extensions: ['mdx'] }
         ]
       })
 

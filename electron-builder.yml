@@ -1,6 +1,6 @@
-appId: com.markdown-plus.app
-productName: MarkdownPlus
-copyright: Copyright © 2026 Markdown+ Team
+appId: com.inkase.app
+productName: Inkase
+copyright: Copyright © 2026 Inkase Team
 directories:
   output: dist
   buildResources: build
@@ -9,6 +9,8 @@ electronLanguages:
   - zh-CN
 files:
   - '**/*'
+  - '!dist/**'
+  - '!dist-build/**'
   - '!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}'
   - '!**/node_modules/*/{test,__tests__,tests,powered-test,example,examples}'
   - '!**/node_modules/*.d.ts'
@@ -27,8 +29,8 @@ asarUnpack:
   - '**/node_modules/electron-clipboard-ex/**'
 afterPack: build/after-pack.cjs
 extraResources:
-  - from: resources/Markdown+ 使用教程.pdf
-    to: user-guide/Markdown+ 使用教程.pdf
+  - from: resources/Inkase 使用教程.pdf
+    to: user-guide/Inkase 使用教程.pdf
   - from: resources/rg
     to: rg
     filter:
@@ -57,7 +59,7 @@ mac:
       arch:
         - x64
         - arm64
-  icon: build/icon.icns
+  icon: build/icon.png
   category: public.app-category.productivity
 linux:
   artifactName: '${productName}-linux-${version}.${ext}'
@@ -66,11 +68,11 @@ linux:
     - deb
   icon: resources/icon.png
   category: Office
-  maintainer: Markdown+ Team
+  maintainer: Inkase Team
 deb:
   afterInstall: build/after-install.sh
 # 自动更新发布源配置（GitHub Releases）
 publish:
   provider: github
   owner: jingzhonghui
-  repo: markdownPlus
+  repo: Inkase

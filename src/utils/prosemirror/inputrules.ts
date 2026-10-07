@@ -2,8 +2,8 @@
  * ProseMirror 输入规则（Markdown 语法自动转换）
  * 类似 Typora 的实时 Markdown 编辑体验
  */
-import { NodeType, Schema } from 'prosemirror-model'
-import { EditorState } from 'prosemirror-state'
+import { Node as ProseMirrorNode, NodeType, Schema } from 'prosemirror-model'
+import { EditorState, TextSelection } from 'prosemirror-state'
 import {
   InputRule,
   inputRules,
@@ -60,23 +60,50 @@ function bulletListRule(nodeType: NodeType): InputRule {
 }
 
 /**
- * 创建任务列表输入规则 (- [ ] 或 - [x])
+ * 创建任务列表输入规则。
+ *
+ * 因为输入 `- ` 时 `bulletListRule` 会先把它转成普通无序列表，无法再匹配 `- [ ] `，
+ * 所以这里改为匹配「列表项段落开头输入的 `[ ] ` / `[x] `」，并把所在的整个无序列表
+ * 转换为任务列表（任务列表要求所有项都是 task_item）。
  */
-function taskListRule(nodeType: NodeType, itemType: NodeType): InputRule {
+function taskListRule(listType: NodeType, itemType: NodeType): InputRule {
   return new InputRule(
-    /^\s*([-+*])\s\[(x|X| )\]\s$/,
+    /^\[( |x|X)\]\s$/,
     (state: EditorState, match: RegExpMatchArray, start: number, end: number) => {
-      const { tr } = state
-      const checked = match[2].toLowerCase() === 'x'
+      const { $from } = state.selection
+      let listDepth = -1
+      for (let d = $from.depth; d > 0; d--) {
+        if ($from.node(d).type === listType) {
+          listDepth = d
+          break
+        }
+      }
+      if (listDepth === -1) return null
 
-      // 删除匹配文本
-      tr.delete(start, end)
+      const item = $from.node(listDepth + 1)
+      const paragraph = $from.node(listDepth + 2)
+      // 标记必须位于列表项首个段落的开头，避免误把正文中的 [ ] 转成任务项
+      if (paragraph !== $from.parent || item.firstChild !== paragraph) return null
 
-      // 包装为任务列表
-      const listItem = itemType.create({ checked }, nodeType.createAndFill()!.content)
-      const list = nodeType.create(null, listItem)
+      const listStart = $from.before(listDepth)
+      const currentIndex = $from.index(listDepth)
+      const checked = match[1].toLowerCase() === 'x'
 
-      tr.replaceSelectionWith(list)
+      const tr = state.tr.delete(start, end)
+      const list = tr.doc.nodeAt(listStart)
+      if (!list || list.type !== listType) return null
+
+      const items: ProseMirrorNode[] = []
+      list.forEach((child, _offset, index) => {
+        items.push(itemType.create({ checked: index === currentIndex ? checked : false }, child.content))
+      })
+      const newList = listType.create(null, items)
+      tr.replaceWith(listStart, listStart + list.nodeSize, newList)
+
+      let pos = listStart + 1
+      for (let i = 0; i < currentIndex; i++) pos += items[i].nodeSize
+      pos += 2 // task_item_open + paragraph_open
+      tr.setSelection(TextSelection.create(tr.doc, pos))
       return tr
     }
   )
@@ -176,6 +203,25 @@ function strikethroughRule(markType: any): InputRule {
 }
 
 /**
+ * 创建下划线输入规则 (<u>text</u>)
+ */
+function underlineRule(markType: any): InputRule {
+  return new InputRule(
+    /<u>([^<]+)<\/u>$/,
+    (state, match, start, end) => {
+      const { tr } = state
+      const text = match[1]
+
+      tr.delete(start, end)
+      const mark = markType.create()
+      tr.insertText(text, start)
+      tr.addMark(start, start + text.length, mark)
+      return tr
+    }
+  )
+}
+
+/**
  * 创建链接输入规则 ([text](url))
  */
 function linkRule(markType: any): InputRule {
@@ -200,14 +246,17 @@ function linkRule(markType: any): InputRule {
  */
 export function buildInputRules(schema: Schema) {
   const rules: InputRule[] = [
-    // 标题 #
-    headingRule(schema.nodes.heading, 4),
+    // 标题 # （支持 h1-h6）
+    headingRule(schema.nodes.heading, 6),
 
     // 引用块 >
     blockquoteRule(schema.nodes.blockquote),
 
     // 有序列表 1.
     orderedListRule(schema.nodes.ordered_list),
+
+    // 任务列表：在无序列表项开头输入 [ ] / [x]
+    taskListRule(schema.nodes.bullet_list, schema.nodes.task_item),
 
     // 无序列表 - / * / +
     bulletListRule(schema.nodes.bullet_list),
@@ -223,6 +272,9 @@ export function buildInputRules(schema: Schema) {
 
     // 删除线 ~~text~~
     strikethroughRule(schema.marks.strikethrough),
+
+    // 下划线 <u>text</u>
+    underlineRule(schema.marks.underline),
 
     // 链接 [text](url)
     linkRule(schema.marks.link)

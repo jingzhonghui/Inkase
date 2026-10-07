@@ -6,7 +6,7 @@ import { IPC_CHANNELS } from './ipc/channels'
 /**
  * GitHub 发布页地址（更新提示中的下载按钮跳转到这里）
  */
-export const RELEASE_PAGE_URL = 'https://github.com/jingzhonghui/markdownPlus/releases'
+export const RELEASE_PAGE_URL = 'https://github.com/jingzhonghui/Inkase/releases'
 
 /**
  * 发送给渲染进程的更新信息（最小化字段，避免传递不可序列化对象）

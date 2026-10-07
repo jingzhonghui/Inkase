@@ -1,4 +1,4 @@
-﻿// @vitest-environment jsdom
+// @vitest-environment jsdom
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount } from '@vue/test-utils'
@@ -79,7 +79,7 @@ describe('FileExplorer 空白区右键菜单', () => {
     await nextTick()
 
     const dispatched = dispatchSpy.mock.calls.map((call) => (call[0] as Event).type)
-    expect(dispatched).toContain('markdown-plus:quick-open')
+    expect(dispatched).toContain('inkase:quick-open')
   })
 
   it('does not offer quick-open when no folder is opened', async () => {

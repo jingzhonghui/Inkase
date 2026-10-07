@@ -47,7 +47,7 @@ const contextMenu = ref({ visible: false, x: 0, y: 0, items: [] as MenuItem[] })
 const renamingId = ref<string | null>(null)
 const renameValue = ref('')
 
-const CLOSE_ALL_CONTEXT_MENUS_EVENT = 'markdown-plus:close-context-menus'
+const CLOSE_ALL_CONTEXT_MENUS_EVENT = 'inkase:close-context-menus'
 
 function showContextMenu(event: MouseEvent, items: MenuItem[]): void {
   window.dispatchEvent(new Event(CLOSE_ALL_CONTEXT_MENUS_EVENT))

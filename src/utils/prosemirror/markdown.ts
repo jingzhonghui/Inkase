@@ -79,12 +79,103 @@ export function applyAdjacentOrderedListSplit(md: MarkdownIt): void {
 }
 
 /**
+ * markdown-it 规则：把「每个列表项都以 [ ] / [x] 开头」的无序列表识别为任务列表。
+ * CommonMark/GFM 的 markdown-it 默认不产出任务列表 token，这里在 core 阶段直接改写 token：
+ * bullet_list → task_list，list_item → task_item，同时剥离文本前缀并写入 checked 属性。
+ */
+export function applyTaskListRule(md: MarkdownIt): void {
+  md.core.ruler.push('task_lists', (state) => {
+    const tokens = state.tokens
+    for (let i = 0; i < tokens.length; i++) {
+      if (tokens[i].type !== 'bullet_list_open') continue
+
+      let depth = 0
+      let closeIndex = -1
+      const items: Array<{ open: number; close: number }> = []
+      let current: { open: number; close: number } | null = null
+      for (let j = i; j < tokens.length; j++) {
+        const t = tokens[j]
+        if (t.type === 'bullet_list_open') depth++
+        else if (t.type === 'bullet_list_close') {
+          depth--
+          if (depth === 0) {
+            closeIndex = j
+            break
+          }
+        } else if (depth === 1 && t.type === 'list_item_open') {
+          current = { open: j, close: -1 }
+          items.push(current)
+        } else if (depth === 1 && t.type === 'list_item_close' && current) {
+          current.close = j
+          current = null
+        }
+      }
+      if (closeIndex === -1 || items.length === 0) continue
+
+      // 每个列表项的首个 inline 都必须以任务标记开头，否则保持普通无序列表
+      const checks = items.map((it) => {
+        for (let k = it.open + 1; k < it.close; k++) {
+          if (tokens[k].type === 'inline') {
+            const m = /^\[( |x|X)\]\s+/.exec(tokens[k].content)
+            return m ? { checked: m[1].toLowerCase() === 'x', inlineIndex: k } : null
+          }
+        }
+        return null
+      })
+      if (checks.some((c) => c === null)) continue
+
+      tokens[i].type = 'task_list_open'
+      tokens[closeIndex].type = 'task_list_close'
+      for (let n = 0; n < items.length; n++) {
+        const it = items[n]
+        const check = checks[n] as { checked: boolean; inlineIndex: number }
+        tokens[it.open].type = 'task_item_open'
+        tokens[it.close].type = 'task_item_close'
+        tokens[it.open].attrSet('checked', check.checked ? 'true' : 'false')
+        const inlineTok = tokens[check.inlineIndex]
+        inlineTok.content = inlineTok.content.replace(/^\[( |x|X)\]\s+/, '')
+        const firstText = inlineTok.children?.find((c) => c.type === 'text')
+        if (firstText) firstText.content = firstText.content.replace(/^\[( |x|X)\]\s+/, '')
+      }
+    }
+  })
+}
+
+/**
  * 创建 MarkdownIt 实例
  */
 function createMarkdownIt(): MarkdownIt {
-  const md = MarkdownIt('commonmark', { html: false })
-  md.enable('table')
+  const md = MarkdownIt('commonmark', {
+    html: false,
+    // 与预览（utils/markdown.ts）保持一致：单个换行按硬换行处理、裸 URL 自动识别为链接
+    breaks: true,
+    linkify: true
+  })
+  // commonmark preset 不含 GFM 扩展，需显式启用表格、删除线与自动链接
+  md.enable(['table', 'strikethrough', 'linkify'])
   applyAdjacentOrderedListSplit(md)
+  applyTaskListRule(md)
+
+  // 下划线 <u>...</u>（Markdown 无原生下划线语法，沿用 HTML 标签与预览保持一致）
+  md.inline.ruler.before('html_inline', 'underline', (state, silent) => {
+    if (state.src.startsWith('<u>', state.pos)) {
+      // 无闭合标签时按普通文本处理，避免产生未配对的下划线 mark
+      if (state.src.indexOf('</u>', state.pos + 3) === -1) return false
+      if (!silent) {
+        state.push('u_open', 'u', 1).markup = '<u>'
+      }
+      state.pos += 3
+      return true
+    }
+    if (state.src.startsWith('</u>', state.pos)) {
+      if (!silent) {
+        state.push('u_close', 'u', -1).markup = '</u>'
+      }
+      state.pos += 4
+      return true
+    }
+    return false
+  })
 
   // 行内数学公式规则 $...$
   md.inline.ruler.after('escape', 'math_inline', (state, silent) => {
@@ -197,11 +288,20 @@ function createTokens(_schema: Schema): Record<string, any> {
     // 列表项
     list_item: { block: 'list_item' },
 
+    // 任务列表（GFM，由 applyTaskListRule 改写 token 产生）
+    task_list: { block: 'task_list' },
+    task_item: {
+      block: 'task_item',
+      getAttrs: (tok: Token) => ({ checked: getAttr(tok, 'checked') === 'true' })
+    },
+
     // 水平分割线 - 行内节点
     hr: { node: 'horizontal_rule' },
 
     // 硬换行
     hardbreak: { node: 'hard_break' },
+    // breaks:true 语义：段落内的软换行也视作硬换行（与预览一致）
+    softbreak: { node: 'hard_break' },
 
     // 图片
     image: {
@@ -244,6 +344,7 @@ function createTokens(_schema: Schema): Record<string, any> {
     em: { mark: 'italic' },
     strong: { mark: 'bold' },
     s: { mark: 'strikethrough' },
+    u: { mark: 'underline' },
     code_inline: { mark: 'code', noCloseToken: true },
     link: {
       mark: 'link',
@@ -310,7 +411,8 @@ function createMarkdownSerializer(_schema: Schema): MarkdownSerializer {
     },
 
     task_list(state, node) {
-      state.renderList(node, '  ', () => '- [ ] ')
+      // 标记由 renderList 的首行前缀统一输出，task_item 只渲染内容，避免重复写 '- [ ]'
+      state.renderList(node, '  ', (i) => (node.child(i).attrs.checked ? '- [x] ' : '- [ ] '))
     },
 
     list_item(state, node) {
@@ -318,8 +420,6 @@ function createMarkdownSerializer(_schema: Schema): MarkdownSerializer {
     },
 
     task_item(state, node) {
-      const checked = node.attrs.checked ? 'x' : ' '
-      state.write('- [' + checked + '] ')
       state.renderContent(node)
     },
 
@@ -369,8 +469,9 @@ function createMarkdownSerializer(_schema: Schema): MarkdownSerializer {
       state.closeBlock(node)
     },
 
-    hard_break(state, node) {
-      state.write(node.type.name === 'hard_break' ? '\n' : '')
+    hard_break(state) {
+      // 解析器 breaks:true，普通换行即硬换行，写回 '\n' 可保证往返完全一致
+      state.write('\n')
     },
 
     image(state, node) {
@@ -412,6 +513,7 @@ function createMarkdownSerializer(_schema: Schema): MarkdownSerializer {
     bold: { open: '**', close: '**', mixable: true, expelEnclosingWhitespace: true },
     italic: { open: '*', close: '*', mixable: true, expelEnclosingWhitespace: true },
     strikethrough: { open: '~~', close: '~~', mixable: true, expelEnclosingWhitespace: true },
+    underline: { open: '<u>', close: '</u>' },
     code: { open: '`', close: '`', escape: false },
     link: {
       open: '[',
@@ -461,7 +563,8 @@ export function parseMarkdown(content: string): ProseMirrorNode {
  * @returns Markdown 文本
  */
 export function serializeMarkdown(doc: ProseMirrorNode): string {
-  return markdownSerializer.serialize(doc)
+  // tightLists: true —— 默认按紧凑列表序列化，避免「打开紧凑列表→切换模式」后被插入空行
+  return markdownSerializer.serialize(doc, { tightLists: true })
 }
 
 export { markdownParser, markdownSerializer, markdownSchema }

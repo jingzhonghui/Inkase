@@ -12,6 +12,7 @@ import {
   IconPhoto,
   IconStrikethrough,
   IconTable,
+  IconUnderline,
   IconUpload
 } from '@tabler/icons-vue'
 import Tooltip from '../common/Tooltip.vue'
@@ -23,7 +24,9 @@ const headingLevels = [
   { label: '标题 1', level: 1 },
   { label: '标题 2', level: 2 },
   { label: '标题 3', level: 3 },
-  { label: '标题 4', level: 4 }
+  { label: '标题 4', level: 4 },
+  { label: '标题 5', level: 5 },
+  { label: '标题 6', level: 6 }
 ]
 
 // 链接对话框状态
@@ -193,6 +196,14 @@ async function selectImageFile(): Promise<void> {
           @click="applyFormat('strikethrough')"
         >
           <IconStrikethrough />
+        </button>
+      </Tooltip>
+      <Tooltip content="下划线 Ctrl+U">
+        <button
+          class="format-btn"
+          @click="applyFormat('underline')"
+        >
+          <IconUnderline />
         </button>
       </Tooltip>
     </div>

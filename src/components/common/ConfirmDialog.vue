@@ -16,8 +16,16 @@ import { cancelDialogRequest, dialogState, resolveDialogRequest } from '../../ut
         @click.stop
       >
         <div class="dialog-header">
-          <h3 class="dialog-title">{{ dialogState.title }}</h3>
-          <button class="dialog-close" aria-label="关闭" @click="cancelDialogRequest">×</button>
+          <h3 class="dialog-title">
+            {{ dialogState.title }}
+          </h3>
+          <button
+            class="dialog-close"
+            aria-label="关闭"
+            @click="cancelDialogRequest"
+          >
+            ×
+          </button>
         </div>
         <p class="dialog-message">
           {{ dialogState.message }}

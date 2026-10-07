@@ -7,6 +7,7 @@ import { useUpdateStore } from '../../stores/update'
 import { useAiStore } from '../../stores/ai'
 import { useSyncStore } from '../../stores/sync'
 import { requestDialog } from '../../utils/dialog'
+import { findCodeLanguage, languageDisplayName } from '../../utils/editor-language'
 import SyncPanel from './SyncPanel.vue'
 import QuickOpenPalette from '../common/QuickOpenPalette.vue'
 import Tooltip from '../common/Tooltip.vue'
@@ -96,6 +97,7 @@ const fileMenu = computed<MenuItem[]>(() => {
     { kind: 'item', label: '另存为', action: 'save-as', shortcut: 'Ctrl+Shift+S' },
     { kind: 'divider' },
     { kind: 'item', label: '导入 Markdown', action: 'import-md' },
+    { kind: 'item', label: '导入 Word 文档', action: 'import-docx' },
     { kind: 'item', label: '导入文件夹', action: 'import-folder' },
     { kind: 'divider' },
     { kind: 'item', label: '导出为 Markdown', action: 'export-md' },
@@ -127,6 +129,14 @@ const effectiveMode = computed<EditorMode>(() =>
   fileStore.effectiveEditorMode
 )
 
+/** 纯文本模式按后缀匹配到的语言展示名（如 Shell/INI），无匹配时回退“纯文本” */
+const plainLanguageLabel = computed<string | null>(() => {
+  const name = fileStore.activeTab?.fileInfo?.name
+  if (!name) return null
+  const desc = findCodeLanguage(name)
+  return desc ? languageDisplayName(desc) : null
+})
+
 const viewMenu = computed<MenuItem[]>(() => [
   {
     kind: 'submenu',
@@ -137,7 +147,7 @@ const viewMenu = computed<MenuItem[]>(() => [
       { kind: 'item', label: '源码编辑', action: 'mode-source', checked: effectiveMode.value === 'source', disabled: !fileStore.canSwitchEditorMode },
       { kind: 'item', label: '分屏预览', action: 'mode-split', checked: effectiveMode.value === 'split', disabled: !fileStore.canSwitchEditorMode },
       ...(effectiveMode.value === 'plain'
-        ? [{ kind: 'item' as const, label: '纯文本', action: 'mode-plain', checked: true, disabled: true }]
+        ? [{ kind: 'item' as const, label: plainLanguageLabel.value ?? '纯文本', action: 'mode-plain', checked: true, disabled: true }]
         : [])
     ]
   },
@@ -173,7 +183,7 @@ const helpMenu: MenuItem[] = [
   { kind: 'item', label: '快捷键速查', action: 'shortcuts' },
   { kind: 'item', label: '使用文档', action: 'docs' },
   { kind: 'divider' },
-  { kind: 'item', label: '关于 Markdown+', action: 'about' }
+  { kind: 'item', label: '关于 Inkase', action: 'about' }
 ]
 
 const shortcuts = [
@@ -358,6 +368,9 @@ async function runMenuItem(item: MenuItem): Promise<void> {
     case 'import-md':
       await fileStore.importMarkdown()
       break
+    case 'import-docx':
+      await fileStore.importDocx()
+      break
     case 'import-folder':
       await fileStore.importFolder()
       break
@@ -442,14 +455,24 @@ async function runMenuItem(item: MenuItem): Promise<void> {
     case 'docs':
       {
         try {
-          const result = await window.electronAPI.openUserGuide()
-          if (result.success) break
-
-          await window.electronAPI.showMessageBox({
-            type: 'error',
-            title: '打开使用教程失败',
-            message: result.error
-          })
+          const result = await window.electronAPI.getUserGuidePath()
+          if (!result.success || !result.data) {
+            await window.electronAPI.showMessageBox({
+              type: 'error',
+              title: '打开使用教程失败',
+              message: result.error || '内置使用教程不存在。'
+            })
+            break
+          }
+          // 使用内置 PDF 查看器打开教程
+          const opened = await fileStore.openFile(result.data, { addToRecent: false })
+          if (!opened && fileStore.error) {
+            await window.electronAPI.showMessageBox({
+              type: 'error',
+              title: '打开使用教程失败',
+              message: fileStore.error
+            })
+          }
         } catch (error) {
           const details = error instanceof Error ? error.message : String(error)
           await window.electronAPI.showMessageBox({
@@ -662,7 +685,7 @@ onMounted(async () => {
   window.addEventListener('editor:toggleMode', handleToggleModeEvent)
   window.addEventListener('editor:showLinkDialog', openLinkDialog)
   window.addEventListener('editor:showImageDialog', openImageDialog)
-  window.addEventListener('markdown-plus:quick-open', handleQuickOpenEvent)
+  window.addEventListener('inkase:quick-open', handleQuickOpenEvent)
 
   const maximized = await window.electronAPI?.windowIsMaximized()
   isMaximized.value = maximized ?? false
@@ -684,7 +707,7 @@ onUnmounted(() => {
   window.removeEventListener('editor:toggleMode', handleToggleModeEvent)
   window.removeEventListener('editor:showLinkDialog', openLinkDialog)
   window.removeEventListener('editor:showImageDialog', openImageDialog)
-  window.removeEventListener('markdown-plus:quick-open', handleQuickOpenEvent)
+  window.removeEventListener('inkase:quick-open', handleQuickOpenEvent)
   removeMaximizedListener?.()
   removeUnmaximizedListener?.()
 })
@@ -1114,16 +1137,16 @@ onUnmounted(() => {
         <section class="help-dialog about-dialog">
           <img
             src="../../assets/logo.svg"
-            alt="Markdown+"
+            alt="Inkase"
             class="about-logo"
           >
-          <h2>Markdown+</h2>
+          <h2>Inkase</h2>
           <p class="about-version">
             版本 {{ appVersion }}
           </p>
-          <p>一款支持自包含 .mdx 文件格式的轻量级 Markdown 编辑器。</p>
+          <p>一款以自包含 .mdx 文件格式为核心的轻量级文档工作台。</p>
           <p class="about-copyright">
-            Copyright © 2026 Markdown+ Team
+            Copyright © 2026 Inkase Team
           </p>
           <div class="settings-actions">
             <button

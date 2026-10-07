@@ -44,7 +44,7 @@ export function createDocumentTools(searchService: WorkspaceSearchService): Docu
   const searchWorkspace = defineTool({
     name: 'search_workspace',
     description:
-      '在当前工作区中实时搜索。文件名模式匹配文件名和相对路径；内容模式匹配文件正文（普通文本与 MDX）。遵循 .gitignore 并固定排除 .git、node_modules、.markdownPlus。搜索结果返回相对路径，可配合 read_workspace_file 读取正文。',
+      '在当前工作区中实时搜索。文件名模式匹配文件名和相对路径；内容模式匹配文件正文（普通文本与 MDX）。遵循 .gitignore 并固定排除 .git、node_modules、.inkase。搜索结果返回相对路径，可配合 read_workspace_file 读取正文。',
     inputSchema: z
       .object({
         query: z.string().trim().min(1).max(500),

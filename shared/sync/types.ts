@@ -19,7 +19,7 @@ export interface SyncResult {
   error?: string
 }
 
-/** 同步配置（存于 <工作区>/.markdownPlus/sync.json，本机私有） */
+/** 同步配置（存于 <工作区>/.inkase/sync.json，本机私有） */
 export interface SyncConfig {
   version: 1
   provider: SyncProviderKind

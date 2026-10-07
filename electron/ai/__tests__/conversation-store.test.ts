@@ -3,8 +3,8 @@ import * as os from 'os'
 import * as path from 'path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'markdown-plus-conv-'))
-const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'markdown-plus-ws-'))
+const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'inkase-conv-'))
+const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'inkase-ws-'))
 
 vi.mock('electron', () => ({
   app: { getPath: () => userData }
@@ -32,7 +32,7 @@ describe('ConversationStore', () => {
 
   beforeEach(() => {
     fs.rmSync(path.join(userData, 'conversations'), { recursive: true, force: true })
-    fs.rmSync(path.join(workspace, '.markdownPlus'), { recursive: true, force: true })
+    fs.rmSync(path.join(workspace, '.inkase'), { recursive: true, force: true })
   })
 
   it('resolves the userData directory when root is null', () => {
@@ -41,7 +41,7 @@ describe('ConversationStore', () => {
 
   it('resolves the workspace directory when root is given', () => {
     expect(store.resolveConversationsDir(workspace)).toBe(
-      path.join(workspace, '.markdownPlus', 'conversations')
+      path.join(workspace, '.inkase', 'conversations')
     )
   })
 

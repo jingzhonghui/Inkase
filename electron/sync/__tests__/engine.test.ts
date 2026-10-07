@@ -44,9 +44,9 @@ function makeEngine(
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mdp-sync-engine-'))
   dirsToClean.push(dir)
   if (opts.configured !== false) {
-    fs.mkdirSync(path.join(dir, '.markdownPlus'), { recursive: true })
+    fs.mkdirSync(path.join(dir, '.inkase'), { recursive: true })
     fs.writeFileSync(
-      path.join(dir, '.markdownPlus', 'sync.json'),
+      path.join(dir, '.inkase', 'sync.json'),
       JSON.stringify({ version: 1, provider: 'git', autoCommit: true, autoPull: true, autoPush: false }),
       'utf-8'
     )
@@ -185,7 +185,7 @@ describe('SyncEngine', () => {
   it('disable deletes sync.json on disk', async () => {
     const { engine, dir } = makeEngine()
     await engine.attach(dir)
-    const configPath = path.join(dir, '.markdownPlus', 'sync.json')
+    const configPath = path.join(dir, '.inkase', 'sync.json')
     expect(fs.existsSync(configPath)).toBe(true)
     engine.disable()
     expect(fs.existsSync(configPath)).toBe(false)
@@ -197,11 +197,11 @@ describe('SyncEngine', () => {
     const { engine, dir } = makeEngine()
     await engine.attach(dir)
     fs.mkdirSync(path.join(dir, '.git'), { recursive: true })
-    fs.writeFileSync(path.join(dir, '.gitignore'), '.markdownPlus\n', 'utf-8')
+    fs.writeFileSync(path.join(dir, '.gitignore'), '.inkase\n', 'utf-8')
     engine.disable()
     expect(fs.existsSync(path.join(dir, '.git'))).toBe(false)
     expect(fs.existsSync(path.join(dir, '.gitignore'))).toBe(false)
-    expect(fs.existsSync(path.join(dir, '.markdownPlus', 'sync.json'))).toBe(false)
+    expect(fs.existsSync(path.join(dir, '.inkase', 'sync.json'))).toBe(false)
   })
 
   it('enable sets error status when remote set-url fails', async () => {
@@ -278,7 +278,7 @@ describe('SyncEngine', () => {
     expect(result.success).toBe(true)
     expect(provider.pull).toHaveBeenCalled()
     const content = fs.readFileSync(path.join(dir, '.gitignore'), 'utf-8')
-    expect(content).toContain('.markdownPlus')
+    expect(content).toContain('.inkase')
   })
 
   it('enable does not create .gitignore when pull enters conflict', async () => {
@@ -292,7 +292,7 @@ describe('SyncEngine', () => {
     expect(fs.existsSync(path.join(dir, '.gitignore'))).toBe(false)
   })
 
-  it('enable appends .markdownPlus to a remote-provided .gitignore without conflict markers', async () => {
+  it('enable appends .inkase to a remote-provided .gitignore without conflict markers', async () => {
     const { engine, dir } = makeEngine()
     fs.writeFileSync(path.join(dir, '.gitignore'), 'node_modules\n', 'utf-8')
     await engine.attach(dir)
@@ -300,7 +300,7 @@ describe('SyncEngine', () => {
     expect(result.success).toBe(true)
     const content = fs.readFileSync(path.join(dir, '.gitignore'), 'utf-8')
     expect(content).toContain('node_modules')
-    expect(content).toContain('.markdownPlus')
+    expect(content).toContain('.inkase')
     expect(content).not.toMatch(/<<<<<<<|>>>>>>>/)
   })
 
@@ -320,7 +320,7 @@ describe('SyncEngine', () => {
     const content = fs.readFileSync(path.join(dir, '.gitignore'), 'utf-8')
     expect(content).toContain('local')
     expect(content).toContain('remote')
-    expect(content).toContain('.markdownPlus')
+    expect(content).toContain('.inkase')
   })
 
   it('enable keeps conflict state when non-gitignore files conflict', async () => {

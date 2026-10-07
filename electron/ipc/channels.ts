@@ -30,6 +30,7 @@ export const IPC_CHANNELS = {
     WRITE: 'mdx:write',
     IMPORT_MD: 'mdx:importMd',
     IMPORT_FOLDER: 'mdx:importFolder',
+    IMPORT_DOCX: 'mdx:importDocx',
     EXPORT_MD: 'mdx:exportMd',
     ADD_IMAGE: 'mdx:addImage',
     GET_IMAGE: 'mdx:getImage',
@@ -48,7 +49,7 @@ export const IPC_CHANNELS = {
     PING: 'ping',
     GET_VERSION: 'app:getVersion',
     GET_PLATFORM: 'app:getPlatform',
-    OPEN_USER_GUIDE: 'app:openUserGuide',
+    GET_USER_GUIDE_PATH: 'app:getUserGuidePath',
     CONFIRM_CLOSE: 'app:confirm-close',
     CLOSE_CONFIRMED: 'app:close-confirmed',
     RECOVERY_STATUS: 'recovery:status',
@@ -82,6 +83,10 @@ export const IPC_CHANNELS = {
     CREATE: 'folder:create',
     IMPORT_FILES: 'folder:importFiles',
     IMPORT_DIRECTORY: 'folder:importDirectory'
+  },
+  EXTERNAL_WATCH: {
+    START: 'watch:start',
+    CHANGED: 'watch:changed'
   },
   SYNC: {
     ATTACH_FOLDER: 'sync:attachFolder',

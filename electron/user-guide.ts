@@ -1,28 +1,22 @@
 import * as fs from 'fs'
 import * as path from 'path'
-import { app, shell } from 'electron'
+import { app } from 'electron'
 
-const USER_GUIDE_FILE_NAME = 'Markdown+ 使用教程.pdf'
+const USER_GUIDE_FILE_NAME = 'Inkase 使用教程.pdf'
 
 export interface UserGuideDependencies {
   isPackaged: boolean
   appPath: string
   resourcesPath: string
   existsSync: (filePath: string) => boolean
-  openPath: (filePath: string) => Promise<string>
 }
-
-export type UserGuideOpenResult =
-  | { success: true }
-  | { success: false; error: string }
 
 function defaultDependencies(): UserGuideDependencies {
   return {
     isPackaged: app.isPackaged,
     appPath: app.getAppPath(),
     resourcesPath: process.resourcesPath,
-    existsSync: fs.existsSync,
-    openPath: shell.openPath
+    existsSync: fs.existsSync
   }
 }
 
@@ -34,23 +28,8 @@ export function resolveUserGuidePath(dependencies: UserGuideDependencies = defau
   return path.join(dependencies.appPath, 'resources', USER_GUIDE_FILE_NAME)
 }
 
-export async function openUserGuide(
-  dependencies: UserGuideDependencies = defaultDependencies()
-): Promise<UserGuideOpenResult> {
+/** 解析内置使用教程路径；文件不存在时返回 null */
+export function resolveExistingUserGuidePath(dependencies: UserGuideDependencies = defaultDependencies()): string | null {
   const guidePath = resolveUserGuidePath(dependencies)
-  if (!dependencies.existsSync(guidePath)) {
-    return { success: false, error: '内置使用教程不存在，请重新安装 Markdown+。' }
-  }
-
-  try {
-    const openError = await dependencies.openPath(guidePath)
-    if (openError) {
-      return { success: false, error: `无法打开使用教程：${openError}` }
-    }
-  } catch (error) {
-    const details = error instanceof Error ? error.message : String(error)
-    return { success: false, error: `无法打开使用教程：${details}` }
-  }
-
-  return { success: true }
+  return dependencies.existsSync(guidePath) ? guidePath : null
 }

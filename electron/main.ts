@@ -7,7 +7,7 @@ import { registerFileHandlers } from './ipc/file-handlers'
 import { registerMdxHandlers, cleanupAll, isCloseConfirmed, setCloseConfirmed, attachRecoveryAssetData } from './ipc/mdx-handlers'
 import { registerPdfHandlers } from './ipc/pdf-handlers'
 import { hadAbnormalExit, markAppRunning, readRecoverySnapshot, writeRecoverySnapshot, clearRecoverySnapshot } from './recovery'
-import { openUserGuide } from './user-guide'
+import { resolveExistingUserGuidePath } from './user-guide'
 import { registerAiHandlers, disposeAiServices } from './ai/ipc-handlers'
 import { initUpdater, checkForUpdates, openReleasesPage } from './updater'
 import { inspectLaunchTarget, parseLaunchTargets, type LaunchTarget } from './launch-target'
@@ -15,6 +15,7 @@ import { SyncEngine } from './sync/engine'
 import { GitSyncProvider } from './sync/git-provider'
 import { createWorkspaceWatcher } from './sync/watcher'
 import { registerSyncHandlers } from './ipc/sync-handlers'
+import { registerExternalWatchHandlers } from './ipc/watch-handlers'
 import { loadWindowState, resolveWindowState, saveWindowState, type WindowState } from './window-state'
 
 // AppImage is mounted via FUSE where the setuid bit cannot take effect, so the
@@ -170,8 +171,30 @@ function createWindow(): void {
 /**
  * 应用生命周期管理
  */
-app.whenReady().then(() => {
-  electronApp.setAppUserModelId('com.markdown-plus.app')
+const gotSingleInstanceLock = app.requestSingleInstanceLock()
+if (!gotSingleInstanceLock) {
+  // 已有实例在运行：本实例直接退出。多实例共享同一 userData 会争抢
+  // localStorage(LevelDB) 锁，导致渲染进程首次访问 localStorage 阻塞数秒。
+  app.quit()
+} else {
+  // 第二实例启动时：聚焦已有窗口，并转发其命令行打开目标
+  app.on('second-instance', (_event, argv) => {
+    if (app.isPackaged) {
+      queueOpenTargets(
+        parseLaunchTargets(argv)
+          .map((target) => inspectLaunchTarget(target))
+          .filter((target): target is LaunchTarget => target !== null)
+      )
+    }
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.show()
+      mainWindow.focus()
+    }
+  })
+
+  app.whenReady().then(() => {
+  electronApp.setAppUserModelId('com.inkase.app')
 
   // 默认打开或关闭开发者工具（仅开发环境）
   app.on('browser-window-created', (_, window) => {
@@ -184,13 +207,15 @@ app.whenReady().then(() => {
     if (is.dev) return ''
     return app.getVersion()
   })
-  ipcMain.handle(IPC_CHANNELS.APP.OPEN_USER_GUIDE, () => openUserGuide({
-    isPackaged: app.isPackaged,
-    appPath: app.getAppPath(),
-    resourcesPath: process.resourcesPath,
-    existsSync: fs.existsSync,
-    openPath: shell.openPath
-  }))
+  ipcMain.handle(IPC_CHANNELS.APP.GET_USER_GUIDE_PATH, () => {
+    const guidePath = resolveExistingUserGuidePath({
+      isPackaged: app.isPackaged,
+      appPath: app.getAppPath(),
+      resourcesPath: process.resourcesPath,
+      existsSync: fs.existsSync
+    })
+    return guidePath ? { success: true, data: guidePath } : { success: false, error: '内置使用教程不存在，请重新安装 Inkase。' }
+  })
   ipcMain.handle(IPC_CHANNELS.APP.RECOVERY_STATUS, () => ({ success: true, data: { available: hadAbnormalExit() } }))
   ipcMain.handle(IPC_CHANNELS.APP.RECOVERY_READ, () => ({ success: true, data: readRecoverySnapshot() }))
   ipcMain.handle(IPC_CHANNELS.APP.RECOVERY_WRITE, (_, snapshot) => {
@@ -229,6 +254,9 @@ app.whenReady().then(() => {
   // 注册同步 IPC handlers
   registerSyncHandlers(syncEngine, () => mainWindow)
 
+  // 注册外部变更监视 handlers
+  registerExternalWatchHandlers(() => mainWindow)
+
   // 注册 AI 助手 handlers
   registerAiHandlers(() => mainWindow)
 
@@ -247,7 +275,8 @@ app.whenReady().then(() => {
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
-})
+  })
+}
 
 app.on('window-all-closed', () => {
   // 清理临时资源

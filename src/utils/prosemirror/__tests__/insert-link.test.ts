@@ -35,6 +35,7 @@ describe('insertLink command', () => {
     expect(result).toBe(true)
     const nextState = state.apply(tr)
     const md = serializeMarkdown(nextState.doc)
-    expect(md).toBe('- [第一项](https://example.com)\n\n- 第二项')
+    // tightLists: true，紧凑列表序列化时不插入空行
+    expect(md).toBe('- [第一项](https://example.com)\n- 第二项')
   })
 })

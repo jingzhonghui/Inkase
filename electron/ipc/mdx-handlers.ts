@@ -143,7 +143,7 @@ export function registerMdxHandlers(): void {
         const result = await dialog.showOpenDialog(window!, {
           properties: ['openFile'],
           filters: [
-            { name: 'Markdown+ 文件', extensions: ['mdx'] },
+            { name: 'Inkase 文档', extensions: ['mdx'] },
             { name: 'Markdown 文件', extensions: ['md'] },
             { name: '所有文件', extensions: ['*'] }
           ]
@@ -277,7 +277,7 @@ export function registerMdxHandlers(): void {
         const result = await dialog.showSaveDialog(window!, {
           defaultPath: defaultName,
           filters: [
-            { name: 'Markdown+ 文件', extensions: ['mdx'] },
+            { name: 'Inkase 文档', extensions: ['mdx'] },
             { name: 'Markdown 文件', extensions: ['md'] }
           ]
         })
@@ -453,6 +453,78 @@ export function registerMdxHandlers(): void {
     }
   )
 
+  // ─── 导入 Word 文档 ───
+  ipcMain.handle(
+    IPC_CHANNELS.MDX.IMPORT_DOCX,
+    async (_, docxFilePath?: string, targetFolder?: string) => {
+      try {
+        let sourcePath = docxFilePath
+
+        if (!sourcePath) {
+          const { dialog } = await import('electron')
+          const window = BrowserWindow.getFocusedWindow()
+          const result = await dialog.showOpenDialog(window!, {
+            properties: ['openFile'],
+            filters: [{ name: 'Word 文档 (*.docx)', extensions: ['docx'] }]
+          })
+          if (result.canceled || result.filePaths.length === 0) {
+            return { success: false, error: '用户取消' }
+          }
+          sourcePath = result.filePaths[0]
+        }
+
+        if (path.extname(sourcePath!).toLowerCase() !== '.docx') {
+          return { success: false, error: '仅支持 .docx 格式（旧版 .doc 请先用 Word 另存为 .docx）' }
+        }
+
+        let savePath: string
+
+        if (targetFolder) {
+          const baseName = path.basename(sourcePath!, path.extname(sourcePath!))
+          let candidatePath = path.join(targetFolder, `${baseName}.mdx`)
+          if (fs.existsSync(candidatePath)) {
+            let counter = 1
+            while (fs.existsSync(path.join(targetFolder, `${baseName}_${counter}.mdx`))) counter++
+            candidatePath = path.join(targetFolder, `${baseName}_${counter}.mdx`)
+          }
+          savePath = candidatePath
+        } else {
+          const { dialog } = await import('electron')
+          const window = BrowserWindow.getFocusedWindow()
+          const defaultName =
+            sourcePath!.split(/[/\\]/).pop()?.replace(/\.docx$/i, '.mdx') || '未命名文档.mdx'
+          const result = await dialog.showSaveDialog(window!, {
+            defaultPath: defaultName,
+            filters: [{ name: 'Inkase 文档', extensions: ['mdx'] }]
+          })
+          if (result.canceled || !result.filePath) {
+            return { success: false, error: '用户取消' }
+          }
+          savePath = result.filePath
+        }
+
+        if (!savePath.toLowerCase().endsWith('.mdx')) savePath += '.mdx'
+
+        const { importDocxAndSaveAsMdx } = await import('../mdx/docx-import')
+        const importResult = await importDocxAndSaveAsMdx(savePath, sourcePath!)
+
+        if (importResult.success && importResult.data) {
+          registerTempDir(savePath, importResult.data.tempDir)
+          addRecent(savePath)
+          return {
+            success: true,
+            data: { document: importResult.data.document, filePath: savePath }
+          }
+        }
+
+        return importResult
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : '未知错误'
+        return { success: false, error: errorMessage }
+      }
+    }
+  )
+
   // ─── 导入 Markdown ───
   ipcMain.handle(
     IPC_CHANNELS.MDX.IMPORT_MD,
@@ -494,7 +566,7 @@ export function registerMdxHandlers(): void {
             sourcePath!.split(/[/\\]/).pop()?.replace('.md', '.mdx') || '未命名文档.mdx'
           const result = await dialog.showSaveDialog(window!, {
             defaultPath: defaultName,
-            filters: [{ name: 'Markdown+ 文件', extensions: ['mdx'] }]
+            filters: [{ name: 'Inkase 文档', extensions: ['mdx'] }]
           })
           if (result.canceled || !result.filePath) {
             return { success: false, error: '用户取消' }

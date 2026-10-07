@@ -48,12 +48,12 @@ describe('mdx file handlers', () => {
 
   it('opens a non-mdx text file (.gitignore) as plain text markdown', async () => {
     registerMdxHandlers()
-    const filePath = makeFile('.gitignore', 'node_modules/\n.markdownPlus\n')
+    const filePath = makeFile('.gitignore', 'node_modules/\n.inkase\n')
     const result = await call(IPC_CHANNELS.FILE.OPEN, filePath, false)
     expect(result.success).toBe(true)
     const data = result.data as { format?: string; document?: { content?: string } }
     expect(data.format).toBe('markdown')
-    expect(data.document?.content).toBe('node_modules/\n.markdownPlus\n')
+    expect(data.document?.content).toBe('node_modules/\n.inkase\n')
   })
 
   it('opens a .md file as markdown plain text', async () => {

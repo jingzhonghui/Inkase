@@ -131,7 +131,7 @@ describe('AppHeader 快速打开（Ctrl+P）', () => {
     expect(dialogState.message).toContain('请先打开文件夹')
   })
 
-  it('响应 markdown-plus:quick-open 事件打开面板', async () => {
+  it('响应 inkase:quick-open 事件打开面板', async () => {
     ;(window as { electronAPI?: unknown }).electronAPI = {
       searchFiles: vi.fn(async () => ({
         success: true,
@@ -147,7 +147,7 @@ describe('AppHeader 快速打开（Ctrl+P）', () => {
     fileStore.openedFolderPath = 'C:/ws'
     await wrapper.vm.$nextTick()
 
-    window.dispatchEvent(new Event('markdown-plus:quick-open'))
+    window.dispatchEvent(new Event('inkase:quick-open'))
     await wrapper.vm.$nextTick()
     await wrapper.vm.$nextTick()
 

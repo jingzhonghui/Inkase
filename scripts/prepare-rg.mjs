@@ -89,7 +89,7 @@ async function main() {
   }
 
   const baseUrl = `https://github.com/BurntSushi/ripgrep/releases/download/${VERSION}`
-  const tempDir = await mkdtemp(path.join(os.tmpdir(), 'markdown-plus-rg-'))
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), 'inkase-rg-'))
   const archivePath = path.join(tempDir, info.asset)
   const extractDir = path.join(tempDir, 'extract')
   try {

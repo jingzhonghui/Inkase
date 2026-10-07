@@ -3,7 +3,7 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 
-const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'markdown-plus-ai-ipc-'))
+const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'inkase-ai-ipc-'))
 
 type Handler = (...args: unknown[]) => unknown
 

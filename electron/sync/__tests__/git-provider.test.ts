@@ -296,12 +296,12 @@ describe('autoResolveGitignoreConflict', () => {
     return dir
   }
 
-  it('unions ours and theirs lines and ensures .markdownPlus', async () => {
+  it('unions ours and theirs lines and ensures .inkase', async () => {
     const dir = makeDir()
     const { run, calls } = mockRun([
       { args: ['diff', '--name-only', '--diff-filter=U'], result: { code: 0, stdout: '.gitignore\n', stderr: '' } },
       { args: ['show', ':2:.gitignore'], result: { code: 0, stdout: 'local\n', stderr: '' } },
-      { args: ['show', ':3:.gitignore'], result: { code: 0, stdout: 'remote\n.markdownPlus\n', stderr: '' } },
+      { args: ['show', ':3:.gitignore'], result: { code: 0, stdout: 'remote\n.inkase\n', stderr: '' } },
       { args: ['add', '--', '.gitignore'], result: { code: 0, stdout: '', stderr: '' } }
     ])
     const resolved = await autoResolveGitignoreConflict(dir, run)
@@ -309,11 +309,11 @@ describe('autoResolveGitignoreConflict', () => {
     const content = fs.readFileSync(path.join(dir, '.gitignore'), 'utf-8')
     expect(content).toContain('local')
     expect(content).toContain('remote')
-    expect(content).toContain('.markdownPlus')
+    expect(content).toContain('.inkase')
     expect(calls).toContainEqual(['add', '--', '.gitignore'])
   })
 
-  it('dedupes identical lines across sides and appends .markdownPlus when missing', async () => {
+  it('dedupes identical lines across sides and appends .inkase when missing', async () => {
     const dir = makeDir()
     const { run } = mockRun([
       { args: ['diff', '--name-only', '--diff-filter=U'], result: { code: 0, stdout: '.gitignore\n', stderr: '' } },
@@ -327,7 +327,7 @@ describe('autoResolveGitignoreConflict', () => {
     expect(lines.filter((l) => l.trim() === 'node_modules')).toHaveLength(1)
     expect(lines).toContain('shared')
     expect(lines).toContain('other')
-    expect(lines).toContain('.markdownPlus')
+    expect(lines).toContain('.inkase')
   })
 
   it('returns false when .gitignore is not among conflicted files', async () => {

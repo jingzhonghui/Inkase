@@ -5,7 +5,7 @@ describe('parseLaunchTargets', () => {
   it('extracts existing markdown files and directories from argv', () => {
     expect(
       parseLaunchTargets(
-        ['MarkdownPlus.exe', 'C:\\Docs\\notes.mdx', 'C:\\工作区', 'C:\\Docs\\readme.md'],
+        ['Inkase.exe', 'C:\\Docs\\notes.mdx', 'C:\\工作区', 'C:\\Docs\\readme.md'],
         (target) => target === 'C:\\工作区' ? 'directory' : 'file'
       )
     ).toEqual(['C:\\Docs\\notes.mdx', 'C:\\工作区', 'C:\\Docs\\readme.md'])

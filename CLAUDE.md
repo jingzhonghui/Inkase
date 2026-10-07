@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Markdown+ 是一款 Electron + Vue 3 桌面端 Markdown 编辑器，核心创新是自包含的 `.mdx` 文件格式 —— 将 Markdown 内容与图片、附件等资源打包为单一 ZIP 文件。
+Inkase 是一款 Electron + Vue 3 桌面端轻量文档工作台，核心创新是自包含的 `.mdx` 文件格式 —— 将 Markdown 内容与图片、附件等资源打包为单一 ZIP 文件。
 
 ## Build/Dev Commands
 

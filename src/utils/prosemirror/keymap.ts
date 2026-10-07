@@ -424,12 +424,17 @@ export function buildKeymap(schema: Schema): Record<string, Command> {
     'Mod-Shift-x': (state, dispatch) => {
       return toggleStrikethrough()(state, dispatch)
     },
+    'Mod-u': (state, dispatch) => {
+      return toggleMark(schema.marks.underline)(state, dispatch)
+    },
 
-    // 标题 (Ctrl+1 ~ Ctrl+4)
+    // 标题 (Ctrl+1 ~ Ctrl+6)
     'Mod-1': toggleHeading(1),
     'Mod-2': toggleHeading(2),
     'Mod-3': toggleHeading(3),
     'Mod-4': toggleHeading(4),
+    'Mod-5': toggleHeading(5),
+    'Mod-6': toggleHeading(6),
     'Mod-0': setBlockType(schema.nodes.paragraph),
 
     // 列表

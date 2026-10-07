@@ -42,7 +42,7 @@ export function isUntrackedOverwrite(output: string): boolean {
 /**
  * 自动解决 .gitignore 冲突（行级 union 合并）。
  * 对当前 unmerged 列表中名为 .gitignore 的文件：取 ours(:2:) 与 theirs(:3:) 两侧内容，
- * 行合并去重并确保包含 .markdownPlus，写回文件后 git add 标记已解决。
+ * 行合并去重并确保包含 .inkase，写回文件后 git add 标记已解决。
  * 返回是否处理了 .gitignore（未命中或失败返回 false）。
  */
 export async function autoResolveGitignoreConflict(
@@ -71,7 +71,7 @@ export async function autoResolveGitignoreConflict(
   return add.code === 0
 }
 
-/** 行级 union 合并：保留两侧非空行、按出现顺序去重，并确保 .markdownPlus 存在。 */
+/** 行级 union 合并：保留两侧非空行、按出现顺序去重，并确保 .inkase 存在。 */
 function unionGitignoreLines(ours: string, theirs: string): string {
   const seen = new Set<string>()
   const lines: string[] = []
@@ -85,7 +85,7 @@ function unionGitignoreLines(ours: string, theirs: string): string {
   }
   push(ours)
   push(theirs)
-  if (!seen.has('.markdownPlus')) lines.push('.markdownPlus')
+  if (!seen.has('.inkase')) lines.push('.inkase')
   return lines.join('\n') + '\n'
 }
 

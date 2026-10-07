@@ -1,7 +1,6 @@
 import { clipboard, contextBridge, ipcRenderer, webUtils } from 'electron'
 import { IPC_CHANNELS } from './ipc/channels'
 import type { MdxAttachmentAsset, MdxDocument } from './mdx/schema'
-import type { UserGuideOpenResult } from './user-guide'
 import type { UpdateInfoPayload } from './updater'
 import type { LaunchTarget } from './launch-target'
 import type {
@@ -116,6 +115,7 @@ export interface ElectronAPI {
   readMdx: (filePath: string) => Promise<{ success: boolean; data?: unknown; error?: string }>
   writeMdx: (filePath: string, data: unknown) => Promise<{ success: boolean; error?: string }>
   importMd: (filePath?: string, targetPath?: string) => Promise<{ success: boolean; data?: MdxOpenResult; error?: string }>
+  importDocx: (docxFilePath?: string, targetPath?: string) => Promise<{ success: boolean; data?: MdxOpenResult; error?: string }>
   importFolder: (sourceFolder?: string, targetFolder?: string) => Promise<{ success: boolean; data?: unknown; error?: string }>
   exportMd: (filePath: string, outputDir?: string) => Promise<{ success: boolean; data?: unknown; error?: string }>
   addImage: (filename: string, mimeType: string, data: ArrayBuffer, options?: ImageCompressOptions, filePath?: string) => Promise<{ success: boolean; data?: unknown; error?: string }>
@@ -164,7 +164,7 @@ export interface ElectronAPI {
   ping: () => Promise<string>
   getVersion: () => Promise<string>
   getPlatform: () => Promise<string>
-  openUserGuide: () => Promise<UserGuideOpenResult>
+  getUserGuidePath: () => Promise<{ success: boolean; data?: string; error?: string }>
 
   // 对话框
   showOpenDialog: (options?: unknown) => Promise<{ success: boolean; data?: string[]; error?: string }>
@@ -208,6 +208,10 @@ export interface ElectronAPI {
   setSyncConfig: (patch: Partial<Omit<SyncConfig, 'version' | 'provider'>>) => Promise<{ success: boolean; data?: SyncConfig; error?: string }>
   onSyncEvent: (callback: (view: SyncStatusView) => void) => () => void
   onSyncFileChanged: (callback: (files: string[]) => void) => () => void
+
+  // 外部变更监视
+  watchExternalChanges: (root: string | null, extraFiles: string[]) => Promise<{ success: boolean; error?: string }>
+  onExternalFileChanged: (callback: (files: string[]) => void) => () => void
 
   // 链接操作
   openLink: (linkHref: string, currentFilePath?: string, openedFolderPath?: string) => Promise<{ success: boolean; data?: string; error?: string }>
@@ -265,6 +269,7 @@ const api: ElectronAPI = {
   readMdx: (filePath) => ipcRenderer.invoke(IPC_CHANNELS.MDX.READ, filePath),
   writeMdx: (filePath, data) => ipcRenderer.invoke(IPC_CHANNELS.MDX.WRITE, filePath, data),
   importMd: (filePath?, targetPath?) => ipcRenderer.invoke(IPC_CHANNELS.MDX.IMPORT_MD, filePath, targetPath),
+  importDocx: (docxFilePath?, targetPath?) => ipcRenderer.invoke(IPC_CHANNELS.MDX.IMPORT_DOCX, docxFilePath, targetPath),
   importFolder: (sourceFolder?, targetFolder?) => ipcRenderer.invoke(IPC_CHANNELS.MDX.IMPORT_FOLDER, sourceFolder, targetFolder),
   exportMd: (filePath, outputDir?) => ipcRenderer.invoke(IPC_CHANNELS.MDX.EXPORT_MD, filePath, outputDir),
   addImage: (filename, mimeType, data, options?, filePath?) => ipcRenderer.invoke(IPC_CHANNELS.MDX.ADD_IMAGE, filename, mimeType, data, options, filePath),
@@ -300,7 +305,7 @@ const api: ElectronAPI = {
   ping: () => ipcRenderer.invoke(IPC_CHANNELS.APP.PING),
   getVersion: () => ipcRenderer.invoke(IPC_CHANNELS.APP.GET_VERSION),
   getPlatform: () => ipcRenderer.invoke(IPC_CHANNELS.APP.GET_PLATFORM),
-  openUserGuide: () => ipcRenderer.invoke(IPC_CHANNELS.APP.OPEN_USER_GUIDE),
+  getUserGuidePath: () => ipcRenderer.invoke(IPC_CHANNELS.APP.GET_USER_GUIDE_PATH),
 
   // 对话框
   showOpenDialog: (options) => ipcRenderer.invoke(IPC_CHANNELS.DIALOG.SHOW_OPEN, options),
@@ -365,6 +370,14 @@ const api: ElectronAPI = {
     const handler = (_event: unknown, files: string[]): void => callback(files)
     ipcRenderer.on(IPC_CHANNELS.SYNC.FILE_CHANGED, handler)
     return () => ipcRenderer.removeListener(IPC_CHANNELS.SYNC.FILE_CHANGED, handler)
+  },
+
+  // 外部变更监视
+  watchExternalChanges: (root, extraFiles) => ipcRenderer.invoke(IPC_CHANNELS.EXTERNAL_WATCH.START, root, extraFiles),
+  onExternalFileChanged: (callback) => {
+    const handler = (_event: unknown, files: string[]): void => callback(files)
+    ipcRenderer.on(IPC_CHANNELS.EXTERNAL_WATCH.CHANGED, handler)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.EXTERNAL_WATCH.CHANGED, handler)
   },
 
   // 链接操作

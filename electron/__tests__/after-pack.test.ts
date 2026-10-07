@@ -9,7 +9,7 @@ function readAfterInstallScript() {
 }
 
 function createAppOutDir() {
-  const appOutDir = mkdtempSync(join(tmpdir(), 'markdown-plus-after-pack-'))
+  const appOutDir = mkdtempSync(join(tmpdir(), 'inkase-after-pack-'))
   mkdirSync(appOutDir, { recursive: true })
   return appOutDir
 }

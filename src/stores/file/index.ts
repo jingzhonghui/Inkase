@@ -12,6 +12,10 @@ import { useAssets } from './assets'
 import { useFolder } from './folder'
 import { useClipboard } from './clipboard'
 import { usePdf } from './pdf'
+import { createExternalWatch } from './external-watch'
+
+/** Markdown 文件后缀白名单：仅这些文件走 Markdown 编辑模式（IR/源码/分屏），其余文本文件一律纯文本 */
+const MARKDOWN_FILE_RE = /\.(md|mdx|markdown)$/i
 
 /**
  * 文件状态管理 Store
@@ -83,17 +87,16 @@ export const useFileStore = defineStore('file', () => {
     setCursorPosition(1, 1)
   })
 
-  /** 是否可切换编辑模式：仅 .md/.mdx 文件支持（图片等只读文件不可切换） */
+  /** 是否可切换编辑模式：仅 Markdown 文件支持（图片、代码/纯文本等不可切换） */
   const canSwitchEditorMode = computed(() => {
     const name = activeTab.value?.fileInfo?.name
-    if (!name) return true
-    return /\.(md|mdx)$/i.test(name)
+    return !name || MARKDOWN_FILE_RE.test(name)
   })
 
-  /** .txt 专用纯文本模式，不参与 Markdown 编辑模式切换 */
+  /** 非 Markdown 文本文件（.sh/.conf/.txt 等）一律纯文本模式，不参与 Markdown 编辑模式切换 */
   const effectiveEditorMode = computed<EditorMode>(() => {
     const name = activeTab.value?.fileInfo?.name
-    return name && /\.txt$/i.test(name) ? 'plain' : editorMode.value
+    return !name || MARKDOWN_FILE_RE.test(name) ? editorMode.value : 'plain'
   })
 
   // ====== 字数统计 ======
@@ -306,6 +309,7 @@ export const useFileStore = defineStore('file', () => {
       }
       stateVersion.value++
       updateWordCount()
+      externalWatch.markExternalHandled(filePath)
       return true
     }
     return false
@@ -539,6 +543,8 @@ export const useFileStore = defineStore('file', () => {
       )
 
       if (result.success) {
+        // 自身写入触发的外部变更事件无需重载/提示
+        if (filePath) externalWatch.markExternalHandled(filePath)
         if (tab.content === savedContent && tab.fileInfo) {
           tab.fileInfo.modified = false
           stateVersion.value++
@@ -589,6 +595,7 @@ export const useFileStore = defineStore('file', () => {
 
       if (result.success && result.data) {
         const savePath = result.data as string
+        externalWatch.markExternalHandled(savePath)
         if (tab.fileInfo) {
           tab.fileInfo.path = savePath
           tab.fileInfo.name = savePath.split(/[/\\]/).pop() || '未命名.mdx'
@@ -720,6 +727,16 @@ export const useFileStore = defineStore('file', () => {
 
   // ====== PDF 导出 ======
   const pdf = usePdf({ tabs, error })
+
+  // ====== 外部变更监视（磁盘新增/修改自动刷新文件树与已打开标签） ======
+  const externalWatch = createExternalWatch({
+    tabs,
+    openedFolderPath: folder.openedFolderPath,
+    readFolder: folder.readFolder,
+    reloadFile,
+    isTabDirty: (tab) => !!tab.document && ((tab.fileInfo?.modified ?? false) || !tab.fileInfo?.path)
+  })
+  externalWatch.setup()
 
   // ====== 编辑器操作 ======
   function setEditorMode(mode: EditorMode): void {
@@ -886,6 +903,72 @@ export const useFileStore = defineStore('file', () => {
   }
 
   // ====== 导入 / 导出 ======
+  async function importDocx(): Promise<boolean> {
+    isLoading.value = true
+    error.value = null
+
+    try {
+      if (!window.electronAPI) {
+        error.value = 'Electron API 不可用'
+        return false
+      }
+
+      const targetFolder = folder.openedFolderPath.value || undefined
+      const result = await window.electronAPI.importDocx(undefined, targetFolder)
+
+      if (result.success && result.data) {
+        const doc = result.data.document as MdxDocument
+        const fPath = result.data.filePath as string
+
+        const existing = tabState.findTabByPath(fPath)
+        if (existing) {
+          activeTabId.value = existing.id
+          useAiStore().deactivatePanel()
+          return true
+        }
+
+        if (tabs.value.length >= maxOpenTabs.value) {
+          await requestDialog({
+            title: '已达标签上限',
+            message: `最多同时打开 ${maxOpenTabs.value} 个标签，请先关闭一些标签。`,
+            buttons: [{ label: '知道了', value: 0, primary: true }]
+          })
+          return false
+        }
+
+        const tab = tabState.createTab()
+        tab.document = doc
+        tab.content = doc.content
+        tab.fileInfo = {
+          path: fPath,
+          name: fPath.split(/[/\\]/).pop() || '未命名.mdx',
+          modified: false,
+          format: 'mdx'
+        }
+        activeTabId.value = tab.id
+        useAiStore().deactivatePanel()
+
+        await loadRecentFiles()
+
+        if (folder.openedFolderPath.value) {
+          await folder.readFolder(folder.openedFolderPath.value)
+        }
+
+        return true
+      } else if (result.error === '用户取消') {
+        return false
+      } else {
+        error.value = result.error || '导入 Word 文档失败'
+        return false
+      }
+    } catch (err) {
+      error.value = err instanceof Error ? err.message : '导入 Word 文档失败'
+      return false
+    } finally {
+      isLoading.value = false
+    }
+  }
+
   async function importMarkdown(): Promise<boolean> {
     isLoading.value = true
     error.value = null
@@ -1118,6 +1201,7 @@ export const useFileStore = defineStore('file', () => {
     updateContent,
     markSaved,
     reloadFile,
+    markExternalHandled: externalWatch.markExternalHandled,
     writeRecoverySnapshot,
     cleanupTimers,
 
@@ -1147,6 +1231,7 @@ export const useFileStore = defineStore('file', () => {
     confirmSaveDialog,
     confirmSaveBeforeAction,
     importMarkdown,
+    importDocx,
     importFolder,
     exportMarkdown,
     exportTabToPdf: pdf.exportTabToPdf,

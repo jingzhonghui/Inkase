@@ -2,7 +2,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import type { SyncConfig } from './types'
 
-export const SYNC_CONFIG_DIR = '.markdownPlus'
+export const SYNC_CONFIG_DIR = '.inkase'
 export const SYNC_CONFIG_FILE = 'sync.json'
 
 export const DEFAULT_SYNC_CONFIG: SyncConfig = {
@@ -55,12 +55,12 @@ export function saveSyncConfig(workspacePath: string, config: SyncConfig): void 
 }
 
 /**
- * 确保 <工作区>/.gitignore 包含 .markdownPlus。
+ * 确保 <工作区>/.gitignore 包含 .inkase。
  * 无 .gitignore 则创建，有则检查追加，避免重复行。
  */
-export function ensureMarkdownPlusIgnored(workspacePath: string): void {
+export function ensureInkaseIgnored(workspacePath: string): void {
   const gitignorePath = path.join(workspacePath, '.gitignore')
-  const line = '.markdownPlus'
+  const line = '.inkase'
   let content = ''
   if (fs.existsSync(gitignorePath)) {
     content = fs.readFileSync(gitignorePath, 'utf-8')

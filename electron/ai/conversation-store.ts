@@ -3,7 +3,7 @@ import * as path from 'path'
 import { app } from 'electron'
 import type { ConversationMeta, ConversationRecord } from '../../shared/ai/types'
 
-const CONVERSATIONS_SUBDIR = path.join('.markdownPlus', 'conversations')
+const CONVERSATIONS_SUBDIR = path.join('.inkase', 'conversations')
 const CONVERSATION_ID_PATTERN = /^conv_[A-Za-z0-9_]+$/
 
 export class ConversationStore {

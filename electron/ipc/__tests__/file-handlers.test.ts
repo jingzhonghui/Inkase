@@ -5,7 +5,7 @@ import * as path from 'path'
 import { dialog } from 'electron'
 import { IPC_CHANNELS } from '../channels'
 
-const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'markdown-plus-folder-'))
+const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'inkase-folder-'))
 
 type Handler = (...args: unknown[]) => unknown
 
@@ -51,9 +51,9 @@ describe('folder:read', () => {
     await registerHandlersFresh()
   })
 
-  it('filters dot-prefixed directories like .markdownPlus', async () => {
+  it('filters dot-prefixed directories like .inkase', async () => {
     const dir = path.join(tmpDir, 'ws')
-    fs.mkdirSync(path.join(dir, '.markdownPlus'), { recursive: true })
+    fs.mkdirSync(path.join(dir, '.inkase'), { recursive: true })
     fs.mkdirSync(path.join(dir, 'docs'), { recursive: true })
     fs.writeFileSync(path.join(dir, 'readme.md'), '# hi', 'utf8')
 
@@ -64,7 +64,7 @@ describe('folder:read', () => {
     const names = result.data.map((item) => item.name)
     expect(names).toContain('docs')
     expect(names).toContain('readme.md')
-    expect(names).not.toContain('.markdownPlus')
+    expect(names).not.toContain('.inkase')
   })
 
   it('lists all regular files regardless of extension', async () => {
@@ -263,13 +263,13 @@ describe('file:search', () => {
     expect(result.data).toHaveLength(3)
   })
 
-  it('skips dot-prefixed directories like .git and .markdownPlus', async () => {
+  it('skips dot-prefixed directories like .git and .inkase', async () => {
     const dir = path.join(tmpDir, 'search-ignore')
     fs.mkdirSync(path.join(dir, '.git', 'hooks'), { recursive: true })
-    fs.mkdirSync(path.join(dir, '.markdownPlus'), { recursive: true })
+    fs.mkdirSync(path.join(dir, '.inkase'), { recursive: true })
     fs.mkdirSync(path.join(dir, 'node_modules', 'pkg'), { recursive: true })
     fs.writeFileSync(path.join(dir, '.git', 'config'), 'x', 'utf8')
-    fs.writeFileSync(path.join(dir, '.markdownPlus', 'sync.json'), 'x', 'utf8')
+    fs.writeFileSync(path.join(dir, '.inkase', 'sync.json'), 'x', 'utf8')
     fs.writeFileSync(path.join(dir, 'node_modules', 'pkg', 'index.js'), 'x', 'utf8')
     fs.writeFileSync(path.join(dir, 'keep.md'), 'x', 'utf8')
 

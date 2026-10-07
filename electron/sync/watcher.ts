@@ -8,7 +8,7 @@ export interface WorkspaceWatcherHandle {
 
 const DEFAULT_DEBOUNCE_MS = 2000
 
-const IGNORED_SEGMENTS = new Set(['.git', '.markdownPlus', 'node_modules'])
+const IGNORED_SEGMENTS = new Set(['.git', '.inkase', 'node_modules'])
 
 function isIgnored(relativePath: string): boolean {
   const normalized = relativePath.replace(/\\/g, '/')
@@ -85,7 +85,7 @@ function createChokidarWatcher(
     ignored: (p: string): boolean => {
       const normalized = p.replace(/\\/g, '/')
       if (normalized === root) return false
-      return /[\\/](\.git|\.markdownPlus|node_modules)([\\/]|$)/.test(normalized)
+      return /[\\/](\.git|\.inkase|node_modules)([\\/]|$)/.test(normalized)
     }
   })
 
@@ -106,7 +106,7 @@ function createChokidarWatcher(
 
 /**
  * 监听工作区文件变化，防抖合并后一次性回调变更文件绝对路径。
- * 忽略 .git / .markdownPlus / node_modules。
+ * 忽略 .git / .inkase / node_modules。
  */
 export function createWorkspaceWatcher(
   workspacePath: string,

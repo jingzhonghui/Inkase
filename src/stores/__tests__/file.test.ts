@@ -290,6 +290,34 @@ describe('file store', () => {
       await store.openFile('C:/docs/doc.mdx')
       expect(store.canSwitchEditorMode).toBe(true)
     })
+
+    it('forces plain mode for non-markdown text files and follows editorMode for markdown files', async () => {
+      const store = useFileStore()
+      store.setEditorMode('split')
+      expect(store.effectiveEditorMode).toBe('split')
+
+      // 非 Markdown 文本文件一律纯文本，不跟随编辑器模式
+      for (const name of ['run.sh', 'app.conf', 'notes.txt', 'data.json', 'Makefile', '.gitignore']) {
+        electronAPI.openFile.mockResolvedValue({
+          success: true,
+          data: { document: makeDoc(name, 'content'), filePath: `C:/docs/${name}`, format: 'markdown' }
+        })
+        await store.openFile(`C:/docs/${name}`)
+        expect(store.effectiveEditorMode).toBe('plain')
+        expect(store.canSwitchEditorMode).toBe(false)
+      }
+
+      // Markdown 文件跟随用户编辑器模式
+      for (const name of ['doc.md', 'doc.mdx', 'doc.markdown']) {
+        electronAPI.openFile.mockResolvedValue({
+          success: true,
+          data: { document: makeDoc(name, '# hi'), filePath: `C:/docs/${name}`, format: 'markdown' }
+        })
+        await store.openFile(`C:/docs/${name}`)
+        expect(store.effectiveEditorMode).toBe('split')
+        expect(store.canSwitchEditorMode).toBe(true)
+      }
+    })
   })
 
   describe('reloadFile', () => {
@@ -1264,7 +1292,7 @@ describe('file store', () => {
       const store = useFileStore()
       store.setMaxOpenTabs(35)
       expect(store.maxOpenTabs).toBe(35)
-      const saved = JSON.parse((localStorage.getItem('markdown-plus-session') || '{}') as string)
+      const saved = JSON.parse((localStorage.getItem('inkase-session') || '{}') as string)
       expect(saved.maxOpenTabs).toBe(35)
     })
 

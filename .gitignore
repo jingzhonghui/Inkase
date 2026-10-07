@@ -56,3 +56,8 @@ docs/superpowers/
 
 # TypeScript incremental build cache
 *.tsbuildinfo
+dist-build
+
+# 教程 PDF 生成工具与截图（本地保留，不入库）
+scripts/build-guide.py
+scripts/guide-images/

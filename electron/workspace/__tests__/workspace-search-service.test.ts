@@ -60,13 +60,13 @@ function makeTempWorkspace(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mdp-search-'))
   fs.mkdirSync(path.join(dir, 'docs'), { recursive: true })
   fs.mkdirSync(path.join(dir, 'node_modules'), { recursive: true })
-  fs.mkdirSync(path.join(dir, '.markdownPlus'), { recursive: true })
+  fs.mkdirSync(path.join(dir, '.inkase'), { recursive: true })
   fs.mkdirSync(path.join(dir, '.git'), { recursive: true })
   fs.writeFileSync(path.join(dir, 'docs', 'notes.md'), '# Notes\n\nrelease 内容', 'utf8')
   fs.writeFileSync(path.join(dir, 'docs', 'report.md'), '# Report\n\nroadmap', 'utf8')
   fs.writeFileSync(path.join(dir, 'README.md'), '# README\n\nrelease', 'utf8')
   fs.writeFileSync(path.join(dir, 'node_modules', 'pkg.js'), 'node_modules', 'utf8')
-  fs.writeFileSync(path.join(dir, '.markdownPlus', 'hidden.md'), 'hidden', 'utf8')
+  fs.writeFileSync(path.join(dir, '.inkase', 'hidden.md'), 'hidden', 'utf8')
   return dir
 }
 
@@ -118,7 +118,7 @@ describe('WorkspaceSearchService', () => {
       expect(spawnSpy).toHaveBeenCalledTimes(1)
       expect(spawnSpy.mock.calls[0][1]).toEqual([
         '--files', '--null', '--no-config',
-        '--glob', '!.git/**', '--glob', '!node_modules/**', '--glob', '!.markdownPlus/**'
+        '--glob', '!.git/**', '--glob', '!node_modules/**', '--glob', '!.inkase/**'
       ])
       expect(result.matches).toEqual([
         { type: 'filename', path: 'docs/report.md', extension: 'md' }
@@ -250,7 +250,7 @@ describe('WorkspaceSearchService', () => {
       expect(names).toContain('docs')
       expect(names).toContain('README.md')
       expect(names).not.toContain('node_modules')
-      expect(names).not.toContain('.markdownPlus')
+      expect(names).not.toContain('.inkase')
       expect(names).not.toContain('.git')
     })
   })

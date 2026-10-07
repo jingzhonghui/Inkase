@@ -22,7 +22,7 @@ describe('Writer Module', () => {
   let testDir: string
 
   beforeAll(() => {
-    testDir = path.join(os.tmpdir(), 'markdown-plus-test-' + Date.now())
+    testDir = path.join(os.tmpdir(), 'inkase-test-' + Date.now())
     fs.mkdirSync(testDir, { recursive: true })
   })
 

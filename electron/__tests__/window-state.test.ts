@@ -13,7 +13,7 @@ import {
 const tempDirs: string[] = []
 
 function makeTempStatePath(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'markdown-plus-window-state-'))
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'inkase-window-state-'))
   tempDirs.push(dir)
   return path.join(dir, 'window-state.json')
 }

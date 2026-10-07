@@ -26,7 +26,7 @@ import {
  * - 正文搜索：固定执行 `rg --json --line-number --column --no-config`，
  *   literal 自动加 `--fixed-strings`，regex 作为独立 argv 传入；
  *   额外 `--glob '!*.mdx'`，MDX 由应用内存解包后搜索，结果合并。
- * - 遵循 .gitignore，固定排除 .git / node_modules / .markdownPlus。
+ * - 遵循 .gitignore，固定排除 .git / node_modules / .inkase。
  * - 资源限制：30 秒超时、结果上限、输出字节上限、MDX 累计字节上限。
  */
 
@@ -191,7 +191,7 @@ export class WorkspaceSearchService {
   ): Promise<{ matches: FilenameSearchMatch[]; truncated: boolean; reason?: SearchTruncationReason }> {
     if (!this.deps.rgPath) throw new WorkspaceSearchError('RG_UNAVAILABLE', '搜索组件不可用')
     const run = await this.runRg(
-      ['--files', '--null', '--no-config', '--glob', '!.git/**', '--glob', '!node_modules/**', '--glob', '!.markdownPlus/**'],
+      ['--files', '--null', '--no-config', '--glob', '!.git/**', '--glob', '!node_modules/**', '--glob', '!.inkase/**'],
       { cwd: scope.absolute },
       signal
     )
@@ -241,7 +241,7 @@ export class WorkspaceSearchService {
       '--glob',
       '!node_modules/**',
       '--glob',
-      '!.markdownPlus/**',
+      '!.inkase/**',
       '--glob',
       '!*.mdx'
     ]
@@ -574,7 +574,7 @@ export class WorkspaceSearchService {
   }
 
   private isExcluded(name: string): boolean {
-    if (name === '.git' || name === 'node_modules' || name === '.markdownPlus') return true
+    if (name === '.git' || name === 'node_modules' || name === '.inkase') return true
     return name.startsWith('.')
   }
 

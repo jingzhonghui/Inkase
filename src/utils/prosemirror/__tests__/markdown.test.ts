@@ -115,6 +115,72 @@ describe('Markdown ↔ ProseMirror conversion', () => {
     expect(state.doc.child(1).type.name).toBe('paragraph')
   })
 
+  it('parses strikethrough into a strikethrough mark', () => {
+    const doc = parseMarkdown('~~deleted~~')
+    const textNode = doc.firstChild?.firstChild
+    expect(textNode?.text).toBe('deleted')
+    expect(textNode?.marks.map((m) => m.type.name)).toContain('strikethrough')
+  })
+
+  it('preserves strikethrough through parse/serialize roundtrip', () => {
+    const content = '~~deleted~~'
+    expect(serializeMarkdown(parseMarkdown(content))).toBe(content)
+  })
+
+  it('parses GFM task list into task_list/task_item with checked attrs', () => {
+    const doc = parseMarkdown('- [ ] todo\n- [x] done')
+    const list = doc.child(0)
+    expect(list.type.name).toBe('task_list')
+    expect(list.childCount).toBe(2)
+    expect(list.child(0).type.name).toBe('task_item')
+    expect(list.child(0).attrs.checked).toBe(false)
+    expect(list.child(1).attrs.checked).toBe(true)
+    expect(list.child(0).textContent).toBe('todo')
+    expect(list.child(1).textContent).toBe('done')
+  })
+
+  it('round-trips GFM task lists', () => {
+    const content = '- [ ] todo\n- [x] done'
+    expect(serializeMarkdown(parseMarkdown(content))).toBe(content)
+  })
+
+  it('keeps a normal bullet list when items are not all tasks', () => {
+    const doc = parseMarkdown('- [ ] todo\n- plain')
+    expect(doc.child(0).type.name).toBe('bullet_list')
+  })
+
+  it('round-trips hard breaks', () => {
+    // breaks:true 下普通换行即为硬换行，且序列化写回 '\n' 保持一致
+    const content = 'a\nb'
+    const doc = parseMarkdown(content)
+    expect(doc.child(0).child(1).type.name).toBe('hard_break')
+    expect(serializeMarkdown(doc)).toBe(content)
+  })
+
+  it('linkifies bare URLs like the preview', () => {
+    const doc = parseMarkdown('see https://example.com now')
+    const marks = doc.child(0).child(1).marks.map((m) => m.type.name)
+    expect(marks).toContain('link')
+  })
+
+  it('parses <u> into an underline mark', () => {
+    const doc = parseMarkdown('<u>hi</u>')
+    const textNode = doc.firstChild?.firstChild
+    expect(textNode?.text).toBe('hi')
+    expect(textNode?.marks.map((m) => m.type.name)).toContain('underline')
+  })
+
+  it('round-trips underline', () => {
+    const content = '<u>hi</u>'
+    expect(serializeMarkdown(parseMarkdown(content))).toBe(content)
+  })
+
+  it('exposes link markers via data-mark for IR rendering', () => {
+    const mark = markdownSchema.marks.link.create({ href: 'https://example.com' })
+    const dom = markdownSchema.marks.link.spec.toDOM?.(mark, true)
+    expect(JSON.stringify(dom)).toContain('data-mark')
+  })
+
   it('parses GFM table column alignment into cell attrs', () => {
     const content = '| a | b | c |\n| :--- | :---: | ---: |\n| 1 | 2 | 3 |'
     const doc = parseMarkdown(content)

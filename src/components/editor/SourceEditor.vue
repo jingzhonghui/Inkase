@@ -6,10 +6,13 @@ import { EditorView, keymap, lineNumbers, highlightActiveLineGutter, highlightSp
 import { EditorState, Compartment, StateField, StateEffect, type Extension } from '@codemirror/state'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { languages } from '@codemirror/language-data'
+import { defaultHighlightStyle, syntaxHighlighting, HighlightStyle } from '@codemirror/language'
+import { tags as hlTags } from '@lezer/highlight'
 import { history, defaultKeymap, historyKeymap, indentWithTab, undo, redo } from '@codemirror/commands'
 import { highlightSelectionMatches } from '@codemirror/search'
 import { closeBrackets, closeBracketsKeymap, autocompletion, completionKeymap, type Completion } from '@codemirror/autocomplete'
 import { oneDark } from '@codemirror/theme-one-dark'
+import { findCodeLanguage } from '../../utils/editor-language'
 import EditorContextMenu from '../common/EditorContextMenu.vue'
 import FindReplacePanel from './FindReplacePanel.vue'
 import type { EditorContextMenuItem } from '../../types/editor-context-menu'
@@ -40,6 +43,20 @@ const editorView = shallowRef<EditorView | null>(null)
 
 // 主题 compartment - 在 initEditor 中创建
 let themeCompartment: Compartment | null = null
+
+// 纯文本模式的语法高亮 compartment - 在 initEditor 中创建
+let langCompartment: Compartment | null = null
+
+/**
+ * properties/ini 等 legacy 语言的 value 部分使用 tags.quote，
+ * oneDark（暗色）与 defaultHighlightStyle（浅色）均未覆盖该 tag，
+ * 在纯文本模式按主题补色（各取主题的 string 配色保持一致观感）。
+ * 仅限纯文本分支使用：Markdown 引用块同样使用 tags.quote，全局追加会改变引用块配色。
+ */
+const plainTextValueHighlights: Extension[] = [
+  syntaxHighlighting(HighlightStyle.define([{ tag: hlTags.quote, color: '#98c379' }], { themeType: 'dark' })),
+  syntaxHighlighting(HighlightStyle.define([{ tag: hlTags.quote, color: '#a11' }], { themeType: 'light' }))
+]
 
 // 查找替换面板状态
 const searchOpen = ref(false)
@@ -92,6 +109,8 @@ let isSyncing = false
 function createExtensions(): Extension[] {
   // 创建主题 compartment
   themeCompartment = new Compartment()
+  // 创建纯文本语言高亮 compartment
+  langCompartment = new Compartment()
 
   const extensions: Extension[] = [
     // 基础编辑功能
@@ -109,7 +128,13 @@ function createExtensions(): Extension[] {
     closeBrackets(),
 
     ...(props.plainText
-      ? [EditorView.lineWrapping]
+      ? [
+          EditorView.lineWrapping,
+          // 语法高亮按文件后缀异步懒加载（loadPlainLanguage），初始为空
+          langCompartment!.of([]),
+          // legacy 语言 value 部分（tags.quote）的按主题补色
+          ...plainTextValueHighlights
+        ]
       : [
           // Markdown 语言支持（仅预载常用语法，减少初始化体积）
           markdown({
@@ -527,6 +552,8 @@ function getThemeExtension(): Extension {
     // 深色主题：继承 oneDark 并增强选区样式
     return [
       oneDark,
+      // 兜底着色器：oneDark 未覆盖的语言 tag（如 legacy 模式）使用默认配色；oneDark 作为主着色器优先生效
+      syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
       EditorView.theme({
         '&': {
           backgroundColor: 'var(--color-bg-primary)'
@@ -550,8 +577,10 @@ function getThemeExtension(): Extension {
     ]
   }
   
-  // 浅色主题使用默认样式
-  return EditorView.theme({
+  // 浅色主题使用默认样式（此前缺少语法着色器，纯文本语言高亮与 markdown 源码均无颜色）
+  return [
+    syntaxHighlighting(defaultHighlightStyle),
+    EditorView.theme({
     '&': {
       backgroundColor: 'var(--color-bg-primary)',
       color: 'var(--color-text)'
@@ -585,7 +614,8 @@ function getThemeExtension(): Extension {
     '.cm-lineNumbers': {
       color: 'var(--color-text-tertiary)'
     }
-  })
+    })
+  ]
 }
 
 /**
@@ -705,6 +735,30 @@ function initEditor(): void {
   editorView.value = view
   updateCursorPosition(view.state)
   updateEditorSelectionSnapshot(view.state)
+
+  if (props.plainText) loadPlainLanguage(view)
+}
+
+/**
+ * 纯文本模式按文件后缀懒加载语法高亮（复用主题 compartment 模式）
+ * 语言包加载失败时静默降级为无高亮纯文本
+ */
+function loadPlainLanguage(view: EditorView): void {
+  if (!langCompartment) return
+  const name = fileStore.activeTab?.fileInfo?.name ?? ''
+  const desc = name ? findCodeLanguage(name) : null
+  if (!desc) return
+  void desc
+    .load()
+    .then((support) => {
+      // 组件可能已被销毁或切换到其他 tab（:key 重建），仅作用于当前视图
+      if (editorView.value !== view) return
+      view.dispatch({ effects: langCompartment!.reconfigure(support) })
+    })
+    .catch((err: unknown) => {
+      // 降级为无高亮纯文本，但保留诊断信息
+      console.warn(`[SourceEditor] 语法高亮语言包加载失败: ${name}`, err)
+    })
 }
 
 /**

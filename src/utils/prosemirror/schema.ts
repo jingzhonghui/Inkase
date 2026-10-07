@@ -40,7 +40,9 @@ const nodes: Record<string, NodeSpec> = {
       { tag: 'h1', attrs: { level: 1 } },
       { tag: 'h2', attrs: { level: 2 } },
       { tag: 'h3', attrs: { level: 3 } },
-      { tag: 'h4', attrs: { level: 4 } }
+      { tag: 'h4', attrs: { level: 4 } },
+      { tag: 'h5', attrs: { level: 5 } },
+      { tag: 'h6', attrs: { level: 6 } }
     ],
     toDOM(node): DOMOutputSpec {
       return ['h' + node.attrs.level, 0]
@@ -362,6 +364,16 @@ const marks: Record<string, MarkSpec> = {
   },
 
   /**
+   * 下划线
+   */
+  underline: {
+    parseDOM: [{ tag: 'u' }],
+    toDOM(): DOMOutputSpec {
+      return ['u', { 'data-mark': 'underline' }, 0]
+    }
+  },
+
+  /**
    * 行内代码
    */
   code: {
@@ -392,7 +404,10 @@ const marks: Record<string, MarkSpec> = {
       }
     ],
     toDOM(node): DOMOutputSpec {
-      const attrs: Record<string, string> = { href: node.attrs.href as string }
+      const attrs: Record<string, string> = {
+        href: node.attrs.href as string,
+        'data-mark': 'link'
+      }
       if (node.attrs.title) attrs.title = node.attrs.title as string
       return ['a', attrs, 0]
     }
