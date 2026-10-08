@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://jingzhonghui.github.io/Inkase/sitemap.xml
