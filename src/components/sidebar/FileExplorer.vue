@@ -304,6 +304,7 @@ function onFolderContextMenu(event: MouseEvent, node: FileTreeNode): void {
     { label: '新建文件', action: () => promptCreateFile(node.path) },
     { label: '新建文件夹', action: () => promptCreateFolder(node.path) },
     { label: '导入文件', action: () => { void importFilesToFolder(node) } },
+    { label: '导入 Word 文档', action: () => { void importDocxToFolder(node) } },
     { label: '导入文件夹', action: () => { void importDirectoryToFolder(node) } },
     { label: '批量导出 PDF', action: () => { void fileStore.exportFolderToPdf(node.path) } },
     { label: '复制', action: () => { void fileStore.copySelection('copy') } },
@@ -322,6 +323,10 @@ function onFolderContextMenu(event: MouseEvent, node: FileTreeNode): void {
 
 async function importFilesToFolder(node: FileTreeNode): Promise<void> {
   if (await fileStore.importFilesInto(node.path)) await fileStore.loadChildren(node)
+}
+
+async function importDocxToFolder(node: FileTreeNode): Promise<void> {
+  if (await fileStore.importDocx(node.path)) await fileStore.loadChildren(node)
 }
 
 async function importDirectoryToFolder(node: FileTreeNode): Promise<void> {

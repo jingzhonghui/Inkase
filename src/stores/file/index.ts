@@ -17,6 +17,9 @@ import { createExternalWatch } from './external-watch'
 /** Markdown 文件后缀白名单：仅这些文件走 Markdown 编辑模式（IR/源码/分屏），其余文本文件一律纯文本 */
 const MARKDOWN_FILE_RE = /\.(md|mdx|markdown)$/i
 
+/** HTML 文件后缀：走独立的「源码/预览」切换，不参与 Markdown 编辑模式 */
+const HTML_FILE_RE = /\.html?$/i
+
 /**
  * 文件状态管理 Store
  * 支持多标签页：tabs 数组管理所有打开的标签，activeTabId 指向当前激活标签
@@ -87,6 +90,28 @@ export const useFileStore = defineStore('file', () => {
     setCursorPosition(1, 1)
   })
 
+  /** 当前激活标签是否为 HTML 文件（.html/.htm）：提供独立的浏览器式预览切换 */
+  const isHtmlFile = computed(() => HTML_FILE_RE.test(activeTab.value?.fileInfo?.name ?? ''))
+
+  /** HTML 预览开关（独立于 Markdown 编辑模式体系，仅 isHtmlFile 时生效） */
+  const htmlPreviewActive = ref(false)
+
+  function toggleHtmlPreview(): void {
+    if (!isHtmlFile.value) return
+    htmlPreviewActive.value = !htmlPreviewActive.value
+  }
+
+  /**
+   * 将当前激活的预览标签转正（双击预览标签时调用）。
+   * 无激活标签或激活标签不是预览标签时为无操作。
+   */
+  function pinActivePreviewTab(): void {
+    const tab = activeTab.value
+    if (!tab?.isPreview) return
+    tab.isPreview = false
+    persistSession()
+  }
+
   /** 是否可切换编辑模式：仅 Markdown 文件支持（图片、代码/纯文本等不可切换） */
   const canSwitchEditorMode = computed(() => {
     const name = activeTab.value?.fileInfo?.name
@@ -98,6 +123,9 @@ export const useFileStore = defineStore('file', () => {
     const name = activeTab.value?.fileInfo?.name
     return !name || MARKDOWN_FILE_RE.test(name) ? editorMode.value : 'plain'
   })
+
+  /** 当前激活标签是否为 PDF 预览（PDF 为查看模式，不属于任何编辑模式） */
+  const isPdfActiveTab = computed(() => activeTab.value?.fileInfo?.format === 'pdf')
 
   // ====== 字数统计 ======
   function updateWordCount(): void {
@@ -903,7 +931,7 @@ export const useFileStore = defineStore('file', () => {
   }
 
   // ====== 导入 / 导出 ======
-  async function importDocx(): Promise<boolean> {
+  async function importDocx(targetFolderOverride?: string): Promise<boolean> {
     isLoading.value = true
     error.value = null
 
@@ -913,7 +941,7 @@ export const useFileStore = defineStore('file', () => {
         return false
       }
 
-      const targetFolder = folder.openedFolderPath.value || undefined
+      const targetFolder = targetFolderOverride || folder.openedFolderPath.value || undefined
       const result = await window.electronAPI.importDocx(undefined, targetFolder)
 
       if (result.success && result.data) {
@@ -1180,6 +1208,11 @@ export const useFileStore = defineStore('file', () => {
     imageAssets: tabState.imageAssets,
     imageCompressSettings: assets.imageCompressSettings,
     hasMultipleTabs: tabState.hasMultipleTabs,
+    isPdfActiveTab,
+    isHtmlFile,
+    htmlPreviewActive,
+    toggleHtmlPreview,
+    pinActivePreviewTab,
 
     // 设置
     maxOpenTabs,

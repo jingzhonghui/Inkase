@@ -40,6 +40,14 @@ async function handleTabClick(tabId: string): Promise<void> {
   await fileStore.setActiveTab(tabId)
 }
 
+/** 双击预览标签将其转正（普通标签无操作） */
+function handleTabDblClick(tabId: string): Promise<void> {
+  if (fileStore.tabs.find((tab) => tab.id === tabId)?.isPreview) {
+    fileStore.pinActivePreviewTab()
+  }
+  return Promise.resolve()
+}
+
 function handleAiMiddleClick(event: MouseEvent): void {
   if (event.button !== 1) return
   event.preventDefault()
@@ -177,6 +185,7 @@ onUnmounted(() => {
       class="tab"
       :class="{ active: !aiStore.panelActive && tab.id === fileStore.activeTabId, preview: tab.isPreview }"
       @click="handleTabClick(tab.id)"
+      @dblclick="handleTabDblClick(tab.id)"
       @mousedown="handleMiddleClick(tab.id, $event)"
       @contextmenu.prevent.stop="onTabContextMenu($event, tab)"
     >

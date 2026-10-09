@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { IconFile, IconFolder, IconPlus } from '@tabler/icons-vue'
+import { IconFile, IconFolder, IconPlus, IconSourceCode, IconWorldWww } from '@tabler/icons-vue'
 import { useFileStore } from '../../stores/file'
 import { useAiStore } from '../../stores/ai'
 import AiPanel from '../ai/AiPanel.vue'
@@ -9,6 +9,7 @@ import IrEditor from './IrEditor.vue'
 import PreviewPanel from './PreviewPanel.vue'
 import ImageViewer from './ImageViewer.vue'
 import PdfViewer from './PdfViewer.vue'
+import HtmlPreview from './HtmlPreview.vue'
 import TabBar from './TabBar.vue'
 import { Splitpanes, Pane } from 'splitpanes'
 import 'splitpanes/dist/splitpanes.css'
@@ -24,6 +25,8 @@ const hasOpenFile = computed(() => fileStore.tabs.length > 0 && fileStore.active
 const isImageTab = computed(() => fileStore.activeTab?.fileInfo?.format === 'image')
 const isPdfTab = computed(() => fileStore.activeTab?.fileInfo?.format === 'pdf')
 const isPlainTextTab = computed(() => fileStore.effectiveEditorMode === 'plain')
+const isHtmlTab = computed(() => fileStore.isHtmlFile)
+const isHtmlPreviewOn = computed(() => isHtmlTab.value && fileStore.htmlPreviewActive)
 
 // 组件引用
 const sourceEditorRef = ref<InstanceType<typeof SourceEditor>>()
@@ -160,6 +163,26 @@ function onPreviewScroll(ratio: number): void {
       v-show="!aiStore.panelActive"
       class="document-view"
     >
+      <!-- HTML 预览切换悬浮按钮（仅 HTML 标签页显示，独立于 Markdown 模式体系） -->
+      <button
+        v-if="isHtmlTab"
+        class="html-preview-toggle"
+        :class="{ active: isHtmlPreviewOn }"
+        :title="isHtmlPreviewOn ? '返回源码' : '预览 HTML'"
+        @click="fileStore.toggleHtmlPreview()"
+      >
+        <IconSourceCode
+          v-if="isHtmlPreviewOn"
+          :size="16"
+          :stroke-width="2"
+        />
+        <IconWorldWww
+          v-else
+          :size="16"
+          :stroke-width="2"
+        />
+      </button>
+
       <!-- 图片文件：只读查看 -->
       <ImageViewer
         v-if="isImageTab"
@@ -170,6 +193,19 @@ function onPreviewScroll(ratio: number): void {
       <PdfViewer
         v-else-if="isPdfTab"
         :key="fileStore.activeTabId || 'pdf-viewer'"
+      />
+
+      <!-- HTML 文件预览态：浏览器式渲染（右上角按钮切换源码/预览） -->
+      <HtmlPreview
+        v-else-if="isHtmlPreviewOn"
+        :key="`html-preview-${fileStore.activeTabId || 'html'}`"
+      />
+
+      <!-- HTML 文件源码态：纯文本源码 + 右上角预览按钮 -->
+      <SourceEditor
+        v-else-if="isPlainTextTab && isHtmlTab"
+        :key="`html-source-${fileStore.activeTabId || 'html-src'}`"
+        :plain-text="true"
       />
 
       <!-- 纯文本文件（.txt 等）：源码编辑显示原文，不进入即时渲染/预览 -->
@@ -238,6 +274,39 @@ function onPreviewScroll(ratio: number): void {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  position: relative;
+}
+
+/* HTML 预览切换悬浮按钮（编辑器右上角） */
+.html-preview-toggle {
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  z-index: 10;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--color-bg-secondary) 85%, transparent);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  backdrop-filter: blur(4px);
+  transition: all 0.15s;
+}
+
+.html-preview-toggle:hover {
+  background: var(--color-bg-tertiary);
+  color: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+.html-preview-toggle.active {
+  background: var(--color-primary-light);
+  color: var(--color-primary);
+  border-color: var(--color-primary);
 }
 
 /* 欢迎页 */

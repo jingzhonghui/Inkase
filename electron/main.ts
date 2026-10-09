@@ -6,9 +6,11 @@ import { IPC_CHANNELS } from './ipc/channels'
 import { registerFileHandlers } from './ipc/file-handlers'
 import { registerMdxHandlers, cleanupAll, isCloseConfirmed, setCloseConfirmed, attachRecoveryAssetData } from './ipc/mdx-handlers'
 import { registerPdfHandlers } from './ipc/pdf-handlers'
+import { registerPreviewProtocol, registerPreviewSchemePrivileges } from './ipc/preview-protocol'
 import { hadAbnormalExit, markAppRunning, readRecoverySnapshot, writeRecoverySnapshot, clearRecoverySnapshot } from './recovery'
 import { resolveExistingUserGuidePath } from './user-guide'
 import { registerAiHandlers, disposeAiServices } from './ai/ipc-handlers'
+import { findRecentAliveInstance, sendTargetsToInstance, startInstanceService, stopInstanceService, touchHeartbeat } from './instance-broker'
 import { initUpdater, checkForUpdates, openReleasesPage } from './updater'
 import { inspectLaunchTarget, parseLaunchTargets, type LaunchTarget } from './launch-target'
 import { SyncEngine } from './sync/engine'
@@ -24,6 +26,9 @@ import { loadWindowState, resolveWindowState, saveWindowState, type WindowState 
 if (process.env.APPIMAGE) {
   app.commandLine.appendSwitch('no-sandbox')
 }
+
+// privileged scheme 注册必须在 app ready 之前（协议处理器在 whenReady 中注册）
+registerPreviewSchemePrivileges()
 
 let mainWindow: BrowserWindow | null = null
 const pendingOpenTargets: LaunchTarget[] = []
@@ -55,11 +60,17 @@ function queueOpenTargets(targets: LaunchTarget[]): void {
   flushOpenTargets()
 }
 
-function initialLaunchTargets(): LaunchTarget[] {
+function initialLaunchPaths(): string[] {
   if (!app.isPackaged) return []
   return parseLaunchTargets(process.argv)
-    .map((target) => inspectLaunchTarget(target))
-    .filter((target): target is LaunchTarget => target !== null)
+}
+
+function focusMainWindow(): void {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.show()
+    mainWindow.focus()
+  }
 }
 
 /**
@@ -153,6 +164,7 @@ function createWindow(): void {
   ipcMain.handle(IPC_CHANNELS.WINDOW.IS_MAXIMIZED, () => win.isMaximized())
 
   // 监听最大化状态变化，通知渲染进程
+  win.on('focus', () => touchHeartbeat())
   win.on('maximize', () => {
     win.webContents.send(IPC_CHANNELS.WINDOW.MAXIMIZED)
   })
@@ -170,27 +182,38 @@ function createWindow(): void {
 
 /**
  * 应用生命周期管理
+ *
+ * 多开流程：新进程启动时寻找「最近使用」的存活实例，
+ * 携带打开目标则转发并退出；否则自己成为实例继续运行。
  */
-const gotSingleInstanceLock = app.requestSingleInstanceLock()
-if (!gotSingleInstanceLock) {
-  // 已有实例在运行：本实例直接退出。多实例共享同一 userData 会争抢
-  // localStorage(LevelDB) 锁，导致渲染进程首次访问 localStorage 阻塞数秒。
-  app.quit()
-} else {
-  // 第二实例启动时：聚焦已有窗口，并转发其命令行打开目标
-  app.on('second-instance', (_event, argv) => {
+async function bootstrap(): Promise<void> {
+  const launchPaths = initialLaunchPaths()
+  const recent = await findRecentAliveInstance()
+
+  if (recent && launchPaths.length > 0) {
+    const forwarded = await sendTargetsToInstance(recent, launchPaths)
+    if (forwarded) {
+      app.quit()
+      return
+    }
+  }
+
+  if (recent) {
+    // 已有实例在运行：隔离 sessionData，避免 Chromium localStorage(LevelDB)
+    // 锁争抢；userData 保持共享（最近文件、AI 配置、恢复快照等）。
+    app.setPath('sessionData', join(app.getPath('userData'), `session-${process.pid}`))
+  }
+
+  // 接收其他实例转发来的打开目标：解析校验后交给渲染进程打开，并聚焦窗口
+  startInstanceService((paths) => {
     if (app.isPackaged) {
       queueOpenTargets(
-        parseLaunchTargets(argv)
+        parseLaunchTargets(paths)
           .map((target) => inspectLaunchTarget(target))
           .filter((target): target is LaunchTarget => target !== null)
       )
     }
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      if (mainWindow.isMinimized()) mainWindow.restore()
-      mainWindow.show()
-      mainWindow.focus()
-    }
+    focusMainWindow()
   })
 
   app.whenReady().then(() => {
@@ -251,6 +274,9 @@ if (!gotSingleInstanceLock) {
   // 注册 PDF 导出 handlers
   registerPdfHandlers()
 
+  // 注册 HTML 预览协议 handlers
+  registerPreviewProtocol()
+
   // 注册同步 IPC handlers
   registerSyncHandlers(syncEngine, () => mainWindow)
 
@@ -262,7 +288,11 @@ if (!gotSingleInstanceLock) {
 
   createWindow()
 
-  queueOpenTargets(initialLaunchTargets())
+  queueOpenTargets(
+    launchPaths
+      .map((target) => inspectLaunchTarget(target))
+      .filter((target): target is LaunchTarget => target !== null)
+  )
 
   // 初始化自动更新，并在启动后延迟静默检查一次
   initUpdater(() => mainWindow)
@@ -278,6 +308,8 @@ if (!gotSingleInstanceLock) {
   })
 }
 
+void bootstrap()
+
 app.on('window-all-closed', () => {
   // 清理临时资源
   cleanupAll()
@@ -290,7 +322,8 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
-  // 应用退出前清理临时资源
+  // 应用退出前清理临时资源与实例注册信息
+  stopInstanceService()
   cleanupAll()
   disposeAiServices()
   syncEngine.dispose()

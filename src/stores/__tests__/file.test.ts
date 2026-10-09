@@ -174,6 +174,27 @@ describe('file store', () => {
       expect(electronAPI.openFile).toHaveBeenCalledTimes(1)
     })
 
+    it('pins the active preview tab via pinActivePreviewTab and ignores normal tabs', async () => {
+      electronAPI.openFile.mockImplementation(async (filePath: string) => ({
+        success: true,
+        data: { document: makeDoc(filePath, 'content'), filePath, format: 'mdx' }
+      }))
+
+      const store = useFileStore()
+      // 无标签时调用是安全无操作
+      store.pinActivePreviewTab()
+
+      await store.openFile('C:/docs/preview.mdx', { preview: true })
+      expect(store.tabs[0].isPreview).toBe(true)
+
+      store.pinActivePreviewTab()
+      expect(store.tabs[0].isPreview).toBe(false)
+
+      // 已是正式标签时再次调用无变化
+      store.pinActivePreviewTab()
+      expect(store.tabs[0].isPreview).toBe(false)
+    })
+
     it('does not create a tab when the user cancels', async () => {
       electronAPI.openFile.mockResolvedValue({ success: false, error: '用户取消' })
 
@@ -317,6 +338,43 @@ describe('file store', () => {
         expect(store.effectiveEditorMode).toBe('split')
         expect(store.canSwitchEditorMode).toBe(true)
       }
+    })
+
+    it('detects html files and toggles html preview only for them', async () => {
+      const store = useFileStore()
+
+      electronAPI.openFile.mockResolvedValue({
+        success: true,
+        data: { document: makeDoc('page', '<h1>hi</h1>'), filePath: 'C:/docs/page.html', format: 'markdown' }
+      })
+      await store.openFile('C:/docs/page.html')
+      expect(store.isHtmlFile).toBe(true)
+      expect(store.htmlPreviewActive).toBe(false)
+      // HTML 不参与 Markdown 模式切换
+      expect(store.canSwitchEditorMode).toBe(false)
+      expect(store.effectiveEditorMode).toBe('plain')
+
+      store.toggleHtmlPreview()
+      expect(store.htmlPreviewActive).toBe(true)
+      store.toggleHtmlPreview()
+      expect(store.htmlPreviewActive).toBe(false)
+
+      electronAPI.openFile.mockResolvedValue({
+        success: true,
+        data: { document: makeDoc('legacy', 'x'), filePath: 'C:/docs/legacy.htm', format: 'markdown' }
+      })
+      await store.openFile('C:/docs/legacy.htm')
+      expect(store.isHtmlFile).toBe(true)
+
+      // 非 HTML 文件：toggle 不生效
+      electronAPI.openFile.mockResolvedValue({
+        success: true,
+        data: { document: makeDoc('note', 'x'), filePath: 'C:/docs/notes.txt', format: 'markdown' }
+      })
+      await store.openFile('C:/docs/notes.txt')
+      expect(store.isHtmlFile).toBe(false)
+      store.toggleHtmlPreview()
+      expect(store.htmlPreviewActive).toBe(false)
     })
   })
 

@@ -147,7 +147,7 @@ const viewMenu = computed<MenuItem[]>(() => [
       { kind: 'item', label: '源码编辑', action: 'mode-source', checked: effectiveMode.value === 'source', disabled: !fileStore.canSwitchEditorMode },
       { kind: 'item', label: '分屏预览', action: 'mode-split', checked: effectiveMode.value === 'split', disabled: !fileStore.canSwitchEditorMode },
       ...(effectiveMode.value === 'plain'
-        ? [{ kind: 'item' as const, label: plainLanguageLabel.value ?? '纯文本', action: 'mode-plain', checked: true, disabled: true }]
+        ? [{ kind: 'item' as const, label: fileStore.isPdfActiveTab ? 'PDF 预览' : (plainLanguageLabel.value ?? '纯文本'), action: 'mode-plain', checked: true, disabled: true }]
         : [])
     ]
   },

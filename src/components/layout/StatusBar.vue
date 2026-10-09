@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { IconCode, IconColumns, IconFileText } from '@tabler/icons-vue'
+import { IconCode, IconColumns, IconFileText, IconFileTypePdf } from '@tabler/icons-vue'
 import { useFileStore, type EditorMode } from '../../stores/file'
 import { findCodeLanguage, languageDisplayName } from '../../utils/editor-language'
 import Tooltip from '../common/Tooltip.vue'
@@ -59,6 +59,7 @@ function toggleEditorMode(): void {
  * 获取模式图标
  */
 const modeIcon = computed(() => {
+  if (fileStore.isPdfActiveTab) return 'pdf'
   const icons: Record<EditorMode, string> = {
     split: 'split',
     source: 'source',
@@ -82,6 +83,7 @@ const plainLanguageLabel = computed<string | null>(() => {
  * 获取模式展示名
  */
 const modeLabel = computed(() => {
+  if (fileStore.isPdfActiveTab) return 'PDF 预览'
   if (effectiveMode.value === 'plain') return plainLanguageLabel.value ?? '纯文本'
   const labels: Record<Exclude<EditorMode, 'plain'>, string> = {
     split: '分屏预览',
@@ -122,6 +124,8 @@ const modeTooltip = computed(() => `${modeLabel.value} (点击切换)`)
           <IconColumns v-if="modeIcon === 'split'" />
           <!-- 即时渲染图标 -->
           <IconFileText v-else-if="modeIcon === 'ir'" />
+          <!-- PDF 预览图标 -->
+          <IconFileTypePdf v-else-if="modeIcon === 'pdf'" />
           <!-- 源码编辑图标 -->
           <IconCode v-else />
           <span class="mode-label">{{ modeLabel }}</span>
