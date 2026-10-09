@@ -48,7 +48,8 @@ export {
 } from './plugins'
 
 // IR 模式插件
-export { createIRPlugin, irPluginKey } from './ir-plugin'
+export { createIRPlugin, irPluginKey, findLinkAt } from './ir-plugin'
+export type { LinkInfo } from './ir-plugin'
 
 // ProseMirror 核心类型重导出
 export type { EditorState, Transaction, Selection } from 'prosemirror-state'

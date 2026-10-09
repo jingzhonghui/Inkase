@@ -184,6 +184,18 @@ export function createPastePlugin(
 ): Plugin {
   return new Plugin({
     props: {
+      transformPastedHTML(html: string): string {
+        // 链接在 IR 中以字面文本 [文字](url) 存储（schema 中已无 link mark）。
+        // 粘贴网页内容时把 <a href> 转成字面文本，避免丢失 URL。
+        if (!html || !html.includes('<a')) return html
+        const doc = new DOMParser().parseFromString(html, 'text/html')
+        doc.querySelectorAll('a[href]').forEach((a) => {
+          const href = a.getAttribute('href') || ''
+          const text = (a.textContent || '').trim() || href
+          a.replaceWith(doc.createTextNode(`[${text}](${href})`))
+        })
+        return doc.body.innerHTML
+      },
       handleDOMEvents: {
         paste: (view, event) => {
           const clipboardData = (event as ClipboardEvent).clipboardData

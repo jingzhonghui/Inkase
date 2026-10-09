@@ -147,12 +147,16 @@ export function applyTaskListRule(md: MarkdownIt): void {
 function createMarkdownIt(): MarkdownIt {
   const md = MarkdownIt('commonmark', {
     html: false,
-    // 与预览（utils/markdown.ts）保持一致：单个换行按硬换行处理、裸 URL 自动识别为链接
-    breaks: true,
-    linkify: true
+    // 与预览（utils/markdown.ts）保持一致：单个换行按硬换行处理
+    breaks: true
   })
-  // commonmark preset 不含 GFM 扩展，需显式启用表格、删除线与自动链接
-  md.enable(['table', 'strikethrough', 'linkify'])
+  // commonmark preset 不含 GFM 扩展，需显式启用表格、删除线
+  md.enable(['table', 'strikethrough'])
+  // 链接不再解析成 mark，保留为字面文本；由 IR 折叠插件按选区渲染/折叠，
+  // 这样光标才能在 [文字](url) 内部任意移动、逐字编辑（含 URL）。
+  md.inline.ruler.disable('link')
+  md.inline.ruler.disable('autolink')
+  md.inline.ruler.disable('linkify')
   applyAdjacentOrderedListSplit(md)
   applyTaskListRule(md)
 
@@ -345,14 +349,7 @@ function createTokens(_schema: Schema): Record<string, any> {
     strong: { mark: 'bold' },
     s: { mark: 'strikethrough' },
     u: { mark: 'underline' },
-    code_inline: { mark: 'code', noCloseToken: true },
-    link: {
-      mark: 'link',
-      getAttrs: (tok: Token) => ({
-        href: getAttr(tok, 'href') || '',
-        title: getAttr(tok, 'title') || ''
-      })
-    }
+    code_inline: { mark: 'code', noCloseToken: true }
   }
 }
 
@@ -514,12 +511,7 @@ function createMarkdownSerializer(_schema: Schema): MarkdownSerializer {
     italic: { open: '*', close: '*', mixable: true, expelEnclosingWhitespace: true },
     strikethrough: { open: '~~', close: '~~', mixable: true, expelEnclosingWhitespace: true },
     underline: { open: '<u>', close: '</u>' },
-    code: { open: '`', close: '`', escape: false },
-    link: {
-      open: '[',
-      close: (_state, mark) =>
-        '](' + mark.attrs.href + (mark.attrs.title ? ' "' + mark.attrs.title + '"' : '') + ')'
-    }
+    code: { open: '`', close: '`', escape: false }
   }
 
   return new MarkdownSerializer(nodes, marks)

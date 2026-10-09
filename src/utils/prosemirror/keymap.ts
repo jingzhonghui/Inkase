@@ -111,31 +111,22 @@ function insertHorizontalRule(): Command {
 }
 
 /**
- * 创建链接的命令
- * 如果选中了文本，将其转换为链接；否则插入新链接
+ * 创建链接的命令。
+ * 链接在文档中以字面文本 `[文字](url)` 形式存在（IR 折叠插件负责渲染/折叠），
+ * 因此这里直接插入/包裹字面文本，并把光标选中文字部分便于编辑。
  */
 function insertLink(href = '', title = ''): Command {
+  const suffix = `(${href}${title ? ' "' + title + '"' : ''})`
   return (state, dispatch) => {
-    const { empty } = state.selection
-
-    if (empty) {
-      // 没有选中文本，插入链接文本
-      // 注意：不能用 replaceSelectionWith，它会按插入点上下文的 marks
-      // 规范化插入节点，导致新节点的 link mark 被剥掉（插入为纯文本）
-      const linkMark = state.schema.marks.link.create({ href, title })
-      const text = state.schema.text(href || '链接', [linkMark])
-
-      if (dispatch) {
-        const { from } = state.selection
-        const tr = state.tr.insert(from, text)
-        tr.setSelection(TextSelection.create(tr.doc, from + text.nodeSize))
-        dispatch(tr)
-      }
-      return true
-    } else {
-      // 有选中文本，添加链接标记
-      return toggleMark(state.schema.marks.link, { href, title })(state, dispatch)
+    const { from, to, empty } = state.selection
+    const label = empty ? href || '链接' : state.doc.textBetween(from, to)
+    const literal = `[${label}]${suffix}`
+    if (dispatch) {
+      const tr = state.tr.insertText(literal, from, empty ? from : to)
+      tr.setSelection(TextSelection.create(tr.doc, from + 1, from + 1 + label.length))
+      dispatch(tr)
     }
+    return true
   }
 }
 

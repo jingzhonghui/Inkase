@@ -157,10 +157,22 @@ describe('Markdown ↔ ProseMirror conversion', () => {
     expect(serializeMarkdown(doc)).toBe(content)
   })
 
-  it('linkifies bare URLs like the preview', () => {
-    const doc = parseMarkdown('see https://example.com now')
-    const marks = doc.child(0).child(1).marks.map((m) => m.type.name)
-    expect(marks).toContain('link')
+  it('keeps bare URLs as literal text (IR folds/styled by plugin)', () => {
+    const content = 'see https://example.com now'
+    const doc = parseMarkdown(content)
+    let hasLinkMark = false
+    doc.descendants((n) => {
+      if (n.marks.some((m) => m.type.name === 'link')) hasLinkMark = true
+      return true
+    })
+    expect(hasLinkMark).toBe(false)
+    expect(serializeMarkdown(doc)).toBe(content)
+  })
+
+  it('keeps explicit links as literal text and round-trips them', () => {
+    const content = 'see [示例](https://example.com "标题") now'
+    const doc = parseMarkdown(content)
+    expect(serializeMarkdown(doc)).toBe(content)
   })
 
   it('parses <u> into an underline mark', () => {
@@ -173,12 +185,6 @@ describe('Markdown ↔ ProseMirror conversion', () => {
   it('round-trips underline', () => {
     const content = '<u>hi</u>'
     expect(serializeMarkdown(parseMarkdown(content))).toBe(content)
-  })
-
-  it('exposes link markers via data-mark for IR rendering', () => {
-    const mark = markdownSchema.marks.link.create({ href: 'https://example.com' })
-    const dom = markdownSchema.marks.link.spec.toDOM?.(mark, true)
-    expect(JSON.stringify(dom)).toContain('data-mark')
   })
 
   it('parses GFM table column alignment into cell attrs', () => {

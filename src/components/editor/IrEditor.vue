@@ -34,6 +34,7 @@ import {
   createIRPlugin,
   createPastePlugin,
   getListClipboard,
+  findLinkAt,
 } from '../../utils/prosemirror'
 import { findMatches, type SearchMatch } from '../../utils/prosemirror/search'
 import { NodeSelection, Selection, TextSelection } from 'prosemirror-state'
@@ -689,10 +690,14 @@ function handleEditorBlankContextMenu(event: MouseEvent): void {
 function handleInternalAnchorClick(view: EditorView, event: MouseEvent): boolean {
   if ((!event.ctrlKey && !event.metaKey) || event.button !== 0) return false
   const target = event.target as HTMLElement
-  const link = target.closest('a')
-  if (!link) return false
+  if (!target.closest('.md-link-text')) return false
 
-  const href = link.getAttribute('href')
+  const coords = view.posAtCoords({ left: event.clientX, top: event.clientY })
+  if (!coords) return false
+  const linkInfo = findLinkAt(view.state, coords.pos)
+  if (!linkInfo) return false
+
+  const href = linkInfo.href
   if (!href) return false
 
   if (href.startsWith('#')) {
@@ -1538,13 +1543,10 @@ function handleAttachmentEvent(e: Event): void {
   const view = viewRef.value
   if (!view) return
   const { path, name } = (e as CustomEvent).detail as { path: string; name: string }
-  const link = view.state.schema.marks.link.create({ href: path, title: name })
-  const text = view.state.schema.text(name, [link])
-  // 不能用 replaceSelectionWith：它会按插入点上下文的 marks 规范化节点，
-  // 导致新文本的 link mark 被剥掉（插入为纯文本）
+  const literal = `[${name}](${path})`
   const { from } = view.state.selection
-  const tr = view.state.tr.insert(from, text)
-  tr.setSelection(TextSelection.create(tr.doc, from + text.nodeSize))
+  const tr = view.state.tr.insertText(literal, from)
+  tr.setSelection(TextSelection.create(tr.doc, from + 1, from + 1 + name.length))
   view.dispatch(tr)
   view.focus()
 }
@@ -2123,8 +2125,23 @@ defineExpose({
 .ir-editor-wrapper :deep([data-mark="underline"]:has(.ir-active-mark)::after) { content: '</u>'; }
 .ir-editor-wrapper :deep([data-mark="code"]:has(.ir-active-mark)::before) { content: '`'; }
 .ir-editor-wrapper :deep([data-mark="code"]:has(.ir-active-mark)::after) { content: '`'; }
-.ir-editor-wrapper :deep([data-mark="link"]:has(.ir-active-mark)::before) { content: '['; }
-.ir-editor-wrapper :deep([data-mark="link"]:has(.ir-active-mark)::after) { content: '](' attr(href) ')'; }
+/* 链接以字面文本 [文字](url) 存储，由 IR 折叠插件生成以下装饰：
+ * - .md-link-text：链接文字 / 裸 URL，样式化为链接
+ * - .md-link-mark：光标在链接区间内时展开显示的 [ ](url) 语法，浅色
+ * - .md-link-hidden：光标在链接区间外时折叠隐藏 [ ](url)，只显示文字 */
+.ir-editor-wrapper :deep(.md-link-text) {
+  color: var(--color-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.ir-editor-wrapper :deep(.md-link-mark) {
+  color: var(--color-text-tertiary);
+  opacity: 0.7;
+}
+.ir-editor-wrapper :deep(.md-link-hidden) {
+  display: none;
+}
 
 .ir-editor-wrapper :deep(.ProseMirror .ProseMirror-cursor) {
   border-left: 2px solid var(--color-primary);
