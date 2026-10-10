@@ -359,7 +359,7 @@ async function onOpenConflictFile(index: number): Promise<void> {
 }
 
 .sync-panel-status {
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) - 1px);
   color: var(--color-text-secondary);
   min-width: 0;
   overflow: hidden;
@@ -368,7 +368,7 @@ async function onOpenConflictFile(index: number): Promise<void> {
 }
 
 .sync-panel-branch {
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) - 1px);
   padding: 1px 6px;
   border-radius: var(--radius-sm);
   background-color: var(--color-bg-secondary);
@@ -411,7 +411,7 @@ async function onOpenConflictFile(index: number): Promise<void> {
 }
 
 .sync-panel-hint {
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) - 1px);
   color: var(--color-text-tertiary);
   margin: 0 0 8px;
 }
@@ -419,7 +419,7 @@ async function onOpenConflictFile(index: number): Promise<void> {
 .sync-panel-conflict-files {
   margin: 0 0 10px;
   padding: 0 0 0 16px;
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) - 1px);
   color: var(--color-danger, #ef4444);
   max-height: 120px;
   overflow-y: auto;
@@ -441,7 +441,7 @@ async function onOpenConflictFile(index: number): Promise<void> {
 .sync-panel-conflict-open {
   flex-shrink: 0;
   padding: 1px 8px;
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 2px);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   background-color: var(--color-bg-secondary);
@@ -452,7 +452,7 @@ async function onOpenConflictFile(index: number): Promise<void> {
 .sync-panel-steps {
   margin: 0 0 10px;
   padding: 0 0 0 18px;
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) - 1px);
   color: var(--color-text-secondary);
   line-height: 1.7;
 }
@@ -465,7 +465,7 @@ async function onOpenConflictFile(index: number): Promise<void> {
 }
 
 .sync-panel-error {
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) - 1px);
   color: var(--color-danger, #ef4444);
   margin: 0 0 8px;
 }
@@ -483,14 +483,14 @@ async function onOpenConflictFile(index: number): Promise<void> {
   border-radius: var(--radius-sm);
   background-color: var(--color-bg-primary);
   color: var(--color-text-primary);
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) - 1px);
 }
 
 .sync-panel-check {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) - 1px);
   color: var(--color-text-secondary);
 }
 
@@ -502,7 +502,7 @@ async function onOpenConflictFile(index: number): Promise<void> {
 
 .sync-panel-btn {
   padding: 4px 12px;
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) - 1px);
   border: 1px solid var(--color-border-hover);
   border-radius: var(--radius-sm);
   background-color: transparent;

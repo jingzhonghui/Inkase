@@ -143,7 +143,7 @@ async function submit(allow: boolean): Promise<void> {
 .backdrop { position: fixed; z-index: 10000; inset: 0; display: grid; place-items: center; padding: 24px; background: rgb(0 0 0 / 48%); }
 .dialog { width: min(680px, 100%); max-height: calc(100vh - 48px); overflow: auto; padding: 20px; border: 1px solid var(--color-border); border-radius: 10px; background: var(--color-bg); box-shadow: 0 20px 50px rgb(0 0 0 / 30%); }
 header { display: flex; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
-h2 { margin: 0; font-size: 18px; }
+h2 { margin: 0; font-size: calc(var(--ui-font-size) + 5px); }
 header p { margin: 5px 0 0; color: var(--color-text-secondary); }
 .risk { align-self: start; padding: 3px 7px; border-radius: 4px; background: var(--color-bg-secondary); text-transform: uppercase; }
 .unsupported { padding: 12px; border: 1px solid var(--color-error, #ef4444); border-radius: 6px; color: var(--color-error, #ef4444); }

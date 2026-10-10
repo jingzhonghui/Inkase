@@ -213,7 +213,7 @@ function scrollToActive(): void {
 .quick-open-input {
   margin: 10px;
   padding: 9px 12px;
-  font-size: 14px;
+  font-size: calc(var(--ui-font-size) + 1px);
   color: var(--color-text);
   background: var(--color-bg-secondary);
   border: 1px solid var(--color-border);
@@ -236,7 +236,7 @@ function scrollToActive(): void {
 
 .quick-open-item {
   padding: 6px 10px;
-  font-size: 13px;
+  font-size: var(--ui-font-size);
   color: var(--color-text);
   border-radius: var(--radius-sm);
   cursor: pointer;
@@ -263,7 +263,7 @@ function scrollToActive(): void {
 .quick-open-empty {
   padding: 18px 12px 22px;
   text-align: center;
-  font-size: 13px;
+  font-size: var(--ui-font-size);
   color: var(--color-text-secondary);
 }
 
@@ -271,7 +271,7 @@ function scrollToActive(): void {
   display: flex;
   gap: 14px;
   padding: 6px 12px;
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 2px);
   color: var(--color-text-tertiary);
   border-top: 1px solid var(--color-border);
 }

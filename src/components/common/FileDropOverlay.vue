@@ -50,14 +50,14 @@ const { isDragging } = useFileDrop()
 
 .file-drop-title {
   margin: 0;
-  font-size: 18px;
+  font-size: calc(var(--ui-font-size) + 5px);
   font-weight: 600;
   color: var(--color-text);
 }
 
 .file-drop-subtitle {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--ui-font-size);
   color: var(--color-text-secondary);
 }
 </style>

@@ -1925,7 +1925,7 @@ defineExpose({
   white-space: pre-wrap;
   caret-color: var(--color-primary);
   font-family: var(--font-sans);
-  font-size: 16px;
+  font-size: var(--editor-font-size, 16px);
   line-height: 1.8;
   color: var(--color-text);
 }

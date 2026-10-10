@@ -190,25 +190,25 @@ function formatTime(ts: number): string {
 <style scoped>
 .conversation-sidebar { position: relative; flex-shrink: 0; display: flex; flex-direction: column; border-right: 1px solid var(--color-border); background: var(--color-bg); }
 .sidebar-header { display: flex; align-items: center; justify-content: space-between; min-height: 46px; padding: 0 12px; border-bottom: 1px solid var(--color-border); }
-.sidebar-header span { font-size: 12px; color: var(--color-text-secondary); }
-.sidebar-header button { padding: 3px 8px; border: 0; border-radius: 4px; background: var(--color-primary); color: white; cursor: pointer; font-size: 12px; }
+.sidebar-header span { font-size: calc(var(--ui-font-size) - 1px); color: var(--color-text-secondary); }
+.sidebar-header button { padding: 3px 8px; border: 0; border-radius: 4px; background: var(--color-primary); color: white; cursor: pointer; font-size: calc(var(--ui-font-size) - 1px); }
 .conversation-list { flex: 1; overflow-y: auto; list-style: none; margin: 0; padding: 4px; }
 .conversation-item { position: relative; padding: 6px 8px; border-radius: 6px; cursor: pointer; }
 .conversation-item:hover { background: var(--color-bg-secondary); }
 .conversation-item.active { background: var(--color-primary-light); }
 .conversation-item.active .conv-title { color: var(--color-primary); font-weight: 600; }
-.conv-title { padding-right: 40px; font-size: 12px; color: var(--color-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.conv-time { font-size: 10px; color: var(--color-text-tertiary); }
+.conv-title { padding-right: 40px; font-size: calc(var(--ui-font-size) - 1px); color: var(--color-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.conv-time { font-size: calc(var(--ui-font-size) - 3px); color: var(--color-text-tertiary); }
 .item-actions { position: absolute; top: 50%; right: 6px; display: flex; gap: 2px; transform: translateY(-50%); opacity: 0; transition: opacity .12s; }
 .item-actions :deep(.tooltip-trigger) { flex: none; }
 .conversation-item:hover .item-actions { opacity: 1; }
 .item-action { display: grid; place-items: center; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--color-text-secondary); cursor: pointer; }
 .item-action:hover { background: var(--color-bg-tertiary); color: var(--color-text); }
-.rename-input { width: 100%; font-size: 12px; border: 1px solid var(--color-border); background: var(--color-bg-primary); color: var(--color-text); }
-.sidebar-footer { padding: 8px 12px; border-top: 1px solid var(--color-border); font-size: 10px; color: var(--color-text-tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rename-input { width: 100%; font-size: calc(var(--ui-font-size) - 1px); border: 1px solid var(--color-border); background: var(--color-bg-primary); color: var(--color-text); }
+.sidebar-footer { padding: 8px 12px; border-top: 1px solid var(--color-border); font-size: calc(var(--ui-font-size) - 3px); color: var(--color-text-tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .resize-handle { position: absolute; top: 0; right: -3px; width: 6px; height: 100%; cursor: col-resize; }
 .resize-handle:hover { background: var(--color-primary-light); }
 .context-menu { position: fixed; z-index: 1000; min-width: 120px; padding: 4px; border: 1px solid var(--color-border); border-radius: 6px; background: var(--color-bg-primary); box-shadow: 0 8px 24px rgb(0 0 0 / 12%); }
-.context-menu-item { display: block; width: 100%; padding: 6px 10px; border: 0; border-radius: 4px; background: transparent; color: var(--color-text); text-align: left; cursor: pointer; font-size: 12px; }
+.context-menu-item { display: block; width: 100%; padding: 6px 10px; border: 0; border-radius: 4px; background: transparent; color: var(--color-text); text-align: left; cursor: pointer; font-size: calc(var(--ui-font-size) - 1px); }
 .context-menu-item:hover { background: var(--color-bg-secondary); }
 </style>

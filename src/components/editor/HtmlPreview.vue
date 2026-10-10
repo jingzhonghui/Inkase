@@ -81,7 +81,7 @@ function refresh(): void {
 }
 
 .preview-hint {
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) - 1px);
   color: var(--color-text-tertiary);
 }
 

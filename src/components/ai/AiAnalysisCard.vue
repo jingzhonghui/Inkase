@@ -36,7 +36,7 @@ const html = computed(() => renderAiMarkdown(props.content))
   border: 1px solid var(--color-border);
   border-radius: 8px;
   background: var(--color-bg-secondary);
-  font-size: 13px;
+  font-size: var(--ui-font-size);
 }
 
 summary {
@@ -78,7 +78,7 @@ summary::-webkit-details-marker {
   flex-shrink: 0;
   margin-left: auto;
   color: var(--color-text-tertiary);
-  font-size: 10px;
+  font-size: calc(var(--ui-font-size) - 3px);
   transition: transform 0.15s;
 }
 
@@ -91,7 +91,7 @@ summary::-webkit-details-marker {
   border-top: 1px solid var(--color-border);
   color: var(--color-text-secondary);
   line-height: 1.55;
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) - 1px);
 }
 
 .analysis-body :deep(> :first-child) { margin-top: 0; }

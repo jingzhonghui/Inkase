@@ -48,7 +48,7 @@ const labels: Record<string, string> = {
   border: 1px solid var(--color-border);
   border-radius: 8px;
   background: var(--color-bg-secondary);
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) - 1px);
 }
 
 summary {
@@ -74,7 +74,7 @@ summary::-webkit-details-marker {
 .tool-icon {
   flex-shrink: 0;
   color: var(--color-text-tertiary);
-  font-size: 13px;
+  font-size: var(--ui-font-size);
 }
 
 .tool-name {
@@ -90,7 +90,7 @@ summary::-webkit-details-marker {
   margin-left: auto;
   padding: 2px 7px;
   border-radius: 4px;
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 2px);
   font-weight: 600;
   letter-spacing: 0.02em;
 }
@@ -123,7 +123,7 @@ summary::-webkit-details-marker {
 .chevron {
   flex-shrink: 0;
   color: var(--color-text-tertiary);
-  font-size: 10px;
+  font-size: calc(var(--ui-font-size) - 3px);
   transition: transform 0.15s;
 }
 
@@ -137,7 +137,7 @@ summary::-webkit-details-marker {
   padding: 10px 12px;
   border-top: 1px solid var(--color-border);
   white-space: pre-wrap;
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) - 1px);
   line-height: 1.55;
 }
 </style>

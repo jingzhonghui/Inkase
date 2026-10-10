@@ -383,7 +383,7 @@ function onDrop(event: DragEvent): void {
 
 .node-name {
   flex: 1;
-  font-size: 13px;
+  font-size: var(--ui-font-size);
   color: var(--color-text);
   overflow: hidden;
   text-overflow: ellipsis;

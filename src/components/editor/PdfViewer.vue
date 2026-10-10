@@ -536,7 +536,7 @@ onUnmounted(() => {
 }
 
 .pdf-file-name {
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) - 1px);
   color: var(--color-text);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -562,7 +562,7 @@ onUnmounted(() => {
   width: 40px;
   height: 24px;
   padding: 0 4px;
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) - 1px);
   text-align: center;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
@@ -571,7 +571,7 @@ onUnmounted(() => {
 }
 
 .pdf-page-total {
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) - 1px);
   color: var(--color-text-tertiary);
 }
 
@@ -585,7 +585,7 @@ onUnmounted(() => {
   min-width: 24px;
   height: 24px;
   padding: 0 6px;
-  font-size: 14px;
+  font-size: calc(var(--ui-font-size) + 1px);
   line-height: 1;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
@@ -610,7 +610,7 @@ onUnmounted(() => {
 }
 
 .pdf-scale-reset {
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) - 1px);
   min-width: 44px;
 }
 
@@ -647,7 +647,7 @@ onUnmounted(() => {
   justify-content: space-between;
   gap: 8px;
   padding: 4px 12px;
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) - 1px);
   line-height: 1.4;
   color: var(--color-text-secondary);
   cursor: pointer;
@@ -681,7 +681,7 @@ onUnmounted(() => {
 
 .pdf-outline-page {
   flex-shrink: 0;
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 2px);
   color: var(--color-text-tertiary);
 }
 
@@ -750,6 +750,6 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   color: var(--color-text-tertiary);
-  font-size: 13px;
+  font-size: var(--ui-font-size);
 }
 </style>

@@ -760,7 +760,7 @@ onUnmounted(() => {
 }
 
 .explorer-title {
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) - 1px);
   font-weight: 600;
   color: var(--color-text-secondary);
   letter-spacing: 0.3px;
@@ -817,7 +817,7 @@ onUnmounted(() => {
 .section-title {
   padding: 0 8px;
   margin-bottom: 4px;
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 2px);
   font-weight: 600;
   color: var(--color-text-tertiary);
   text-transform: uppercase;
@@ -883,7 +883,7 @@ onUnmounted(() => {
 
 .file-name {
   flex: 1;
-  font-size: 13px;
+  font-size: var(--ui-font-size);
   color: var(--color-text);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -891,13 +891,13 @@ onUnmounted(() => {
 }
 
 .modified-indicator {
-  font-size: 10px;
+  font-size: calc(var(--ui-font-size) - 3px);
   color: var(--color-warning);
 }
 
 .folder-empty {
   padding: 16px 8px;
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) - 1px);
   color: var(--color-text-secondary);
   text-align: center;
 }
@@ -919,14 +919,14 @@ onUnmounted(() => {
 }
 
 .empty-text {
-  font-size: 13px;
+  font-size: var(--ui-font-size);
   color: var(--color-text-secondary);
   margin-bottom: 12px;
 }
 
 .empty-action {
   padding: 6px 16px;
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) - 1px);
   font-weight: 500;
   color: var(--color-primary);
   background-color: var(--color-primary-light);
@@ -957,7 +957,7 @@ onUnmounted(() => {
 
 .context-menu-item {
   padding: 6px 14px;
-  font-size: 13px;
+  font-size: var(--ui-font-size);
   color: var(--color-text);
   border-radius: var(--radius-sm);
   cursor: pointer;
@@ -999,7 +999,7 @@ onUnmounted(() => {
 
 .dialog-title {
   margin: 0 0 12px;
-  font-size: 15px;
+  font-size: calc(var(--ui-font-size) + 2px);
   font-weight: 600;
   color: var(--color-text);
 }
@@ -1007,14 +1007,14 @@ onUnmounted(() => {
 .dialog-message {
   margin: 0;
   color: var(--color-text-secondary);
-  font-size: 13px;
+  font-size: var(--ui-font-size);
   line-height: 1.6;
 }
 
 .dialog-input {
   width: 100%;
   padding: 8px 12px;
-  font-size: 13px;
+  font-size: var(--ui-font-size);
   color: var(--color-text);
   background: var(--color-bg-secondary);
   border: 1px solid var(--color-border);
@@ -1038,7 +1038,7 @@ onUnmounted(() => {
 .dialog-error {
   margin: 6px 0 0;
   color: var(--color-error);
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) - 1px);
   line-height: 1.4;
 }
 
@@ -1051,7 +1051,7 @@ onUnmounted(() => {
 
 .dialog-btn {
   padding: 6px 16px;
-  font-size: 13px;
+  font-size: var(--ui-font-size);
   border: none;
   border-radius: var(--radius-sm);
   cursor: pointer;

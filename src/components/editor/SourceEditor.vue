@@ -663,7 +663,7 @@ function getThemeExtension(): Extension {
  */
 const editorStyles = EditorView.theme({
   '&': {
-    fontSize: '14px',
+    fontSize: 'calc(var(--editor-font-size, 16px) - 2px)',
     fontFamily: 'var(--font-mono)'
   },
   '.cm-content': {

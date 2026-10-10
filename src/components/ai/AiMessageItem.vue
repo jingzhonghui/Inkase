@@ -92,7 +92,7 @@ const showRecall = computed(() => props.canRecall && props.message.role === 'use
 .message { position: relative; max-width: 780px; padding: 14px 18px; border-left: 2px solid transparent; }
 .message-user { border-left-color: #f59e0b; }
 .message-assistant { border-left-color: var(--color-primary); }
-.message-meta { margin-bottom: 7px; color: var(--color-text-tertiary); font-size: 11px; font-weight: 600; letter-spacing: .08em; }
+.message-meta { margin-bottom: 7px; color: var(--color-text-tertiary); font-size: calc(var(--ui-font-size) - 2px); font-weight: 600; letter-spacing: .08em; }
 .message-body { line-height: 1.65; overflow-wrap: anywhere; }
 .message-body :deep(> :first-child) { margin-top: 0; }
 .message-body :deep(> :last-child) { margin-bottom: 0; }
