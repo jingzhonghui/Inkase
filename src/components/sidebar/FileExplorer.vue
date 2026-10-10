@@ -4,7 +4,7 @@ import { IconChevronsLeft, IconFolderOpen } from '@tabler/icons-vue'
 import { useFileStore, type FileTreeNode } from '../../stores/file'
 import { requestDialog } from '../../utils/dialog'
 import Tooltip from '../common/Tooltip.vue'
-import { validateWindowsFolderName } from '../../utils/windows-filename'
+import { validateWindowsFolderName, validateWindowsFileName } from '../../utils/windows-filename'
 import { dedupeTopLevelPaths } from '../../../shared/fs/dedupe'
 import FileTreeItem from './FileTreeItem.vue'
 
@@ -359,20 +359,17 @@ function openInputDialog(title: string, initialValue: string, placeholder: strin
   })
 }
 
-// ========== 新建文件对话框（文件名 + 后缀下拉框） ==========
+// ========== 新建文件对话框（文件名，后缀自由输入） ==========
 const showCreateFileDialog = ref(false)
 const createFileName = ref('')
-const createFileExt = ref('.mdx')
-const createFileError = ref(false)
+const createFileError = ref('')
 const createFileInputRef = ref<HTMLInputElement | null>(null)
-const FILE_EXTENSIONS = ['.mdx', '.md', '.txt'] as const
 let createFileResolve: ((value: string | null) => void) | null = null
 
 function openCreateFileDialog(): Promise<string | null> {
   return new Promise((resolve) => {
     createFileName.value = ''
-    createFileExt.value = '.mdx'
-    createFileError.value = false
+    createFileError.value = ''
     showCreateFileDialog.value = true
     createFileResolve = resolve
     nextTick(() => createFileInputRef.value?.focus())
@@ -380,17 +377,17 @@ function openCreateFileDialog(): Promise<string | null> {
 }
 
 function confirmCreateFile(): void {
-  let base = createFileName.value.trim()
-  // 若用户直接输入了完整文件名，剥离已有后缀再按选择的扩展名拼接
-  base = base.replace(/\.(mdx?|md|txt)$/i, '')
-  if (!base) {
-    createFileError.value = true
+  // 文件名（含后缀）原样使用，不做默认后缀补全
+  const name = createFileName.value.trim()
+  const validationError = validateWindowsFileName(name)
+  if (validationError) {
+    createFileError.value = validationError
     createFileInputRef.value?.focus()
     return
   }
-  createFileError.value = false
+  createFileError.value = ''
   showCreateFileDialog.value = false
-  createFileResolve?.(base + createFileExt.value)
+  createFileResolve?.(name)
   createFileResolve = null
 }
 
@@ -694,7 +691,7 @@ onUnmounted(() => {
       </div>
     </teleport>
 
-    <!-- ====== 新建文件对话框（文件名 + 后缀下拉框） ====== -->
+    <!-- ====== 新建文件对话框（文件名，后缀自由输入） ====== -->
     <teleport to="body">
       <div
         v-if="showCreateFileDialog"
@@ -708,31 +705,23 @@ onUnmounted(() => {
           <h3 class="dialog-title">
             新建文件
           </h3>
-          <div class="create-file-row">
-            <input
-              ref="createFileInputRef"
-              v-model="createFileName"
-              type="text"
-              spellcheck="false"
-              class="dialog-input dialog-input-flex"
-              :class="{ 'dialog-input-error': createFileError }"
-              placeholder="请输入文件名"
-              @keyup.enter="confirmCreateFile"
-              @input="createFileError = false"
-            >
-            <select
-              v-model="createFileExt"
-              class="dialog-select"
-            >
-              <option
-                v-for="ext in FILE_EXTENSIONS"
-                :key="ext"
-                :value="ext"
-              >
-                {{ ext }}
-              </option>
-            </select>
-          </div>
+          <input
+            ref="createFileInputRef"
+            v-model="createFileName"
+            type="text"
+            spellcheck="false"
+            class="dialog-input"
+            :class="{ 'dialog-input-error': createFileError }"
+            placeholder="例如：笔记.mdx、deploy.sh、config.json"
+            @keyup.enter="confirmCreateFile"
+            @input="createFileError = ''"
+          >
+          <p
+            v-if="createFileError"
+            class="dialog-error"
+          >
+            {{ createFileError }}
+          </p>
           <div class="dialog-actions">
             <button
               class="dialog-btn dialog-btn-cancel"
@@ -1051,30 +1040,6 @@ onUnmounted(() => {
   color: var(--color-error);
   font-size: 12px;
   line-height: 1.4;
-}
-
-.create-file-row {
-  display: flex;
-  gap: 8px;
-}
-
-.dialog-input-flex {
-  flex: 1;
-}
-
-.dialog-select {
-  padding: 8px 12px;
-  font-size: 13px;
-  color: var(--color-text);
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  outline: none;
-  cursor: pointer;
-}
-
-.dialog-select:focus {
-  border-color: var(--color-primary);
 }
 
 .dialog-actions {

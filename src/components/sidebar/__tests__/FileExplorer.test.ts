@@ -7,7 +7,7 @@ import { nextTick } from 'vue'
 import FileExplorer from '../FileExplorer.vue'
 import { useFileStore } from '../../../stores/file'
 import type { FileTreeNode, TabInfo } from '../../../stores/file/types'
-import { validateWindowsFolderName } from '../../../utils/windows-filename'
+import { validateWindowsFolderName, validateWindowsFileName } from '../../../utils/windows-filename'
 
 function makeDir(path: string, name: string, children: FileTreeNode[] = []): FileTreeNode {
   return { name, path, isDirectory: true, isExpanded: true, isLoading: false, children }
@@ -43,6 +43,34 @@ describe('validateWindowsFolderName', () => {
   it('rejects reserved device names including names with extensions', () => {
     for (const name of ['CON', 'con.txt', 'PRN', 'AUX', 'NUL', 'COM1', 'COM9.data', 'LPT1', 'lpt9.log']) {
       expect(validateWindowsFolderName(name)).not.toBeNull()
+    }
+  })
+})
+
+describe('validateWindowsFileName', () => {
+  it('accepts custom suffixes and extensionless names', () => {
+    expect(validateWindowsFileName('deploy.sh')).toBeNull()
+    expect(validateWindowsFileName('config.json')).toBeNull()
+    expect(validateWindowsFileName('笔记')).toBeNull()
+    expect(validateWindowsFileName('data.tar.gz')).toBeNull()
+  })
+
+  it('rejects empty names and names ending in spaces or dots', () => {
+    expect(validateWindowsFileName('')).not.toBeNull()
+    expect(validateWindowsFileName('   ')).not.toBeNull()
+    expect(validateWindowsFileName('note ')).not.toBeNull()
+    expect(validateWindowsFileName('note.')).not.toBeNull()
+  })
+
+  it('rejects reserved characters and control characters', () => {
+    for (const name of ['a<b', 'a>b', 'a:b', 'a"b', 'a/b', 'a\\b', 'a|b', 'a?b', 'a*b', 'a\u0001b']) {
+      expect(validateWindowsFileName(name)).not.toBeNull()
+    }
+  })
+
+  it('rejects reserved device names including names with extensions', () => {
+    for (const name of ['CON', 'con.txt', 'NUL', 'COM1.sh', 'LPT9.json']) {
+      expect(validateWindowsFileName(name)).not.toBeNull()
     }
   })
 })
@@ -138,6 +166,81 @@ describe('FileExplorer 新建文件夹输入', () => {
     expect(document.body.querySelector('.dialog-input')).not.toBeNull()
     expect(document.body.querySelector('.dialog-error')?.textContent).toContain('Windows 保留名称')
     expect(createFolder).not.toHaveBeenCalled()
+  })
+})
+
+describe('FileExplorer 新建文件对话框（后缀自由输入）', () => {
+  function mountExplorer() {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const fileStore = useFileStore()
+    fileStore.openedFolderPath = 'C:/workspace'
+    fileStore.fileTree = [makeDir('C:/workspace', 'workspace')]
+    return { wrapper: mount(FileExplorer, { global: { plugins: [pinia] } }), fileStore }
+  }
+
+  async function openCreateFileDialog(wrapper: ReturnType<typeof mount>): Promise<void> {
+    await wrapper.find('.file-list').trigger('contextmenu', { clientX: 10, clientY: 10 })
+    const menuItem = Array.from(document.body.querySelectorAll('.context-menu-item'))
+      .find((el) => el.textContent?.trim() === '新建文件')
+    menuItem?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await nextTick()
+  }
+
+  async function fillAndConfirm(name: string): Promise<void> {
+    const input = document.body.querySelector<HTMLInputElement>('.dialog-input')!
+    input.value = name
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    await nextTick()
+    document.body.querySelector<HTMLButtonElement>('.dialog-btn-confirm')?.click()
+    await nextTick()
+  }
+
+  beforeEach(() => {
+    document.body.innerHTML = ''
+  })
+
+  afterEach(() => {
+    document.body.innerHTML = ''
+  })
+
+  it('starts empty with an example placeholder and no extension dropdown', async () => {
+    const { wrapper } = mountExplorer()
+    await openCreateFileDialog(wrapper)
+
+    const input = document.body.querySelector<HTMLInputElement>('.dialog-input')
+    expect(input?.value).toBe('')
+    expect(input?.placeholder).toContain('例如')
+    expect(document.body.querySelector('.dialog-select')).toBeNull()
+  })
+
+  it('creates a file with a custom suffix exactly as typed', async () => {
+    const { wrapper, fileStore } = mountExplorer()
+    const createFile = vi.spyOn(fileStore, 'createFile').mockResolvedValue(true)
+    await openCreateFileDialog(wrapper)
+    await fillAndConfirm('deploy.sh')
+
+    expect(createFile).toHaveBeenCalledWith('C:/workspace', 'deploy.sh')
+  })
+
+  it('creates an extensionless file exactly as typed (no default suffix)', async () => {
+    const { wrapper, fileStore } = mountExplorer()
+    const createFile = vi.spyOn(fileStore, 'createFile').mockResolvedValue(true)
+    await openCreateFileDialog(wrapper)
+    await fillAndConfirm('笔记')
+
+    expect(createFile).toHaveBeenCalledWith('C:/workspace', '笔记')
+  })
+
+  it('keeps the dialog open and reports an invalid name', async () => {
+    const { wrapper, fileStore } = mountExplorer()
+    const createFile = vi.spyOn(fileStore, 'createFile').mockResolvedValue(true)
+    await openCreateFileDialog(wrapper)
+    await fillAndConfirm('a/b')
+
+    expect(document.body.querySelector('.dialog-input')).not.toBeNull()
+    expect(document.body.querySelector('.dialog-error')?.textContent).toContain('不能包含')
+    expect(createFile).not.toHaveBeenCalled()
   })
 })
 

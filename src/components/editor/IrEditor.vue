@@ -735,10 +735,35 @@ function handleInternalAnchorClick(view: EditorView, event: MouseEvent): boolean
   return true
 }
 
+/**
+ * 折叠态链接末尾的点击校正。
+ * 链接在文档中是字面文本 `[文字](url)`，折叠时 `[` 与 `](url)` 被 display:none 隐藏。
+ * 当链接位于行末时，点击链接文字右边缘，posAtCoords 会落到文字末尾边界（隐藏的 `]`
+ * 之前）——若直接插入会变成 `[文字xx](url)`。此处将该位置校正为链接之后（`)` 之后），
+ * 使输入内容出现在链接文本后面。
+ */
+function handleFoldedLinkEndClick(view: EditorView, event: MouseEvent): boolean {
+  if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return false
+  const coords = view.posAtCoords({ left: event.clientX, top: event.clientY })
+  if (!coords) return false
+  const link = findLinkAt(view.state, coords.pos)
+  if (!link || link.labelTo >= link.to) return false
+  if (coords.pos !== link.labelTo) return false
+
+  // 仅当链接当前处于折叠态时才校正（展开态下点击文字末尾表示要编辑链接文字）
+  const sel = view.state.selection
+  const folded = !(sel.from < link.to && sel.to > link.from)
+  if (!folded) return false
+
+  event.preventDefault()
+  view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, link.to)))
+  view.focus()
+  return true
+}
+
 function updateCtrlPressed(event: KeyboardEvent): void {
   if (event.key === 'Control' || event.key === 'Meta') ctrlPressed.value = true
 }
-
 function clearCtrlPressed(event: KeyboardEvent): void {
   if (event.key === 'Control' || event.key === 'Meta') ctrlPressed.value = false
 }
@@ -797,6 +822,7 @@ function createContextMenuPlugin(): ProseMirrorPlugin {
           const target = event.target as HTMLElement
 
           if (handleInternalAnchorClick(view, mouseEvent)) return true
+          if (handleFoldedLinkEndClick(view, mouseEvent)) return true
 
           // 点击图片：选中图片节点
           if (target.closest('img')) {
@@ -2140,7 +2166,14 @@ defineExpose({
   opacity: 0.7;
 }
 .ir-editor-wrapper :deep(.md-link-hidden) {
-  display: none;
+  /* 不用 display:none：隐藏的 ](url) 需要能稳定承载光标位置，
+   * 否则光标会被浏览器吸附到文字末尾、导致在括号内插入。用零宽裁剪的
+   * inline-block 让语法不可见但保留可定位的光标锚点。 */
+  display: inline-block;
+  width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  vertical-align: baseline;
 }
 
 .ir-editor-wrapper :deep(.ProseMirror .ProseMirror-cursor) {

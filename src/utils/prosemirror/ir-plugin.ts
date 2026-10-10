@@ -193,12 +193,17 @@ function flattenInline(
   return { text: chars.join(''), posMap }
 }
 
-/** 链接信息（用于 Ctrl+点击打开、编辑等）。 */
+/** 链接信息（用于 Ctrl+点击打开、编辑、光标校正等）。 */
 export interface LinkInfo {
   href: string
+  /** 链接文字 */
   text: string
+  /** 整个 `[文字](url)` 区间 */
   from: number
   to: number
+  /** 链接文字区间（[ 与 ](url) 之间） */
+  labelFrom: number
+  labelTo: number
 }
 
 /**
@@ -227,7 +232,9 @@ export function findLinkAt(state: EditorState, pos: number): LinkInfo | null {
     const from = posMap[m.index]
     const to = posMap[m.index + m[0].length]
     if (pos >= from && pos <= to) {
-      return { href: m[2], text: m[1], from, to }
+      const labelFrom = posMap[m.index + 1]
+      const labelTo = posMap[m.index + 1 + m[1].length]
+      return { href: m[2], text: m[1], from, to, labelFrom, labelTo }
     }
   }
 
@@ -236,7 +243,7 @@ export function findLinkAt(state: EditorState, pos: number): LinkInfo | null {
     const from = posMap[m.index]
     const to = posMap[m.index + m[0].length]
     if (pos >= from && pos <= to) {
-      return { href: m[0], text: m[0], from, to }
+      return { href: m[0], text: m[0], from, to, labelFrom: from, labelTo: to }
     }
   }
 

@@ -6,7 +6,7 @@ import { EditorView, keymap, lineNumbers, highlightActiveLineGutter, highlightSp
 import { EditorState, Compartment, StateField, StateEffect, type Extension } from '@codemirror/state'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { languages } from '@codemirror/language-data'
-import { defaultHighlightStyle, syntaxHighlighting, HighlightStyle } from '@codemirror/language'
+import { defaultHighlightStyle, syntaxHighlighting, HighlightStyle, bracketMatching } from '@codemirror/language'
 import { tags as hlTags } from '@lezer/highlight'
 import { history, defaultKeymap, historyKeymap, indentWithTab, undo, redo } from '@codemirror/commands'
 import { highlightSelectionMatches } from '@codemirror/search'
@@ -57,6 +57,44 @@ const plainTextValueHighlights: Extension[] = [
   syntaxHighlighting(HighlightStyle.define([{ tag: hlTags.quote, color: '#98c379' }], { themeType: 'dark' })),
   syntaxHighlighting(HighlightStyle.define([{ tag: hlTags.quote, color: '#a11' }], { themeType: 'light' }))
 ]
+
+/**
+ * 浅色主题的完整代码配色（替换 defaultHighlightStyle 使用）。
+ * 起因：@codemirror/language 的 defaultHighlightStyle 里属性名只匹配
+ * definition(propertyName)，不含普通 propertyName，也没有 name/punctuation/operator 等，
+ * 导致浅色主题下 JSON 的键名、括号、冒号等无颜色（数字因 number⊂literal 才被着色）。
+ * 这里给出一套接近 VSCode 浅色的完整配色；顶部保留 Markdown 结构规则以不改变 Markdown 源码观感。
+ */
+const codeHighlightLight = HighlightStyle.define(
+  [
+    // Markdown 结构（与 defaultHighlightStyle 一致）
+    { tag: hlTags.link, textDecoration: 'underline' },
+    { tag: hlTags.heading, textDecoration: 'underline', fontWeight: 'bold' },
+    { tag: hlTags.emphasis, fontStyle: 'italic' },
+    { tag: hlTags.strong, fontWeight: 'bold' },
+    { tag: hlTags.strikethrough, textDecoration: 'line-through' },
+    // 代码
+    { tag: hlTags.comment, color: '#008000' },
+    { tag: hlTags.keyword, color: '#af00db' },
+    { tag: hlTags.string, color: '#a31515' },
+    { tag: hlTags.number, color: '#098658' },
+    { tag: [hlTags.bool, hlTags.null, hlTags.atom, hlTags.self, hlTags.url], color: '#0000ff' },
+    { tag: [hlTags.regexp, hlTags.escape, hlTags.special(hlTags.string)], color: '#ee0000' },
+    { tag: [hlTags.propertyName, hlTags.attributeName], color: '#0451a5' },
+    { tag: hlTags.attributeValue, color: '#0000ff' },
+    { tag: hlTags.variableName, color: '#001080' },
+    {
+      tag: [hlTags.definition(hlTags.variableName), hlTags.function(hlTags.variableName), hlTags.labelName],
+      color: '#795e26'
+    },
+    { tag: [hlTags.typeName, hlTags.className, hlTags.namespace, hlTags.tagName], color: '#267f99' },
+    { tag: hlTags.operator, color: '#000000' },
+    { tag: hlTags.punctuation, color: '#6e7781' },
+    { tag: hlTags.meta, color: '#404740' },
+    { tag: hlTags.invalid, color: '#cd3131' }
+  ],
+  { themeType: 'light' }
+)
 
 // 查找替换面板状态
 const searchOpen = ref(false)
@@ -126,6 +164,8 @@ function createExtensions(): Extension[] {
     highlightActiveLine(),
     highlightSelectionMatches(),
     closeBrackets(),
+    // 光标所在括号与配对括号高亮（VSCode 式括号匹配）
+    bracketMatching(),
 
     ...(props.plainText
       ? [
@@ -577,9 +617,9 @@ function getThemeExtension(): Extension {
     ]
   }
   
-  // 浅色主题使用默认样式（此前缺少语法着色器，纯文本语言高亮与 markdown 源码均无颜色）
+  // 浅色主题：使用完整的代码配色（替换 defaultHighlightStyle，补齐缺失 tag）
   return [
-    syntaxHighlighting(defaultHighlightStyle),
+    syntaxHighlighting(codeHighlightLight),
     EditorView.theme({
     '&': {
       backgroundColor: 'var(--color-bg-primary)',

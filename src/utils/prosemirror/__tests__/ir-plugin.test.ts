@@ -200,6 +200,8 @@ describe('IR marker decorations', () => {
     expect(found?.text).toBe('链接')
     expect(found?.from).toBe(b.openFrom)
     expect(found?.to).toBe(b.suffixTo)
+    expect(found?.labelFrom).toBe(b.textFrom)
+    expect(found?.labelTo).toBe(b.textTo)
     expect(findLinkAt(state, 1)).toBeNull()
   })
 
