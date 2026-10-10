@@ -4,8 +4,12 @@
 import { Schema, NodeType } from 'prosemirror-model'
 import {
   TextSelection,
-  Command
+  Command,
+  Plugin,
+  PluginKey,
+  EditorState
 } from 'prosemirror-state'
+import type { Transaction } from 'prosemirror-state'
 import {
   toggleMark,
   wrapIn,
@@ -29,7 +33,7 @@ import {
   sinkListItem
 } from 'prosemirror-schema-list'
 import { undo, redo } from 'prosemirror-history'
-import { isInTable } from 'prosemirror-tables'
+import { isInTable, goToNextCell } from 'prosemirror-tables'
 import { markdownSchema } from './schema'
 
 /**
@@ -328,31 +332,157 @@ function convertBlockMarkerOnEnter(schema: Schema): Command {
 }
 
 /**
- * Tab 键处理 - 缩进/反缩进列表
+ * Tab 缩进单位（与列表缩进保持一致：2 个空格）
+ */
+const TAB_INDENT = '  '
+
+/**
+ * Tab 焦点逃逸模式。
+ * 开启后编辑器不再拦截 Tab，允许键盘把焦点移出编辑器；通过 Ctrl+M 切换。
+ * 存储于编辑器状态而非模块变量，保证多标签/多编辑器互不干扰且可测试。
+ */
+export const tabFocusModeKey = new PluginKey<boolean>('tabFocusMode')
+
+export const tabFocusModePlugin = new Plugin<boolean>({
+  key: tabFocusModeKey,
+  state: {
+    init: () => false,
+    apply(tr, value) {
+      const meta = tr.getMeta(tabFocusModeKey)
+      return meta === undefined ? value : Boolean(meta)
+    }
+  }
+})
+
+interface CodeLine {
+  start: number
+  end: number
+}
+
+/** 光标所在代码块的内容信息（内容起始位置 + 文本 + 按 \n 切分的行范围） */
+function getCodeBlockInfo(
+  state: EditorState
+): { contentStart: number; text: string; lines: CodeLine[] } | null {
+  const { $from } = state.selection
+  if ($from.parent.type.name !== 'code_block') return null
+  const contentStart = $from.start()
+  const text = $from.parent.textContent
+  const lines: CodeLine[] = []
+  let start = 0
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '\n') {
+      lines.push({ start, end: i })
+      start = i + 1
+    }
+  }
+  lines.push({ start, end: text.length })
+  return { contentStart, text, lines }
+}
+
+function leadingSpaces(text: string): number {
+  return text.match(/^ */)?.[0].length ?? 0
+}
+
+/**
+ * 代码块缩进 / 反缩进。
+ * - 空选区：Tab 在光标处插入缩进；Shift-Tab 删除当前行行首的缩进。
+ * - 非空选区：对选区覆盖的每一行行首增 / 删缩进。
+ */
+function changeCodeBlockIndent(
+  state: EditorState,
+  dispatch: ((tr: Transaction) => void) | undefined,
+  outdent: boolean
+): boolean {
+  const info = getCodeBlockInfo(state)
+  if (!info) return false
+  const { from, to } = state.selection
+  const { contentStart, text, lines } = info
+
+  // 空选区
+  if (from === to) {
+    if (!outdent) {
+      if (dispatch) dispatch(state.tr.insertText(TAB_INDENT, from))
+      return true
+    }
+    const target = lines.find(
+      (line) => from >= contentStart + line.start && from <= contentStart + line.end
+    ) ?? lines[0]
+    const absStart = contentStart + target.start
+    const remove = Math.min(TAB_INDENT.length, leadingSpaces(text.slice(target.start, target.end)))
+    if (remove > 0 && dispatch) {
+      dispatch(state.tr.delete(absStart, absStart + remove))
+    }
+    return true
+  }
+
+  // 非空选区：从后往前处理，避免位置偏移
+  const targets = lines.filter(
+    (line) => contentStart + line.end >= from && contentStart + line.start <= to
+  )
+  if (dispatch) {
+    const tr = state.tr
+    for (let i = targets.length - 1; i >= 0; i--) {
+      const line = targets[i]
+      const absStart = contentStart + line.start
+      if (outdent) {
+        const remove = Math.min(TAB_INDENT.length, leadingSpaces(text.slice(line.start, line.end)))
+        if (remove > 0) tr.delete(absStart, absStart + remove)
+      } else {
+        tr.insertText(TAB_INDENT, absStart)
+      }
+    }
+    dispatch(tr)
+  }
+  return true
+}
+
+/**
+ * Tab 键处理。
+ * 分派顺序：表格导航 → 列表缩进 → 代码块缩进 → 其它文本块（消费按键，避免焦点跳走）。
+ * 焦点逃逸模式开启时直接放行，让浏览器执行默认的焦点切换。
  */
 function handleTab(schema: Schema): Command {
   return (state, dispatch) => {
+    if (tabFocusModeKey.getState(state)) return false
+    if (isInTable(state)) {
+      goToNextCell(1)(state, dispatch)
+      return true
+    }
     const { $from } = state.selection
-    const depth = $from.depth
-    const parent = $from.node(depth)
+    const parent = $from.node($from.depth)
 
     if (parent.type.name === 'list_item' || parent.type.name === 'task_item') {
-      return sinkListItem(schema.nodes.list_item)(state, dispatch)
+      sinkListItem(schema.nodes.list_item)(state, dispatch)
+      return true
     }
-    return false
+    if (parent.type.name === 'code_block') {
+      return changeCodeBlockIndent(state, dispatch, false)
+    }
+    return true
   }
 }
 
+/**
+ * Shift-Tab 键处理（与 handleTab 对称）。
+ */
 function handleShiftTab(schema: Schema): Command {
   return (state, dispatch) => {
+    if (tabFocusModeKey.getState(state)) return false
+    if (isInTable(state)) {
+      goToNextCell(-1)(state, dispatch)
+      return true
+    }
     const { $from } = state.selection
-    const depth = $from.depth
-    const parent = $from.node(depth)
+    const parent = $from.node($from.depth)
 
     if (parent.type.name === 'list_item' || parent.type.name === 'task_item') {
-      return liftListItem(schema.nodes.list_item)(state, dispatch)
+      liftListItem(schema.nodes.list_item)(state, dispatch)
+      return true
     }
-    return false
+    if (parent.type.name === 'code_block') {
+      return changeCodeBlockIndent(state, dispatch, true)
+    }
+    return true
   }
 }
 
@@ -538,6 +668,14 @@ export function buildKeymap(schema: Schema): Record<string, Command> {
     // Tab 缩进
     'Tab': handleTab(schema),
     'Shift-Tab': handleShiftTab(schema),
+
+    // Ctrl+M：切换 Tab 焦点逃逸模式（开启后 Tab 可移动焦点离开编辑器）
+    'Ctrl-m': (state, dispatch) => {
+      if (dispatch) {
+        dispatch(state.tr.setMeta(tabFocusModeKey, !tabFocusModeKey.getState(state)))
+      }
+      return true
+    },
 
     // 硬换行 (Shift+Enter)
     'Shift-Enter': insertHardBreak()

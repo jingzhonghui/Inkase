@@ -9,7 +9,7 @@ import { dropCursor } from 'prosemirror-dropcursor'
 import { gapCursor } from 'prosemirror-gapcursor'
 import { baseKeymap } from 'prosemirror-commands'
 import { tableEditing } from 'prosemirror-tables'
-import { buildKeymap } from './keymap'
+import { buildKeymap, tabFocusModePlugin } from './keymap'
 import { buildInputRules } from './inputrules'
 
 /**
@@ -44,6 +44,9 @@ export function createPlugins(schema: Schema): Plugin[] {
 
     // 表格编辑核心插件（处理光标定位、单元格导航、选择等）
     tableEditing(),
+
+    // Tab 焦点逃逸模式状态（配合 Ctrl+M 切换）
+    tabFocusModePlugin,
 
     // 输入规则（Markdown 语法自动转换）
     buildInputRules(schema),
