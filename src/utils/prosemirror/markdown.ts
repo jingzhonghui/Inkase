@@ -522,6 +522,22 @@ const markdownParser = createMarkdownParser(markdownSchema)
 const markdownSerializer = createMarkdownSerializer(markdownSchema)
 
 /**
+ * 统计文档尾部已有的连续空段落数
+ */
+function countTrailingEmptyParagraphs(doc: ProseMirrorNode): number {
+  let count = 0
+  for (let i = doc.childCount - 1; i >= 0; i--) {
+    const child = doc.child(i)
+    if (child.type.name === 'paragraph' && child.content.size === 0) {
+      count++
+    } else {
+      break
+    }
+  }
+  return count
+}
+
+/**
  * Markdown → ProseMirror Node 解析
  * @param content Markdown 文本
  * @returns ProseMirror Node
@@ -532,7 +548,7 @@ export function parseMarkdown(content: string): ProseMirrorNode {
     return markdownSchema.node('doc', null, [markdownSchema.node('paragraph')])
   }
 
-  const doc = (
+  let doc = (
     markdownParser.parse(content) ||
     markdownSchema.node('doc', null, [markdownSchema.node('paragraph')])
   )
@@ -542,8 +558,21 @@ export function parseMarkdown(content: string): ProseMirrorNode {
   // 编辑器依赖末尾空段落（createPlugins 的 appendTransaction 也保证这一点）。
   // 若这里不补，首次任何 dispatch 都会触发 appendTransaction 追加段落，
   // 被 createDocumentChangePlugin 当作文档被修改回写 store，导致打开即"未保存"。
-  if (lastType === 'code_block' || lastType === 'table') {
-    return doc.copy(doc.content.append(Fragment.from(markdownSchema.node('paragraph'))))
+  const needsTrailingParagraph = lastType === 'code_block' || lastType === 'table'
+
+  // 尾部空行补偿：serializeMarkdown 中 k 个尾部空段落恰好产出 2k 个尾随换行，
+  // 因此 k = floor(尾随换行数 / 2) 可与序列化往返稳定收敛。
+  // markdown-it 标准解析会丢弃尾随空行，不补则 IR 模式重新打开后空行丢失。
+  const trailingNewlines = /\n*$/.exec(content)?.[0].length ?? 0
+  const desiredEmptyParagraphs = Math.floor(trailingNewlines / 2)
+  const target = Math.max(desiredEmptyParagraphs, needsTrailingParagraph ? 1 : 0)
+
+  const have = countTrailingEmptyParagraphs(doc)
+  if (have < target) {
+    const additions = Fragment.fromArray(
+      Array.from({ length: target - have }, () => markdownSchema.node('paragraph'))
+    )
+    doc = doc.copy(doc.content.append(additions))
   }
 
   return doc
@@ -551,12 +580,23 @@ export function parseMarkdown(content: string): ProseMirrorNode {
 
 /**
  * ProseMirror Node → Markdown 序列化
+ *
+ * prosemirror-markdown 的实现中空段落不产生任何 write，flushClose 只在下一次
+ * write 前触发——导致文档末尾的空段落被静默丢弃。这里按 doc 尾部连续空段落数 k，
+ * 将输出补足到恰好 2k 个尾随换行，与 parseMarkdown 的 k = floor(尾随换行数 / 2)
+ * 精确互逆，保证 IR 模式的尾部空行可持久化并稳定往返。
+ *
  * @param doc ProseMirror Node
  * @returns Markdown 文本
  */
 export function serializeMarkdown(doc: ProseMirrorNode): string {
   // tightLists: true —— 默认按紧凑列表序列化，避免「打开紧凑列表→切换模式」后被插入空行
-  return markdownSerializer.serialize(doc, { tightLists: true })
+  const base = markdownSerializer.serialize(doc, { tightLists: true })
+  const trailingEmpty = countTrailingEmptyParagraphs(doc)
+  if (base.length === 0 || trailingEmpty === 0) return base
+  const existing = /\n*$/.exec(base)?.[0].length ?? 0
+  const pad = Math.max(0, trailingEmpty * 2 - existing)
+  return base + '\n'.repeat(pad)
 }
 
 export { markdownParser, markdownSerializer, markdownSchema }

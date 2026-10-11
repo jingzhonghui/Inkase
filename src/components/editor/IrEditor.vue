@@ -37,6 +37,7 @@ import {
   findLinkAt,
 } from '../../utils/prosemirror'
 import { findMatches, type SearchMatch } from '../../utils/prosemirror/search'
+import { useEditorFontZoom } from '../../composables/useEditorFontZoom'
 import { NodeSelection, Selection, TextSelection } from 'prosemirror-state'
 import { wrapIn, setBlockType } from 'prosemirror-commands'
 import { undo, redo } from 'prosemirror-history'
@@ -133,6 +134,9 @@ const editorRef = ref<HTMLDivElement>()
 const tableToolbarRef = ref<HTMLDivElement>()
 const viewRef = shallowRef<EditorView | null>(null)
 let editorTabId: string | null = null
+
+// Ctrl+滚轮缩放编辑区字号
+const { attach: attachFontZoom } = useEditorFontZoom()
 
 // ====== 查找 / 替换状态 ======
 const searchOpen = ref(false)
@@ -918,9 +922,10 @@ function scheduleSerialize(state: { doc: ProseMirrorNode }): void {
   requestAnimationFrame(() => {
     serializeScheduled = false
     const markdown = serializeMarkdown(state.doc)
-    const currentContent = (fileStore.fileContent || '').replace(/\n+$/, '')
-    const newMarkdown = markdown.replace(/\n+$/, '')
-    if (currentContent !== newMarkdown) {
+    // 全等比较：parseMarkdown 已补偿尾部空段落，serialize 与 store 内容应严格一致，
+    // 任何差异（含尾部空行增减）都是真实编辑，必须回写。
+    // 此前「双方去尾再比较」会吞掉仅尾部空行变化的编辑，导致空行保存后丢失。
+    if (markdown !== (fileStore.fileContent || '')) {
       fileStore.updateContent(markdown)
     }
   })
@@ -1389,10 +1394,9 @@ watch([activeTabId, fileContent], ([newTabId, newContent], [oldTabId]) => {
   const view = viewRef.value
   if (!view) return
 
-  const currentMarkdown = serializeMarkdown(view.state.doc).replace(/\n+$/, '')
-  const normalizedNewContent = (newContent || '').replace(/\n+$/, '')
+  const currentMarkdown = serializeMarkdown(view.state.doc)
   const tabChanged = newTabId !== oldTabId
-  if (!tabChanged && currentMarkdown === normalizedNewContent) return
+  if (!tabChanged && currentMarkdown === (newContent || '')) return
 
   // 从 store 同步内容到编辑器：直接用 updateState 替换整个 state
   // 避免 dispatch transaction 时和当前 state 不匹配，同时阻止
@@ -1656,6 +1660,7 @@ onMounted(() => {
     el.addEventListener('dragleave', handleDragLeave)
     el.addEventListener('drop', handleDrop)
     el.addEventListener('paste', handlePaste)
+    attachFontZoom(el)
   }
   const container = containerRef.value
   if (container) {
@@ -1924,9 +1929,9 @@ defineExpose({
   min-height: 100%;
   white-space: pre-wrap;
   caret-color: var(--color-primary);
-  font-family: var(--font-sans);
+  font-family: var(--editor-font-family, var(--font-sans));
   font-size: var(--editor-font-size, 16px);
-  line-height: 1.8;
+  line-height: var(--editor-line-height, 1.8);
   color: var(--color-text);
 }
 .ir-editor-wrapper :deep(.ProseMirror p) { margin: 0.5em 0; }
@@ -1963,7 +1968,7 @@ defineExpose({
 .ir-editor-wrapper :deep(.ProseMirror ol > li::before) {
   content: counter(ir-ordered) '. ';
   position: absolute; left: -2em;
-  opacity: 0.4; font-family: var(--font-mono); font-size: 0.85em;
+  opacity: 0.4; font-family: var(--editor-mono-font-family, var(--font-mono)); font-size: 0.85em;
   user-select: none; pointer-events: none;
 }
 .ir-editor-wrapper :deep(.ProseMirror li[data-type="task_item"][data-checked="true"]::before) {
@@ -1990,7 +1995,7 @@ defineExpose({
 .ir-editor-wrapper :deep(.ProseMirror h6::before),
 .ir-editor-wrapper :deep(.ProseMirror blockquote::before) {
   content: '';
-  font-family: var(--font-mono);
+  font-family: var(--editor-mono-font-family, var(--font-mono));
   font-size: 0.85em;
   font-weight: 400;
   opacity: 0.4;
@@ -2016,7 +2021,7 @@ defineExpose({
   background: var(--color-bg-secondary);
   padding: 2em 16px 1.5em;
   border-radius: 6px;
-  font-family: var(--font-mono);
+  font-family: var(--editor-mono-font-family, var(--font-mono));
   font-size: 0.9em; overflow-x: auto; margin: 0.5em 0;
   position: relative;
 }
@@ -2077,7 +2082,7 @@ defineExpose({
 .ir-editor-wrapper :deep(.ProseMirror code) {
   background: var(--color-bg-secondary);
   padding: 2px 6px; border-radius: 3px;
-  font-size: 0.9em; font-family: var(--font-mono);
+  font-size: 0.9em; font-family: var(--editor-mono-font-family, var(--font-mono));
 }
 .ir-editor-wrapper :deep(.ProseMirror pre code) {
   background: none;

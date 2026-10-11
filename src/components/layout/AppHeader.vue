@@ -11,7 +11,12 @@ import {
   MIN_UI_FONT_SIZE,
   MAX_UI_FONT_SIZE,
   MIN_EDITOR_FONT_SIZE,
-  MAX_EDITOR_FONT_SIZE
+  MAX_EDITOR_FONT_SIZE,
+  MIN_EDITOR_LINE_HEIGHT,
+  MAX_EDITOR_LINE_HEIGHT,
+  EDITOR_FONT_FAMILY_PRESETS,
+  EDITOR_MONO_FONT_FAMILY_PRESETS,
+  CUSTOM_FONT_SENTINEL
 } from '../../stores/appearance'
 import { requestDialog } from '../../utils/dialog'
 import { findCodeLanguage, languageDisplayName } from '../../utils/editor-language'
@@ -243,6 +248,41 @@ const settingsCompressQuality = ref(85)
 const settingsMaxTabs = ref(20)
 const settingsUiFontSize = ref(appearanceStore.uiFontSize)
 const settingsEditorFontSize = ref(appearanceStore.editorFontSize)
+const settingsEditorFontFamily = ref('')
+const settingsEditorMonoFontFamily = ref('')
+const settingsEditorLineHeight = ref(appearanceStore.editorLineHeight)
+// select 绑定值：预设 value，或「自定义…」哨兵
+const editorFontFamilySelect = ref('')
+const editorMonoFontFamilySelect = ref('')
+const editorFontFamilyCustom = ref(false)
+const editorMonoFontFamilyCustom = ref(false)
+
+/** 将存储的字体值映射为 select 值：预设原样，未知值进入自定义模式 */
+function toFontSelectValue(value: string): string {
+  if (!value) return ''
+  const isPreset =
+    EDITOR_FONT_FAMILY_PRESETS.some((p) => p.value === value) ||
+    EDITOR_MONO_FONT_FAMILY_PRESETS.some((p) => p.value === value)
+  return isPreset ? value : CUSTOM_FONT_SENTINEL
+}
+
+function handleEditorFontFamilyChange(): void {
+  if (editorFontFamilySelect.value === CUSTOM_FONT_SENTINEL) {
+    editorFontFamilyCustom.value = true
+  } else {
+    editorFontFamilyCustom.value = false
+    settingsEditorFontFamily.value = editorFontFamilySelect.value
+  }
+}
+
+function handleEditorMonoFontFamilyChange(): void {
+  if (editorMonoFontFamilySelect.value === CUSTOM_FONT_SENTINEL) {
+    editorMonoFontFamilyCustom.value = true
+  } else {
+    editorMonoFontFamilyCustom.value = false
+    settingsEditorMonoFontFamily.value = editorMonoFontFamilySelect.value
+  }
+}
 const linkDialogOpen = ref(false)
 const linkHref = ref('')
 const linkTitle = ref('')
@@ -564,6 +604,13 @@ function openSettings(): void {
   settingsMaxTabs.value = fileStore.maxOpenTabs
   settingsUiFontSize.value = appearanceStore.uiFontSize
   settingsEditorFontSize.value = appearanceStore.editorFontSize
+  settingsEditorFontFamily.value = appearanceStore.editorFontFamily
+  settingsEditorMonoFontFamily.value = appearanceStore.editorMonoFontFamily
+  settingsEditorLineHeight.value = appearanceStore.editorLineHeight
+  editorFontFamilySelect.value = toFontSelectValue(settingsEditorFontFamily.value)
+  editorFontFamilyCustom.value = editorFontFamilySelect.value === CUSTOM_FONT_SENTINEL
+  editorMonoFontFamilySelect.value = toFontSelectValue(settingsEditorMonoFontFamily.value)
+  editorMonoFontFamilyCustom.value = editorMonoFontFamilySelect.value === CUSTOM_FONT_SENTINEL
   settingsOpen.value = true
 }
 
@@ -575,6 +622,9 @@ function saveSettings(): void {
   fileStore.setMaxOpenTabs(settingsMaxTabs.value)
   appearanceStore.setUiFontSize(settingsUiFontSize.value)
   appearanceStore.setEditorFontSize(settingsEditorFontSize.value)
+  appearanceStore.setEditorFontFamily(editorFontFamilyCustom.value ? settingsEditorFontFamily.value : editorFontFamilySelect.value)
+  appearanceStore.setEditorMonoFontFamily(editorMonoFontFamilyCustom.value ? settingsEditorMonoFontFamily.value : editorMonoFontFamilySelect.value)
+  appearanceStore.setEditorLineHeight(settingsEditorLineHeight.value)
   settingsOpen.value = false
 }
 
@@ -939,92 +989,169 @@ onUnmounted(() => {
         <section class="settings-dialog">
           <h2>设置</h2>
 
-          <label class="settings-row">
-            <span>
-              <strong>图片自动压缩</strong>
-              <small>插入图片时自动压缩以减小文档体积</small>
-            </span>
-            <input
-              v-model="settingsCompressEnabled"
-              type="checkbox"
-            >
-          </label>
-
-          <label class="settings-row">
-            <span>
-              <strong>压缩质量</strong>
-              <small>数值越高画质越好、体积越大</small>
-            </span>
-            <span class="quality-control">
+          <div class="settings-grid">
+            <label class="settings-row settings-row-inline">
+              <span>
+                <strong>图片自动压缩</strong>
+                <small>插入图片时自动压缩以减小文档体积</small>
+              </span>
               <input
-                v-model.number="settingsCompressQuality"
-                type="range"
+                v-model="settingsCompressEnabled"
+                type="checkbox"
+              >
+            </label>
+
+            <label class="settings-row">
+              <span>
+                <strong>压缩质量</strong>
+                <small>数值越高画质越好、体积越大</small>
+              </span>
+              <span class="quality-control">
+                <input
+                  v-model.number="settingsCompressQuality"
+                  type="range"
+                  min="1"
+                  max="100"
+                  :disabled="!settingsCompressEnabled"
+                >
+                <output>{{ settingsCompressQuality }}</output>
+              </span>
+            </label>
+
+            <label class="settings-row">
+              <span>
+                <strong>最大打开标签数</strong>
+                <small>同时打开的标签数量上限，防止打开过多</small>
+              </span>
+              <input
+                v-model.number="settingsMaxTabs"
+                class="settings-number"
+                type="number"
                 min="1"
                 max="100"
-                :disabled="!settingsCompressEnabled"
               >
-              <output>{{ settingsCompressQuality }}</output>
-            </span>
-          </label>
+            </label>
 
-          <label class="settings-row">
-            <span>
-              <strong>最大打开标签数</strong>
-              <small>同时打开的标签数量上限，防止打开过多</small>
-            </span>
-            <input
-              v-model.number="settingsMaxTabs"
-              class="settings-number"
-              type="number"
-              min="1"
-              max="100"
-            >
-          </label>
-
-          <label class="settings-row">
-            <span>
-              <strong>编辑区域字体大小</strong>
-              <small>源码、即时渲染、预览与工具栏的字号</small>
-            </span>
-            <input
-              v-model.number="settingsEditorFontSize"
-              class="settings-number"
-              type="number"
-              :min="MIN_EDITOR_FONT_SIZE"
-              :max="MAX_EDITOR_FONT_SIZE"
-            >
-          </label>
-
-          <label class="settings-row">
-            <span>
-              <strong>主界面字体大小</strong>
-              <small>菜单栏、标签页、侧边栏、状态栏等的字号</small>
-            </span>
-            <input
-              v-model.number="settingsUiFontSize"
-              class="settings-number"
-              type="number"
-              :min="MIN_UI_FONT_SIZE"
-              :max="MAX_UI_FONT_SIZE"
-            >
-          </label>
-
-          <div class="settings-theme">
-            <strong>默认主题</strong>
-            <div class="theme-options">
-              <button
-                v-for="option in [
-                  { value: 'light', label: '浅色' },
-                  { value: 'dark', label: '深色' },
-                  { value: 'system', label: '跟随系统' }
-                ]"
-                :key="option.value"
-                type="button"
-                :class="{ active: themeStore.theme === option.value }"
-                @click="themeStore.setTheme(option.value as 'light' | 'dark' | 'system')"
+            <label class="settings-row">
+              <span>
+                <strong>编辑区域字体大小</strong>
+                <small>源码、即时渲染、预览与工具栏的字号，编辑器内可 Ctrl+滚轮缩放</small>
+              </span>
+              <input
+                v-model.number="settingsEditorFontSize"
+                class="settings-number"
+                type="number"
+                :min="MIN_EDITOR_FONT_SIZE"
+                :max="MAX_EDITOR_FONT_SIZE"
               >
-                {{ option.label }}
-              </button>
+            </label>
+
+            <label class="settings-row">
+              <span>
+                <strong>编辑器正文字体</strong>
+                <small>即时渲染编辑与预览的正文使用字体</small>
+              </span>
+              <span class="font-control">
+                <select
+                  v-model="editorFontFamilySelect"
+                  class="settings-select"
+                  @change="handleEditorFontFamilyChange"
+                >
+                  <option
+                    v-for="preset in EDITOR_FONT_FAMILY_PRESETS"
+                    :key="preset.value || 'system'"
+                    :value="preset.value"
+                  >
+                    {{ preset.label }}
+                  </option>
+                </select>
+                <input
+                  v-if="editorFontFamilyCustom"
+                  v-model="settingsEditorFontFamily"
+                  class="settings-number font-custom-input"
+                  type="text"
+                  placeholder="如 '字体名', sans-serif"
+                >
+              </span>
+            </label>
+
+            <label class="settings-row">
+              <span>
+                <strong>编辑器代码字体</strong>
+                <small>源码编辑模式与代码块使用的等宽字体</small>
+              </span>
+              <span class="font-control">
+                <select
+                  v-model="editorMonoFontFamilySelect"
+                  class="settings-select"
+                  @change="handleEditorMonoFontFamilyChange"
+                >
+                  <option
+                    v-for="preset in EDITOR_MONO_FONT_FAMILY_PRESETS"
+                    :key="preset.value || 'system'"
+                    :value="preset.value"
+                  >
+                    {{ preset.label }}
+                  </option>
+                </select>
+                <input
+                  v-if="editorMonoFontFamilyCustom"
+                  v-model="settingsEditorMonoFontFamily"
+                  class="settings-number font-custom-input"
+                  type="text"
+                  placeholder="如 '字体名', monospace"
+                >
+              </span>
+            </label>
+
+            <label class="settings-row">
+              <span>
+                <strong>编辑器行高</strong>
+                <small>数值越大行间距越宽松</small>
+              </span>
+              <span class="quality-control">
+                <input
+                  v-model.number="settingsEditorLineHeight"
+                  type="range"
+                  :min="MIN_EDITOR_LINE_HEIGHT"
+                  :max="MAX_EDITOR_LINE_HEIGHT"
+                  step="0.1"
+                >
+                <output>{{ settingsEditorLineHeight.toFixed(1) }}</output>
+              </span>
+            </label>
+
+            <label class="settings-row">
+              <span>
+                <strong>主界面字体大小</strong>
+                <small>菜单栏、标签页、侧边栏、状态栏等的字号</small>
+              </span>
+              <input
+                v-model.number="settingsUiFontSize"
+                class="settings-number"
+                type="number"
+                :min="MIN_UI_FONT_SIZE"
+                :max="MAX_UI_FONT_SIZE"
+              >
+            </label>
+
+            <div class="settings-theme">
+              <strong>默认主题</strong>
+              <div class="theme-options">
+                <button
+                  v-for="option in [
+                    { value: 'light', label: '浅色' },
+                    { value: 'dark', label: '深色' },
+                    { value: 'system', label: '跟随系统' }
+                  ]"
+                  :key="option.value"
+                  type="button"
+                  :class="{ active: themeStore.theme === option.value }"
+                  @click="themeStore.setTheme(option.value as 'light' | 'dark' | 'system')"
+                >
+                  {{ option.label }}
+                </button>
+              </div>
             </div>
           </div>
 
@@ -1555,9 +1682,11 @@ onUnmounted(() => {
 }
 
 .settings-dialog {
-  width: 420px;
-  max-width: calc(100vw - 32px);
+  width: 720px;
+  max-width: calc(100vw - 48px);
+  max-height: calc(100vh - 48px);
   padding: 24px;
+  overflow-y: auto;
   color: var(--color-text);
   background: var(--color-bg-primary);
   border: 1px solid var(--color-border);
@@ -1713,13 +1842,28 @@ onUnmounted(() => {
   font-size: calc(var(--ui-font-size) + 4px);
 }
 
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 2px 32px;
+}
+
 .settings-row {
   display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+/* 复选框等简单开关：标签与控件保持同行 */
+.settings-row-inline {
+  flex-direction: row;
   align-items: center;
   justify-content: space-between;
-  gap: 24px;
-  padding: 13px 0;
-  border-bottom: 1px solid var(--color-border);
+  gap: 12px;
 }
 
 .settings-row strong,
@@ -1763,13 +1907,49 @@ onUnmounted(() => {
   font-size: var(--ui-font-size);
 }
 
+.font-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.font-custom-input {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+}
+
+.settings-select {
+  max-width: 180px;
+  padding: 4px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-bg-primary);
+  color: var(--color-text);
+  font-size: var(--ui-font-size);
+  cursor: pointer;
+}
+
 .settings-theme {
+  grid-column: 1 / -1;
   padding-top: 14px;
+}
+
+/* 窄窗口回退：网格塌缩为单列，避免控件挤压 */
+@media (max-width: 680px) {
+  .settings-dialog {
+    width: 420px;
+  }
+
+  .settings-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .theme-options {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 220px));
   gap: 8px;
   margin-top: 10px;
 }

@@ -5,6 +5,7 @@ import { useThemeStore } from '../../stores/theme'
 import { renderMarkdown } from '../../utils/markdown'
 import { getHighlighter, type Highlighter } from '../../utils/shiki'
 import { requestDialog } from '../../utils/dialog'
+import { useEditorFontZoom } from '../../composables/useEditorFontZoom'
 import Tooltip from '../common/Tooltip.vue'
 
 interface Props {
@@ -23,8 +24,12 @@ const fileStore = useFileStore()
 const themeStore = useThemeStore()
 
 const previewRef = ref<HTMLDivElement>()
+const previewWrapperRef = ref<HTMLDivElement>()
 const shikiHighlighter = ref<Highlighter | null>(null)
 const isShikiReady = ref(false)
+
+// Ctrl+滚轮缩放编辑区字号
+const { attach: attachFontZoom } = useEditorFontZoom()
 
 let renderDebounceTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -260,6 +265,7 @@ watch(() => themeStore.isDark, () => {
 onMounted(() => {
   initShiki()
   renderPreview()
+  if (previewWrapperRef.value) attachFontZoom(previewWrapperRef.value)
 })
 
 onUnmounted(() => {
@@ -288,6 +294,7 @@ defineExpose({
       </div>
     </div>
     <div
+      ref="previewWrapperRef"
       class="preview-content-wrapper"
       @scroll="handleScroll"
       @click="handleLinkClick"
@@ -363,9 +370,9 @@ defineExpose({
 
 .preview-content {
   padding: 24px 32px;
-  font-family: var(--font-sans);
+  font-family: var(--editor-font-family, var(--font-sans));
   font-size: calc(var(--editor-font-size, 16px) - 1px);
-  line-height: 1.8;
+  line-height: var(--editor-line-height, 1.8);
   color: var(--color-text);
   max-width: 100%;
 }
@@ -524,7 +531,7 @@ defineExpose({
   padding: 0.2em 0.4em;
   margin: 0;
   font-size: 85%;
-  font-family: var(--font-mono);
+  font-family: var(--editor-mono-font-family, var(--font-mono));
   background-color: var(--color-bg-secondary);
   border-radius: 3px;
 }

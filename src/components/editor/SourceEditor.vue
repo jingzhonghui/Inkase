@@ -13,6 +13,7 @@ import { highlightSelectionMatches } from '@codemirror/search'
 import { closeBrackets, closeBracketsKeymap, autocompletion, completionKeymap, type Completion } from '@codemirror/autocomplete'
 import { oneDark } from '@codemirror/theme-one-dark'
 import { findCodeLanguage } from '../../utils/editor-language'
+import { useEditorFontZoom } from '../../composables/useEditorFontZoom'
 import EditorContextMenu from '../common/EditorContextMenu.vue'
 import FindReplacePanel from './FindReplacePanel.vue'
 import type { EditorContextMenuItem } from '../../types/editor-context-menu'
@@ -40,6 +41,9 @@ const themeStore = useThemeStore()
 // Refs
 const editorRef = ref<HTMLDivElement>()
 const editorView = shallowRef<EditorView | null>(null)
+
+// Ctrl+滚轮缩放编辑区字号
+const { attach: attachFontZoom } = useEditorFontZoom()
 
 // 主题 compartment - 在 initEditor 中创建
 let themeCompartment: Compartment | null = null
@@ -664,17 +668,17 @@ function getThemeExtension(): Extension {
 const editorStyles = EditorView.theme({
   '&': {
     fontSize: 'calc(var(--editor-font-size, 16px) - 2px)',
-    fontFamily: 'var(--font-mono)'
+    fontFamily: 'var(--editor-mono-font-family, var(--font-mono))'
   },
   '.cm-content': {
     padding: '24px 32px',
-    lineHeight: '1.6'
+    lineHeight: 'var(--editor-line-height, 1.8)'
   },
   '.cm-line': {
     padding: '0 4px'
   },
   '.cm-gutters': {
-    fontFamily: 'var(--font-mono)'
+    fontFamily: 'var(--editor-mono-font-family, var(--font-mono))'
   },
   // Markdown 标记样式
   '.cm-heading': {
@@ -698,7 +702,7 @@ const editorStyles = EditorView.theme({
     textDecoration: 'line-through'
   },
   '.cm-code': {
-    fontFamily: 'var(--font-mono)',
+    fontFamily: 'var(--editor-mono-font-family, var(--font-mono))',
     backgroundColor: 'var(--color-bg-secondary)',
     padding: '2px 4px',
     borderRadius: '3px'
@@ -1224,6 +1228,7 @@ onMounted(() => {
     editorEl.addEventListener('drop', handleDrop)
     editorEl.addEventListener('paste', handlePaste)
     editorEl.addEventListener('keydown', handleModeToggleKeydown)
+    attachFontZoom(editorEl)
   }
 
   // 工具栏事件监听
@@ -1381,7 +1386,7 @@ defineExpose({
 }
 
 .codemirror-wrapper :deep(.cm-scroller) {
-  font-family: var(--font-mono);
+  font-family: var(--editor-mono-font-family, var(--font-mono));
   overflow: auto;
 }
 
@@ -1399,7 +1404,7 @@ defineExpose({
 
 .codemirror-wrapper :deep(.cm-completionLabel) {
   color: var(--color-text);
-  font-family: var(--font-mono);
+  font-family: var(--editor-mono-font-family, var(--font-mono));
 }
 
 .codemirror-wrapper :deep(.cm-completionDetail) {

@@ -42,6 +42,10 @@
   /* 字号（可在设置中调整，运行时由 appearance store 覆盖） */
   --ui-font-size: 13px;
   --editor-font-size: 16px;
+  /* 编辑区字体族与行高（可在设置中调整；未设置时由消费端回退到 --font-sans / --font-mono） */
+  --editor-font-family: var(--font-sans);
+  --editor-mono-font-family: var(--font-mono);
+  --editor-line-height: 1.8;
   
   /* 间距 */
   --spacing-xs: 4px;

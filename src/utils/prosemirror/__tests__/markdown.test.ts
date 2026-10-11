@@ -28,6 +28,49 @@ describe('Markdown ↔ ProseMirror conversion', () => {
     expect(serializeMarkdown(parseMarkdown(content))).toBe(content)
   })
 
+  it('round-trips trailing empty lines', () => {
+    // 1 个尾部空段落 ↔ 2 个尾随换行
+    const one = '正文\n\n'
+    const oneDoc = parseMarkdown(one)
+    expect(oneDoc.childCount).toBe(2)
+    expect(oneDoc.child(1).type.name).toBe('paragraph')
+    expect(oneDoc.child(1).content.size).toBe(0)
+    expect(serializeMarkdown(oneDoc)).toBe(one)
+
+    // 2 个尾部空段落 ↔ 4 个尾随换行
+    const two = '正文\n\n\n\n'
+    const twoDoc = parseMarkdown(two)
+    expect(twoDoc.childCount).toBe(3)
+    expect(serializeMarkdown(twoDoc)).toBe(two)
+  })
+
+  it('does not add trailing empty paragraphs for plain content', () => {
+    const doc = parseMarkdown('正文')
+    expect(doc.childCount).toBe(1)
+    expect(serializeMarkdown(doc)).toBe('正文')
+  })
+
+  it('normalizes odd trailing newlines to the nearest stable form', () => {
+    // 奇数个尾随换行无法由 serialize 产出，归一化到最近稳定形式（k=1 → 2 个换行）
+    const doc = parseMarkdown('正文\n\n\n')
+    expect(doc.childCount).toBe(2)
+    expect(serializeMarkdown(doc)).toBe('正文\n\n')
+
+    // 单个尾随换行（外部编辑器惯例）不产生空段落
+    const single = parseMarkdown('正文\n')
+    expect(single.childCount).toBe(1)
+    expect(serializeMarkdown(single)).toBe('正文')
+  })
+
+  it('round-trips trailing empty lines after a code block', () => {
+    // 代码块结尾本身含 1 个不变量空段落，额外的尾随空行再叠加
+    const content = '```ts\nconst value = 1\n```\n\n\n\n'
+    const doc = parseMarkdown(content)
+    // target = max(floor(4/2)=2, 不变量 1) = 2 → 代码块 + 2 个空段落
+    expect(doc.childCount).toBe(3)
+    expect(serializeMarkdown(doc)).toBe(content)
+  })
+
   it('keeps an editable paragraph after a trailing code block', () => {
     const content = '```ts\nconst value = 1\n```'
     const doc = parseMarkdown(content)
@@ -35,7 +78,8 @@ describe('Markdown ↔ ProseMirror conversion', () => {
     expect(doc.childCount).toBe(2)
     expect(doc.child(0).type.name).toBe('code_block')
     expect(doc.child(1).type.name).toBe('paragraph')
-    expect(serializeMarkdown(doc)).toBe(content)
+    // 尾部不变量空段落持久化为一个尾随空行，重开时不丢失也不产生意外差异
+    expect(serializeMarkdown(doc)).toBe(content + '\n\n')
   })
 
   it('keeps an editable paragraph after a trailing table', () => {
@@ -68,7 +112,7 @@ describe('Markdown ↔ ProseMirror conversion', () => {
 
   it('serializes code block content exactly after parse', () => {
     const content = '```\n// nihao\n```'
-    expect(serializeMarkdown(parseMarkdown(content))).toBe(content)
+    expect(serializeMarkdown(parseMarkdown(content))).toBe(content + '\n\n')
   })
 
   it('exits table and creates paragraph below on Enter in the last row', () => {
