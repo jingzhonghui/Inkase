@@ -217,6 +217,7 @@ const shortcuts = [
   { keys: 'Ctrl+F', label: '查找' },
   { keys: 'Ctrl+H', label: '替换' },
   { keys: 'Ctrl+/', label: '切换编辑模式' },
+  { keys: 'Ctrl+滚轮', label: '缩放编辑区字号' },
   { keys: 'Ctrl+,', label: '打开设置' }
 ]
 

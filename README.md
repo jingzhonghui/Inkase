@@ -15,7 +15,7 @@
 - 🤖 内置 AI 助手：兼容 OpenAI 接口配置，文档读写与检索工具均可审批、可预览
 - 🔀 Git 同步：绑定仓库后一键拉取 / 推送，冲突可视化处理
 - 💾 自动保存与崩溃恢复，外部修改自动监听刷新
-- 🌓 浅色 / 深色 / 跟随系统主题
+- 🌓 浅色 / 深色 / 跟随系统主题；编辑器正文字体、代码字体、行高可调，`Ctrl+滚轮` 缩放编辑区字号
 - 💻 跨平台：Windows（NSIS / zip）与 Linux（AppImage / deb）
 
 ## 下载
@@ -88,7 +88,7 @@ inkase/
 │   └── workspace/       # 工作区搜索（ripgrep）
 ├── src/                 # Vue 3 渲染进程
 │   ├── components/      # 组件（编辑器/布局/侧栏/AI/导出）
-│   ├── stores/          # Pinia 状态（file/ai/sync/theme 等）
+│   ├── stores/          # Pinia 状态（file/ai/sync/appearance/theme 等）
 │   ├── utils/           # 工具集（markdown/ProseMirror 等）
 │   └── styles/          # 主题样式（CSS 变量）
 ├── website/             # 官网主页（GitHub Pages）
