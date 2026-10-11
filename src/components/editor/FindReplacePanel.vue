@@ -168,7 +168,7 @@ function emitReplaceAll(): void {
 .find-replace-input {
   width: 180px;
   padding: 4px 8px;
-  font-size: 13px;
+  font-size: var(--ui-font-size);
   color: var(--color-text-primary);
   background: var(--color-bg-secondary);
   border: 1px solid var(--color-border);
@@ -180,7 +180,7 @@ function emitReplaceAll(): void {
 }
 .find-replace-btn {
   padding: 4px 8px;
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) - 1px);
   color: var(--color-text-secondary);
   background: transparent;
   border: 1px solid var(--color-border);
@@ -192,7 +192,7 @@ function emitReplaceAll(): void {
   background: var(--color-bg-secondary);
 }
 .find-replace-count {
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) - 1px);
   color: var(--color-text-tertiary);
   white-space: nowrap;
 }
@@ -200,7 +200,7 @@ function emitReplaceAll(): void {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) - 1px);
   color: var(--color-text-tertiary);
   cursor: pointer;
 }

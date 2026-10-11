@@ -381,36 +381,6 @@ const marks: Record<string, MarkSpec> = {
     toDOM(): DOMOutputSpec {
       return ['code', { 'data-mark': 'code' }, 0]
     }
-  },
-
-  /**
-   * 链接
-   */
-  link: {
-    attrs: {
-      href: {},
-      title: { default: '' }
-    },
-    inclusive: false,
-    parseDOM: [
-      {
-        tag: 'a',
-        getAttrs(dom: HTMLElement) {
-          return {
-            href: dom.getAttribute('href') || '',
-            title: dom.getAttribute('title') || ''
-          }
-        }
-      }
-    ],
-    toDOM(node): DOMOutputSpec {
-      const attrs: Record<string, string> = {
-        href: node.attrs.href as string,
-        'data-mark': 'link'
-      }
-      if (node.attrs.title) attrs.title = node.attrs.title as string
-      return ['a', attrs, 0]
-    }
   }
 }
 

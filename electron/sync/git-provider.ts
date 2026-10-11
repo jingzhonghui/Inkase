@@ -129,6 +129,27 @@ export async function hasGitInstalled(): Promise<boolean> {
   return r.code === 0
 }
 
+/**
+ * 自愈：若 .inkase 已被 git 跟踪（历史版本 bug 或远端污染所致），将其移出索引并提交。
+ * - 仅动索引（--cached），不删除磁盘文件
+ * - 单独提交暂存的移除（不加 -a），不夹带用户其它未提交变更
+ * - 无需移除时静默返回 true；git 操作失败返回 false（由调用方决定是否提示）
+ */
+export async function untrackInkaseIfTracked(
+  workspacePath: string,
+  run: (args: string[], cwd: string) => Promise<GitCommandResult> = runGit
+): Promise<boolean> {
+  const tracked = await run(['ls-files', '--', '.inkase'], workspacePath)
+  if (tracked.code !== 0) return false
+  if (tracked.stdout.trim() === '') return true
+  const rm = await run(['rm', '-r', '--cached', '--', '.inkase'], workspacePath)
+  if (rm.code !== 0) return false
+  const porcelain = await run(['status', '--porcelain'], workspacePath)
+  if (porcelain.code !== 0 || porcelain.stdout.trim() === '') return true
+  const c = await run(['commit', '-m', 'chore: 将本机私有的 .inkase 目录移出版本控制'], workspacePath)
+  return c.code === 0
+}
+
 export class GitSyncProvider implements SyncProvider {
   readonly kind = 'git' as const
   constructor(
@@ -156,7 +177,8 @@ export class GitSyncProvider implements SyncProvider {
   }
 
   async commit(message: string): Promise<void> {
-    const add = await this.run(['add', '-A'], this.workspacePath)
+    // 排除 .inkase（本机私有数据）：防止 gitignore 缺失时被全量 add 带入版本库
+    const add = await this.run(['add', '-A', '--', '.', ':(exclude).inkase'], this.workspacePath)
     if (add.code !== 0) throw new Error(add.stderr || 'git add 失败')
     const c = await this.run(['commit', '-m', message], this.workspacePath)
     if (c.code !== 0) throw new Error(c.stderr || 'git commit 失败')

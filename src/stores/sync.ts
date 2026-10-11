@@ -177,6 +177,10 @@ export const useSyncStore = defineStore('sync', () => {
     panelOpen.value = false
   }
 
+  function togglePanel(): void {
+    panelOpen.value = !panelOpen.value
+  }
+
   function init(): void {
     const fileStore = useFileStore()
     watch(
@@ -223,6 +227,7 @@ export const useSyncStore = defineStore('sync', () => {
     disable,
     setConfig,
     openPanel,
-    closePanel
+    closePanel,
+    togglePanel
   }
 })

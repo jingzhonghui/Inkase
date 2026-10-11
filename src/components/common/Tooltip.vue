@@ -119,7 +119,7 @@ onBeforeUnmount(() => {
   background: var(--color-bg-primary);
   color: var(--color-text);
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) - 1px);
   line-height: 1.4;
   white-space: normal;
   overflow-wrap: anywhere;

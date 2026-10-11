@@ -73,11 +73,11 @@ const percentage = computed(() => progress.value.total > 0
   box-shadow: 0 10px 36px rgba(0, 0, 0, 0.24);
 }
 
-.pdf-progress-dialog h3 { margin: 0 0 12px; font-size: 16px; }
+.pdf-progress-dialog h3 { margin: 0 0 12px; font-size: calc(var(--ui-font-size) + 3px); }
 .pdf-progress-dialog p { margin: 0 0 12px; color: var(--color-text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pdf-progress-track { height: 8px; overflow: hidden; background: var(--color-bg-tertiary); border-radius: 4px; }
 .pdf-progress-track > div { height: 100%; background: var(--color-primary); transition: width 0.2s ease; }
-.pdf-progress-count { margin-top: 6px; font-size: 12px; color: var(--color-text-tertiary); text-align: right; }
-.pdf-progress-errors { max-height: 160px; margin-top: 12px; padding: 8px; overflow: auto; font-size: 12px; line-height: 1.6; color: var(--color-error); background: var(--color-bg-secondary); border-radius: var(--radius-sm); }
+.pdf-progress-count { margin-top: 6px; font-size: calc(var(--ui-font-size) - 1px); color: var(--color-text-tertiary); text-align: right; }
+.pdf-progress-errors { max-height: 160px; margin-top: 12px; padding: 8px; overflow: auto; font-size: calc(var(--ui-font-size) - 1px); line-height: 1.6; color: var(--color-error); background: var(--color-bg-secondary); border-radius: var(--radius-sm); }
 .pdf-progress-dialog button { display: block; margin: 16px 0 0 auto; padding: 6px 18px; color: #fff; background: var(--color-primary); border: 0; border-radius: var(--radius-sm); cursor: pointer; }
 </style>

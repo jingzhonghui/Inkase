@@ -8,9 +8,10 @@ import type {
   SyncStatus,
   SyncStatusView
 } from './types'
-import { autoResolveGitignoreConflict, isUntrackedOverwrite } from './git-provider'
+import { autoResolveGitignoreConflict, isUntrackedOverwrite, untrackInkaseIfTracked } from './git-provider'
 import type { GitCommandResult } from './git-provider'
 import { ensureInkaseIgnored, loadSyncConfig, saveSyncConfig, syncConfigPath } from './config'
+import { migrateLegacyConfigDir } from './legacy-migration'
 
 export interface SyncEngineDeps {
   createProvider: (workspacePath: string, config: SyncConfig) => SyncProvider
@@ -76,6 +77,8 @@ export class SyncEngine {
   async attach(workspacePath: string): Promise<void> {
     this.detach()
     this.workspacePath = workspacePath
+    // 先迁移旧目录再读配置，旧 .markdownPlus/sync.json 才能被读到
+    migrateLegacyConfigDir(workspacePath)
     this.config = loadSyncConfig(workspacePath)
     this.isGitRepo = await this.isGitRepoAt(workspacePath)
 
@@ -94,6 +97,12 @@ export class SyncEngine {
       }
     } else {
       this.currentStatus = 'uninitialized'
+    }
+    // 自愈：git 工作区补齐 .gitignore，并把被误跟踪的 .inkase 移出版本控制
+    // （历史版本 bug 或远端污染所致；置于 autoPull 之后，可清理 pull 带入的污染）
+    if (this.isGitRepo) {
+      ensureInkaseIgnored(workspacePath)
+      await untrackInkaseIfTracked(workspacePath, (args, cwd) => this.deps.runGit(args, cwd))
     }
     this.emit()
   }
@@ -245,6 +254,7 @@ export class SyncEngine {
     try {
       this.detach()
       this.workspacePath = workspacePath
+      migrateLegacyConfigDir(workspacePath)
       this.isGitRepo = await this.isGitRepoAt(workspacePath)
       if (!this.isGitRepo) {
         const r = await this.deps.runGit(['init'], workspacePath)
@@ -310,6 +320,8 @@ export class SyncEngine {
 
       // 对齐成功（含空远端）：此时再创建/追加 .gitignore，避免先动 .gitignore 造成首次同步冲突
       ensureInkaseIgnored(workspacePath)
+      // 远端若已含被跟踪的 .inkase（历史污染），checkout 后立即移出版本控制
+      await untrackInkaseIfTracked(workspacePath, (args, cwd) => this.deps.runGit(args, cwd))
       // 本地有变更（首次内容 + .gitignore 等）则提交；空提交 guard 已由 porcelain 判断
       const porcelain = await this.deps.runGit(['status', '--porcelain'], workspacePath)
       if (porcelain.code === 0 && porcelain.stdout.trim() !== '') {

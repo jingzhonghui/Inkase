@@ -14,6 +14,7 @@ import {
   revokeSenderWorkspace
 } from '../workspace/workspace-authorization'
 import { WorkspaceSearchService } from '../workspace/workspace-search-service'
+import { migrateLegacyConfigDir } from '../sync/legacy-migration'
 import type {
   AiConfigInput,
   AiRunInput,
@@ -328,6 +329,7 @@ export function registerAiHandlers(_getWindow: () => BrowserWindow | null): () =
   ipcMain.handle(AI.WORKSPACE.AUTHORIZE, (event, root: string | null) => {
     try {
       const parsedRoot = root && typeof root === 'string' && root.length > 0 ? root : null
+      if (parsedRoot) migrateLegacyConfigDir(parsedRoot)
       observeSender(event.sender)
       authorizeWorkspaceRoot(event.sender.id, parsedRoot)
       return { success: true }

@@ -281,7 +281,7 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   color: var(--color-text-tertiary);
-  font-size: 13px;
+  font-size: var(--ui-font-size);
 }
 
 .image-info {
@@ -294,7 +294,7 @@ onUnmounted(() => {
 }
 
 .image-name {
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) - 1px);
   color: var(--color-text);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -303,7 +303,7 @@ onUnmounted(() => {
 }
 
 .image-size {
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) - 1px);
   color: var(--color-text-tertiary);
   flex-shrink: 0;
 }
@@ -325,7 +325,7 @@ onUnmounted(() => {
   min-width: 24px;
   height: 24px;
   padding: 0 6px;
-  font-size: 14px;
+  font-size: calc(var(--ui-font-size) + 1px);
   line-height: 1;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
@@ -345,7 +345,7 @@ onUnmounted(() => {
 }
 
 .zoom-reset {
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) - 1px);
   min-width: 44px;
 }
 </style>

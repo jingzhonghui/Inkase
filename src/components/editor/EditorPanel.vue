@@ -334,14 +334,14 @@ function onPreviewScroll(ratio: number): void {
 }
 
 .welcome-title {
-  font-size: 28px;
+  font-size: calc(var(--ui-font-size) + 15px);
   font-weight: 700;
   color: var(--color-text);
   margin: 0;
 }
 
 .welcome-subtitle {
-  font-size: 14px;
+  font-size: calc(var(--ui-font-size) + 1px);
   color: var(--color-text-secondary);
   margin: 8px 0 32px;
 }
@@ -357,7 +357,7 @@ function onPreviewScroll(ratio: number): void {
   align-items: center;
   gap: 8px;
   padding: 10px 20px;
-  font-size: 13px;
+  font-size: var(--ui-font-size);
   font-weight: 500;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
@@ -389,7 +389,7 @@ function onPreviewScroll(ratio: number): void {
 }
 
 .shortcuts-title {
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) - 1px);
   font-weight: 600;
   color: var(--color-text-tertiary);
   text-transform: uppercase;
@@ -416,7 +416,7 @@ function onPreviewScroll(ratio: number): void {
   align-items: center;
   padding: 2px 8px;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 2px);
   background: var(--color-bg-secondary);
   border: 1px solid var(--color-border);
   border-radius: 4px;
@@ -425,7 +425,7 @@ function onPreviewScroll(ratio: number): void {
 }
 
 .shortcut-item span {
-  font-size: 13px;
+  font-size: var(--ui-font-size);
   color: var(--color-text-secondary);
 }
 

@@ -132,6 +132,50 @@ describe('SyncEngine', () => {
     expect(view.status).toBe('uninitialized')
   })
 
+  it('attach fills missing .gitignore with .inkase in a git workspace', async () => {
+    const { engine, dir } = makeEngine({ isGitRepo: true })
+    await engine.attach(dir)
+    const content = fs.readFileSync(path.join(dir, '.gitignore'), 'utf-8')
+    expect(content).toContain('.inkase')
+  })
+
+  it('attach does not create .gitignore outside a git repo', async () => {
+    const { engine, dir } = makeEngine({ isGitRepo: false, configured: false })
+    await engine.attach(dir)
+    expect(fs.existsSync(path.join(dir, '.gitignore'))).toBe(false)
+  })
+
+  it('attach untracks .inkase when it is already tracked (remote pollution)', async () => {
+    const { engine, deps, dir } = makeEngine({ isGitRepo: true })
+    ;(deps.runGit as ReturnType<typeof vi.fn>).mockImplementation(async (args: string[]) => {
+      if (args[0] === 'rev-parse' && args[1] === '--is-inside-work-tree') return { code: 0, stdout: 'true\n', stderr: '' }
+      if (args[0] === 'ls-files') return { code: 0, stdout: '.inkase/sync.json\n', stderr: '' }
+      if (args[0] === 'rm') return { code: 0, stdout: '', stderr: '' }
+      if (args[0] === 'status') return { code: 0, stdout: 'D  .inkase/sync.json\n', stderr: '' }
+      if (args[0] === 'commit') return { code: 0, stdout: '', stderr: '' }
+      return { code: 0, stdout: '', stderr: '' }
+    })
+    await engine.attach(dir)
+    expect(deps.runGit).toHaveBeenCalledWith(['ls-files', '--', '.inkase'], dir)
+    expect(deps.runGit).toHaveBeenCalledWith(['rm', '-r', '--cached', '--', '.inkase'], dir)
+    expect(deps.runGit).toHaveBeenCalledWith(['commit', '-m', 'chore: 将本机私有的 .inkase 目录移出版本控制'], dir)
+  })
+
+  it('attach migrates legacy .markdownPlus before reading config', async () => {
+    const { engine, dir } = makeEngine({ configured: false })
+    fs.mkdirSync(path.join(dir, '.markdownPlus'), { recursive: true })
+    fs.writeFileSync(
+      path.join(dir, '.markdownPlus', 'sync.json'),
+      JSON.stringify({ version: 1, provider: 'git', autoCommit: true, autoPull: true, autoPush: false }),
+      'utf-8'
+    )
+    await engine.attach(dir)
+    expect(fs.existsSync(path.join(dir, '.markdownPlus'))).toBe(false)
+    expect(fs.existsSync(path.join(dir, '.inkase', 'sync.json'))).toBe(true)
+    expect(engine.getConfig()).toMatchObject({ provider: 'git' })
+    expect(engine.getStatusView().configured).toBe(true)
+  })
+
   it('pull executes provider.pull and emits event', async () => {
     const { engine, provider, dir } = makeEngine()
     await engine.attach(dir)

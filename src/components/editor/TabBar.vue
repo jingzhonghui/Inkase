@@ -314,7 +314,7 @@ onUnmounted(() => {
   cursor: pointer;
   position: relative;
   white-space: nowrap;
-  font-size: 13px;
+  font-size: var(--ui-font-size);
   color: var(--color-text-secondary);
   background-color: transparent;
   transition: background-color 0.15s, color 0.15s;
@@ -398,7 +398,7 @@ onUnmounted(() => {
   color: white;
   background: var(--color-warning);
   border-radius: 50%;
-  font-size: 10px;
+  font-size: calc(var(--ui-font-size) - 3px);
   font-weight: 700;
 }
 
@@ -452,7 +452,7 @@ onUnmounted(() => {
 
 .tab-context-menu .context-menu-item {
   padding: 6px 14px;
-  font-size: 13px;
+  font-size: var(--ui-font-size);
   color: var(--color-text);
   border-radius: var(--radius-sm);
   cursor: pointer;

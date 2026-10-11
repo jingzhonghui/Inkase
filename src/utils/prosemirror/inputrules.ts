@@ -222,26 +222,6 @@ function underlineRule(markType: any): InputRule {
 }
 
 /**
- * 创建链接输入规则 ([text](url))
- */
-function linkRule(markType: any): InputRule {
-  return new InputRule(
-    /\[([^\]]+)\]\(([^)]+)\)$/,
-    (state, match, start, end) => {
-      const { tr } = state
-      const text = match[1]
-      const href = match[2]
-
-      tr.delete(start, end)
-      const mark = markType.create({ href })
-      tr.insertText(text, start)
-      tr.addMark(start, start + text.length, mark)
-      return tr
-    }
-  )
-}
-
-/**
  * 构建所有输入规则
  */
 export function buildInputRules(schema: Schema) {
@@ -274,10 +254,7 @@ export function buildInputRules(schema: Schema) {
     strikethroughRule(schema.marks.strikethrough),
 
     // 下划线 <u>text</u>
-    underlineRule(schema.marks.underline),
-
-    // 链接 [text](url)
-    linkRule(schema.marks.link)
+    underlineRule(schema.marks.underline)
   ]
 
   return inputRules({ rules })

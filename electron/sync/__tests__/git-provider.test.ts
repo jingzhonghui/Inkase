@@ -2,7 +2,7 @@ import { describe, expect, it, vi, afterEach } from 'vitest'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
-import { GitSyncProvider, autoResolveGitignoreConflict, isUntrackedOverwrite, parseStatus, runGit } from '../git-provider'
+import { GitSyncProvider, autoResolveGitignoreConflict, isUntrackedOverwrite, parseStatus, runGit, untrackInkaseIfTracked } from '../git-provider'
 import type { GitCommandResult } from '../git-provider'
 
 const { execFileMock } = vi.hoisted(() => ({ execFileMock: vi.fn() }))
@@ -270,14 +270,14 @@ describe('GitSyncProvider', () => {
     expect(calls).toContainEqual(['push', '-u', 'origin', 'HEAD'])
   })
 
-  it('commit runs add -A then commit -m', async () => {
+  it('commit runs add -A (excluding .inkase) then commit -m', async () => {
     const { run, calls } = mockRun([
-      { args: ['add', '-A'], result: { code: 0, stdout: '', stderr: '' } },
+      { args: ['add', '-A', '--', '.', ':(exclude).inkase'], result: { code: 0, stdout: '', stderr: '' } },
       { args: ['commit', '-m', '同步: x'], result: { code: 0, stdout: '', stderr: '' } }
     ])
     const p = new GitSyncProvider('C:/ws', run)
     await p.commit('同步: x')
-    expect(calls).toEqual([['add', '-A'], ['commit', '-m', '同步: x']])
+    expect(calls).toEqual([['add', '-A', '--', '.', ':(exclude).inkase'], ['commit', '-m', '同步: x']])
   })
 
   it('branchInfo returns null when not on a branch', async () => {
@@ -361,6 +361,55 @@ describe('isUntrackedOverwrite', () => {
     expect(isUntrackedOverwrite('error: Your local changes to the following files would be overwritten')).toBe(false)
     expect(isUntrackedOverwrite('CONFLICT (content)')).toBe(false)
     expect(isUntrackedOverwrite('')).toBe(false)
+  })
+})
+
+describe('untrackInkaseIfTracked', () => {
+  it('returns true without rm/commit when .inkase is not tracked', async () => {
+    const { run, calls } = mockRun([
+      { args: ['ls-files', '--', '.inkase'], result: { code: 0, stdout: '', stderr: '' } }
+    ])
+    await expect(untrackInkaseIfTracked('C:/ws', run)).resolves.toBe(true)
+    expect(calls).toHaveLength(1)
+  })
+
+  it('removes tracked .inkase from index and commits the removal only', async () => {
+    const { run, calls } = mockRun([
+      { args: ['ls-files', '--', '.inkase'], result: { code: 0, stdout: '.inkase/sync.json\n.inkase/conversations/conv_x.json\n', stderr: '' } },
+      { args: ['rm', '-r', '--cached', '--', '.inkase'], result: { code: 0, stdout: '', stderr: '' } },
+      { args: ['status', '--porcelain'], result: { code: 0, stdout: 'D  .inkase/sync.json\nD  .inkase/conversations/conv_x.json\n', stderr: '' } },
+      { args: ['commit', '-m', 'chore: 将本机私有的 .inkase 目录移出版本控制'], result: { code: 0, stdout: '', stderr: '' } }
+    ])
+    await expect(untrackInkaseIfTracked('C:/ws', run)).resolves.toBe(true)
+    expect(calls).toContainEqual(['rm', '-r', '--cached', '--', '.inkase'])
+    // 不使用 -a，避免夹带用户未提交的其它变更
+    expect(calls).toContainEqual(['commit', '-m', 'chore: 将本机私有的 .inkase 目录移出版本控制'])
+  })
+
+  it('returns false when ls-files fails', async () => {
+    const { run } = mockRun([
+      { args: ['ls-files', '--', '.inkase'], result: { code: 1, stdout: '', stderr: 'fatal' } }
+    ])
+    await expect(untrackInkaseIfTracked('C:/ws', run)).resolves.toBe(false)
+  })
+
+  it('returns false when rm --cached fails', async () => {
+    const { run, calls } = mockRun([
+      { args: ['ls-files', '--', '.inkase'], result: { code: 0, stdout: '.inkase/sync.json\n', stderr: '' } },
+      { args: ['rm', '-r', '--cached', '--', '.inkase'], result: { code: 1, stdout: '', stderr: 'fatal' } }
+    ])
+    await expect(untrackInkaseIfTracked('C:/ws', run)).resolves.toBe(false)
+    expect(calls).not.toContainEqual(['commit', '-m', 'chore: 将本机私有的 .inkase 目录移出版本控制'])
+  })
+
+  it('skips commit when staged area ends up empty', async () => {
+    const { run, calls } = mockRun([
+      { args: ['ls-files', '--', '.inkase'], result: { code: 0, stdout: '.inkase/sync.json\n', stderr: '' } },
+      { args: ['rm', '-r', '--cached', '--', '.inkase'], result: { code: 0, stdout: '', stderr: '' } },
+      { args: ['status', '--porcelain'], result: { code: 0, stdout: '', stderr: '' } }
+    ])
+    await expect(untrackInkaseIfTracked('C:/ws', run)).resolves.toBe(true)
+    expect(calls).toHaveLength(3)
   })
 })
 

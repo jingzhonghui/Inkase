@@ -93,7 +93,7 @@ const emit = defineEmits<{
   color: var(--color-text);
   border-radius: var(--radius-sm);
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--ui-font-size);
   white-space: nowrap;
 }
 
@@ -127,7 +127,7 @@ const emit = defineEmits<{
 .submenu-arrow {
   margin-left: 12px;
   opacity: 0.6;
-  font-size: 18px;
+  font-size: calc(var(--ui-font-size) + 5px);
   line-height: 12px;
 }
 

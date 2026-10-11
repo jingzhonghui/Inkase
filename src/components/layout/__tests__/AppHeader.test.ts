@@ -266,4 +266,54 @@ describe('AppHeader 同步按钮', () => {
     expect(icon.exists()).toBe(true)
     expect(icon.classes()).not.toContain('spinning')
   })
+
+  it('点击同步按钮切换面板开关并显示 active 状态', async () => {
+    mockSyncStatus('upToDate')
+    const wrapper = mountHeader()
+    const fileStore = useFileStore()
+    fileStore.openedFolderPath = 'C:/ws'
+    await wrapper.vm.$nextTick()
+
+    const syncStore = useSyncStore()
+    const button = wrapper.find('.sync-btn')
+    expect(button.classes()).not.toContain('active')
+
+    await button.trigger('click')
+    expect(syncStore.panelOpen).toBe(true)
+    await wrapper.vm.$nextTick()
+    expect(button.classes()).toContain('active')
+
+    await button.trigger('click')
+    expect(syncStore.panelOpen).toBe(false)
+    await wrapper.vm.$nextTick()
+    expect(button.classes()).not.toContain('active')
+  })
+
+  it('面板打开时菜单「同步」项显示勾选状态', async () => {
+    mockSyncStatus('upToDate')
+    const wrapper = mountHeader()
+    const fileStore = useFileStore()
+    fileStore.openedFolderPath = 'C:/ws'
+    await wrapper.vm.$nextTick()
+
+    const syncStore = useSyncStore()
+    // 打开「文件」菜单后菜单项才渲染（dropdown 挂载在 document 上）
+    await wrapper.find('.menu-item').trigger('click')
+    await wrapper.vm.$nextTick()
+
+    const findSyncCheck = (): string | undefined =>
+      Array.from(document.querySelectorAll('.menu-entry'))
+        .find((el) => el.textContent?.includes('同步'))
+        ?.querySelector('.menu-check')?.textContent
+
+    expect(findSyncCheck()).toBe('')
+
+    syncStore.openPanel()
+    await wrapper.vm.$nextTick()
+    expect(findSyncCheck()).toBe('✓')
+
+    syncStore.closePanel()
+    await wrapper.vm.$nextTick()
+    expect(findSyncCheck()).toBe('')
+  })
 })

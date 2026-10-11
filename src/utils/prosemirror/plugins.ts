@@ -9,7 +9,7 @@ import { dropCursor } from 'prosemirror-dropcursor'
 import { gapCursor } from 'prosemirror-gapcursor'
 import { baseKeymap } from 'prosemirror-commands'
 import { tableEditing } from 'prosemirror-tables'
-import { buildKeymap } from './keymap'
+import { buildKeymap, tabFocusModePlugin } from './keymap'
 import { buildInputRules } from './inputrules'
 
 /**
@@ -44,6 +44,9 @@ export function createPlugins(schema: Schema): Plugin[] {
 
     // 表格编辑核心插件（处理光标定位、单元格导航、选择等）
     tableEditing(),
+
+    // Tab 焦点逃逸模式状态（配合 Ctrl+M 切换）
+    tabFocusModePlugin,
 
     // 输入规则（Markdown 语法自动转换）
     buildInputRules(schema),
@@ -184,6 +187,18 @@ export function createPastePlugin(
 ): Plugin {
   return new Plugin({
     props: {
+      transformPastedHTML(html: string): string {
+        // 链接在 IR 中以字面文本 [文字](url) 存储（schema 中已无 link mark）。
+        // 粘贴网页内容时把 <a href> 转成字面文本，避免丢失 URL。
+        if (!html || !html.includes('<a')) return html
+        const doc = new DOMParser().parseFromString(html, 'text/html')
+        doc.querySelectorAll('a[href]').forEach((a) => {
+          const href = a.getAttribute('href') || ''
+          const text = (a.textContent || '').trim() || href
+          a.replaceWith(doc.createTextNode(`[${text}](${href})`))
+        })
+        return doc.body.innerHTML
+      },
       handleDOMEvents: {
         paste: (view, event) => {
           const clipboardData = (event as ClipboardEvent).clipboardData

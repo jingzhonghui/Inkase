@@ -101,7 +101,7 @@ async function handleDownload(): Promise<void> {
 
 .update-dialog h3 {
   margin: 0 0 12px;
-  font-size: 16px;
+  font-size: calc(var(--ui-font-size) + 3px);
   font-weight: 600;
 }
 
@@ -114,7 +114,7 @@ async function handleDownload(): Promise<void> {
 .update-message {
   margin: 0;
   color: var(--color-text-secondary);
-  font-size: 13px;
+  font-size: var(--ui-font-size);
   line-height: 1.6;
 }
 
@@ -123,7 +123,7 @@ async function handleDownload(): Promise<void> {
   margin: 0 0 4px;
   padding: 10px 12px;
   overflow: auto;
-  font-size: 13px;
+  font-size: var(--ui-font-size);
   line-height: 1.6;
   color: var(--color-text-secondary);
   background: var(--color-bg-secondary);
@@ -142,7 +142,7 @@ async function handleDownload(): Promise<void> {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--ui-font-size);
 }
 
 .update-btn-cancel {

@@ -6,6 +6,13 @@ import { useThemeStore } from '../../stores/theme'
 import { useUpdateStore } from '../../stores/update'
 import { useAiStore } from '../../stores/ai'
 import { useSyncStore } from '../../stores/sync'
+import {
+  useAppearanceStore,
+  MIN_UI_FONT_SIZE,
+  MAX_UI_FONT_SIZE,
+  MIN_EDITOR_FONT_SIZE,
+  MAX_EDITOR_FONT_SIZE
+} from '../../stores/appearance'
 import { requestDialog } from '../../utils/dialog'
 import { findCodeLanguage, languageDisplayName } from '../../utils/editor-language'
 import SyncPanel from './SyncPanel.vue'
@@ -17,6 +24,7 @@ const themeStore = useThemeStore()
 const updateStore = useUpdateStore()
 const aiStore = useAiStore()
 const syncStore = useSyncStore()
+const appearanceStore = useAppearanceStore()
 const isMaximized = ref(false)
 const quickOpenVisible = ref(false)
 
@@ -91,7 +99,7 @@ const fileMenu = computed<MenuItem[]>(() => {
       ? [{ kind: 'item', label: '关闭文件夹', action: 'close-folder' } as MenuItem]
       : []),
     { kind: 'divider' },
-    { kind: 'item', label: '同步', action: 'sync', disabled: !fileStore.openedFolderPath },
+    { kind: 'item', label: '同步', action: 'sync', checked: syncStore.panelOpen, disabled: !fileStore.openedFolderPath },
     { kind: 'divider' },
     { kind: 'item', label: '保存', action: 'save', shortcut: 'Ctrl+S' },
     { kind: 'item', label: '另存为', action: 'save-as', shortcut: 'Ctrl+Shift+S' },
@@ -233,6 +241,8 @@ const settingsOpen = ref(false)
 const settingsCompressEnabled = ref(true)
 const settingsCompressQuality = ref(85)
 const settingsMaxTabs = ref(20)
+const settingsUiFontSize = ref(appearanceStore.uiFontSize)
+const settingsEditorFontSize = ref(appearanceStore.editorFontSize)
 const linkDialogOpen = ref(false)
 const linkHref = ref('')
 const linkTitle = ref('')
@@ -407,10 +417,7 @@ async function runMenuItem(item: MenuItem): Promise<void> {
       syncStore.openPanel()
       break
     case 'settings':
-      settingsCompressEnabled.value = fileStore.imageCompressSettings.enabled
-      settingsCompressQuality.value = fileStore.imageCompressSettings.quality
-      settingsMaxTabs.value = fileStore.maxOpenTabs
-      settingsOpen.value = true
+      openSettings()
       break
     case 'insert-image':
       openImageDialog()
@@ -551,12 +558,23 @@ async function selectAttachmentFile(): Promise<void> {
   }))
 }
 
+function openSettings(): void {
+  settingsCompressEnabled.value = fileStore.imageCompressSettings.enabled
+  settingsCompressQuality.value = fileStore.imageCompressSettings.quality
+  settingsMaxTabs.value = fileStore.maxOpenTabs
+  settingsUiFontSize.value = appearanceStore.uiFontSize
+  settingsEditorFontSize.value = appearanceStore.editorFontSize
+  settingsOpen.value = true
+}
+
 function saveSettings(): void {
   fileStore.setImageCompressSettings({
     enabled: settingsCompressEnabled.value,
     quality: settingsCompressQuality.value
   })
   fileStore.setMaxOpenTabs(settingsMaxTabs.value)
+  appearanceStore.setUiFontSize(settingsUiFontSize.value)
+  appearanceStore.setEditorFontSize(settingsEditorFontSize.value)
   settingsOpen.value = false
 }
 
@@ -583,7 +601,8 @@ const syncTooltip = computed(() => {
     syncing: '同步中',
     uninitialized: '同步未配置'
   }
-  return `${labels[syncStore.status] ?? '同步'}（点击打开同步面板）`
+  const action = syncStore.panelOpen ? '点击收起同步面板' : '点击打开同步面板'
+  return `${labels[syncStore.status] ?? '同步'}（${action}）`
 })
 
 function handleMinimize(): void {
@@ -669,10 +688,7 @@ function handleKeydown(event: KeyboardEvent): void {
     }
   } else if (event.key === ',') {
     event.preventDefault()
-    settingsCompressEnabled.value = fileStore.imageCompressSettings.enabled
-    settingsCompressQuality.value = fileStore.imageCompressSettings.quality
-    settingsMaxTabs.value = fileStore.maxOpenTabs
-    settingsOpen.value = true
+    openSettings()
   }
 }
 
@@ -742,7 +758,9 @@ onUnmounted(() => {
           class="icon-btn sync-btn"
           :data-status="syncStore.status"
           :disabled="!fileStore.openedFolderPath"
-          @click="syncStore.openPanel()"
+          :aria-label="syncStore.panelOpen ? '收起同步面板' : '打开同步面板'"
+          :class="{ active: syncStore.panelOpen }"
+          @click="syncStore.togglePanel()"
         >
           <IconRefresh
             class="icon"
@@ -960,6 +978,34 @@ onUnmounted(() => {
               type="number"
               min="1"
               max="100"
+            >
+          </label>
+
+          <label class="settings-row">
+            <span>
+              <strong>编辑区域字体大小</strong>
+              <small>源码、即时渲染、预览与工具栏的字号</small>
+            </span>
+            <input
+              v-model.number="settingsEditorFontSize"
+              class="settings-number"
+              type="number"
+              :min="MIN_EDITOR_FONT_SIZE"
+              :max="MAX_EDITOR_FONT_SIZE"
+            >
+          </label>
+
+          <label class="settings-row">
+            <span>
+              <strong>主界面字体大小</strong>
+              <small>菜单栏、标签页、侧边栏、状态栏等的字号</small>
+            </span>
+            <input
+              v-model.number="settingsUiFontSize"
+              class="settings-number"
+              type="number"
+              :min="MIN_UI_FONT_SIZE"
+              :max="MAX_UI_FONT_SIZE"
             >
           </label>
 
@@ -1202,7 +1248,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   padding: 0 10px;
-  font-size: 13px;
+  font-size: var(--ui-font-size);
   color: var(--color-text-secondary);
   cursor: pointer;
   user-select: none;
@@ -1365,7 +1411,7 @@ onUnmounted(() => {
   justify-content: space-between;
   gap: 24px;
   padding: 7px 12px;
-  font-size: 13px;
+  font-size: var(--ui-font-size);
   color: var(--color-text);
   border-radius: var(--radius-sm);
   cursor: pointer;
@@ -1378,13 +1424,13 @@ onUnmounted(() => {
 }
 
 .menu-entry .shortcut {
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) - 1px);
   color: var(--color-text-tertiary);
   font-family: var(--font-mono);
 }
 
 .menu-entry .sub-indicator {
-  font-size: 10px;
+  font-size: calc(var(--ui-font-size) - 3px);
   color: var(--color-text-tertiary);
 }
 
@@ -1545,7 +1591,7 @@ onUnmounted(() => {
 
 .help-dialog h2 {
   margin: 0 0 18px;
-  font-size: 17px;
+  font-size: calc(var(--ui-font-size) + 4px);
 }
 
 .shortcuts-dialog {
@@ -1566,7 +1612,7 @@ onUnmounted(() => {
   min-width: 0;
   padding: 7px 0;
   color: var(--color-text-secondary);
-  font-size: 13px;
+  font-size: var(--ui-font-size);
 }
 
 .shortcut-row kbd {
@@ -1578,13 +1624,13 @@ onUnmounted(() => {
   border-bottom-width: 2px;
   border-radius: 5px;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: calc(var(--ui-font-size) - 2px);
 }
 
 .about-dialog p {
   margin: 0;
   color: var(--color-text-secondary);
-  font-size: 13px;
+  font-size: var(--ui-font-size);
   line-height: 1.7;
 }
 
@@ -1595,7 +1641,7 @@ onUnmounted(() => {
 
 .about-dialog h2 {
   margin-bottom: 4px;
-  font-size: 19px;
+  font-size: calc(var(--ui-font-size) + 6px);
 }
 
 .about-logo {
@@ -1613,12 +1659,12 @@ onUnmounted(() => {
 .about-copyright {
   margin-top: 16px !important;
   color: var(--color-text-tertiary) !important;
-  font-size: 12px !important;
+  font-size: calc(var(--ui-font-size) - 1px) !important;
 }
 
 .insert-dialog h2 {
   margin: 0 0 18px;
-  font-size: 17px;
+  font-size: calc(var(--ui-font-size) + 4px);
 }
 
 .insert-dialog label {
@@ -1630,7 +1676,7 @@ onUnmounted(() => {
   display: block;
   margin-bottom: 6px;
   color: var(--color-text-secondary);
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) - 1px);
 }
 
 .insert-dialog input {
@@ -1664,7 +1710,7 @@ onUnmounted(() => {
 
 .settings-dialog h2 {
   margin: 0 0 12px;
-  font-size: 17px;
+  font-size: calc(var(--ui-font-size) + 4px);
 }
 
 .settings-row {
@@ -1679,7 +1725,7 @@ onUnmounted(() => {
 .settings-row strong,
 .settings-theme > strong {
   display: block;
-  font-size: 13px;
+  font-size: var(--ui-font-size);
   font-weight: 600;
 }
 
@@ -1687,7 +1733,7 @@ onUnmounted(() => {
   display: block;
   margin-top: 3px;
   color: var(--color-text-tertiary);
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) - 1px);
 }
 
 .quality-control {
@@ -1703,7 +1749,7 @@ onUnmounted(() => {
 .quality-control output {
   width: 24px;
   color: var(--color-text-secondary);
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) - 1px);
   text-align: right;
 }
 
@@ -1714,7 +1760,7 @@ onUnmounted(() => {
   border-radius: var(--radius-sm);
   background-color: var(--color-bg-primary);
   color: var(--color-text);
-  font-size: 13px;
+  font-size: var(--ui-font-size);
 }
 
 .settings-theme {

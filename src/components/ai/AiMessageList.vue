@@ -86,6 +86,6 @@ watch(
 }
 .welcome strong {
   color: var(--color-text);
-  font-size: 18px;
+  font-size: calc(var(--ui-font-size) + 5px);
 }
 </style>

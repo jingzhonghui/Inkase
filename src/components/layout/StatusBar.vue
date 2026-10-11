@@ -157,7 +157,7 @@ const modeTooltip = computed(() => `${modeLabel.value} (点击切换)`)
   padding: 0 var(--spacing-md);
   background-color: var(--color-bg-secondary);
   border-top: 1px solid var(--color-border);
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) - 1px);
   color: var(--color-text-secondary);
   flex-shrink: 0;
 }
@@ -200,7 +200,7 @@ const modeTooltip = computed(() => `${modeLabel.value} (点击切换)`)
   align-items: center;
   gap: 6px;
   padding: 4px 12px;
-  font-size: 12px;
+  font-size: calc(var(--ui-font-size) - 1px);
   font-weight: 500;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);

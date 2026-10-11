@@ -412,6 +412,7 @@ async function selectImageFile(): Promise<void> {
   background-color: var(--color-bg-secondary);
   border-bottom: 1px solid var(--color-border);
   flex-shrink: 0;
+  font-size: calc(var(--editor-font-size, 16px) - 2px);
 }
 
 .toolbar-divider {
@@ -483,7 +484,7 @@ async function selectImageFile(): Promise<void> {
   text-align: left;
   cursor: pointer;
   border-radius: 4px;
-  font-size: 14px;
+  font-size: calc(var(--editor-font-size, 16px) - 2px);
 }
 
 .dropdown-item:hover {
@@ -517,7 +518,7 @@ async function selectImageFile(): Promise<void> {
 
 .dialog-title {
   margin: 0 0 16px 0;
-  font-size: 16px;
+  font-size: var(--editor-font-size, 16px);
   font-weight: 600;
   color: var(--color-text);
 }
@@ -530,7 +531,7 @@ async function selectImageFile(): Promise<void> {
   border-radius: 6px;
   background: var(--color-bg-secondary);
   color: var(--color-text);
-  font-size: 14px;
+  font-size: calc(var(--editor-font-size, 16px) - 2px);
   outline: none;
   transition: border-color 0.15s;
 }
@@ -547,7 +548,7 @@ async function selectImageFile(): Promise<void> {
   text-align: center;
   margin: 12px 0;
   color: var(--color-text-secondary);
-  font-size: 13px;
+  font-size: calc(var(--editor-font-size, 16px) - 3px);
   position: relative;
 }
 
@@ -594,7 +595,7 @@ async function selectImageFile(): Promise<void> {
 .dialog-btn {
   padding: 8px 16px;
   border-radius: 6px;
-  font-size: 14px;
+  font-size: calc(var(--editor-font-size, 16px) - 2px);
   cursor: pointer;
   transition: all 0.15s;
 }

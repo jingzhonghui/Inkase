@@ -75,7 +75,7 @@ import { cancelDialogRequest, dialogState, resolveDialogRequest } from '../../ut
 
 .dialog-title {
   margin: 0;
-  font-size: 16px;
+  font-size: calc(var(--ui-font-size) + 3px);
   font-weight: 600;
 }
 
@@ -91,7 +91,7 @@ import { cancelDialogRequest, dialogState, resolveDialogRequest } from '../../ut
   background: transparent;
   color: var(--color-text-tertiary);
   cursor: pointer;
-  font-size: 20px;
+  font-size: calc(var(--ui-font-size) + 7px);
   line-height: 1;
 }
 
@@ -99,7 +99,7 @@ import { cancelDialogRequest, dialogState, resolveDialogRequest } from '../../ut
 .dialog-detail {
   margin: 0;
   color: var(--color-text-secondary);
-  font-size: 13px;
+  font-size: var(--ui-font-size);
   line-height: 1.6;
 }
 
@@ -120,7 +120,7 @@ import { cancelDialogRequest, dialogState, resolveDialogRequest } from '../../ut
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--ui-font-size);
 }
 
 .dialog-btn-cancel {
