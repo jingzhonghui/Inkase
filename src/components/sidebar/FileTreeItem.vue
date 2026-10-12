@@ -300,12 +300,12 @@ function onDrop(event: DragEvent): void {
   background-color: var(--color-bg-secondary);
 }
 
-.item-content.is-active {
-  background-color: var(--color-primary-light);
-}
-
 .item-content.is-selected {
   background-color: var(--color-bg-tertiary);
+}
+
+.item-content.is-active {
+  background-color: var(--color-primary-light);
 }
 
 .item-content.is-cut {

@@ -85,6 +85,59 @@ describe('TabBar closing with many tabs', () => {
   })
 })
 
+describe('TabBar drag reorder', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    stubElectronAPI()
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.clearAllMocks()
+  })
+
+  function tabNames(store: ReturnType<typeof useFileStore>): string[] {
+    return store.tabs.map((t) => t.fileInfo?.name ?? '')
+  }
+
+  it('moves a tab dropped on the right half of a later tab', async () => {
+    const store = await openManyTabs(3)
+    const wrapper = mount(TabBar)
+    const tabs = wrapper.findAll('.tab')
+
+    await tabs[0].trigger('dragstart')
+    await tabs[2].trigger('dragover', { clientX: 100 })
+    await tabs[2].trigger('drop')
+
+    expect(tabNames(store)).toEqual(['f1.mdx', 'f2.mdx', 'f0.mdx'])
+  })
+
+  it('moves a tab dropped on the left half of an earlier tab', async () => {
+    const store = await openManyTabs(3)
+    const wrapper = mount(TabBar)
+    const tabs = wrapper.findAll('.tab')
+
+    await tabs[2].trigger('dragstart')
+    await tabs[0].trigger('dragover', { clientX: 0 })
+    await tabs[0].trigger('drop')
+
+    expect(tabNames(store)).toEqual(['f2.mdx', 'f0.mdx', 'f1.mdx'])
+  })
+
+  it('does not reorder after dragend clears the drag state', async () => {
+    const store = await openManyTabs(3)
+    const wrapper = mount(TabBar)
+    const tabs = wrapper.findAll('.tab')
+
+    await tabs[0].trigger('dragstart')
+    await tabs[0].trigger('dragend')
+    await tabs[1].trigger('dragover', { clientX: 100 })
+    await tabs[1].trigger('drop')
+
+    expect(tabNames(store)).toEqual(['f0.mdx', 'f1.mdx', 'f2.mdx'])
+  })
+})
+
 describe('TabBar label for read-only media', () => {
   beforeEach(() => {
     setActivePinia(createPinia())

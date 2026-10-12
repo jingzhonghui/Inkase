@@ -84,6 +84,14 @@ export function useFolder(deps: FolderDeps) {
     selectionAnchor.value = null
   }
 
+  /** 判断路径是否位于当前已打开的文件夹内（不含文件夹根本身） */
+  function isInsideOpenedFolder(filePath: string): boolean {
+    const folderPath = openedFolderPath.value
+    if (!folderPath) return false
+    const normalize = (value: string): string => value.replace(/[\\/]+/g, '/').replace(/\/+$/, '').toLowerCase()
+    return normalize(filePath).startsWith(`${normalize(folderPath)}/`)
+  }
+
   function pruneSelection(): void {
     const visible = new Set(collectVisiblePaths(fileTree.value))
     selectedPaths.value = selectedPaths.value.filter((item) => visible.has(item))
@@ -695,6 +703,7 @@ export function useFolder(deps: FolderDeps) {
     selectRange,
     selectAllVisible,
     clearSelection,
+    isInsideOpenedFolder,
     pruneSelection,
     openFolder,
     openFolderPath,

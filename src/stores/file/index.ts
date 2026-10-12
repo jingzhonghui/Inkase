@@ -712,6 +712,14 @@ export const useFileStore = defineStore('file', () => {
     closeTab: (tabId) => closeFolderTab(tabId)
   })
 
+  // 激活标签变化时同步资源管理器选中项：保持唯一选中项 = 激活文件，
+  // 避免通过标签栏/关闭标签等非资源管理器点击方式切换后残留旧选中高亮。
+  watch(activeTabId, () => {
+    const filePath = activeTab.value?.fileInfo?.path
+    if (filePath && folder.isInsideOpenedFolder(filePath)) folder.selectOnly(filePath)
+    else folder.clearSelection()
+  })
+
   // ====== 会话持久化实现（依赖 folder.openedFolderPath） ======
   persistSession = () => {
     saveSessionState({
@@ -1223,6 +1231,7 @@ export const useFileStore = defineStore('file', () => {
     closeTab: tabOps.closeTab,
     closeOtherTabs: tabOps.closeOtherTabs,
     closeAllTabs: tabOps.closeAllTabs,
+    moveTab: tabOps.moveTab,
     confirmSaveForTab: tabOps.confirmSaveForTab,
     confirmSaveBeforeClose: tabOps.confirmSaveBeforeClose,
     revealInExplorer: tabState.revealInExplorer,

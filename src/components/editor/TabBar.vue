@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { reactive, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, reactive, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import {
   IconBraces,
   IconFile,
@@ -69,6 +69,46 @@ function handleMiddleClick(tabId: string, event: MouseEvent): void {
 async function handleCloseTab(tabId: string, event: MouseEvent): Promise<void> {
   event.stopPropagation()
   await fileStore.closeTab(tabId)
+}
+
+// ========== 拖动排序 ==========
+const dragTabId = ref<string | null>(null)
+const dropIndex = ref<number | null>(null)
+
+function resetDrag(): void {
+  dragTabId.value = null
+  dropIndex.value = null
+}
+
+function onTabDragStart(tab: TabInfo, event: DragEvent): void {
+  dragTabId.value = tab.id
+  dropIndex.value = null
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', tab.id)
+  }
+}
+
+function onTabDragOver(index: number, event: DragEvent): void {
+  if (!dragTabId.value) return
+  event.preventDefault()
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
+  const el = event.currentTarget as HTMLElement
+  const rect = el.getBoundingClientRect()
+  const after = event.clientX > rect.left + rect.width / 2
+  dropIndex.value = after ? index + 1 : index
+}
+
+function onTabDrop(event: DragEvent): void {
+  event.preventDefault()
+  const tabId = dragTabId.value
+  const index = dropIndex.value
+  resetDrag()
+  if (tabId !== null && index !== null) fileStore.moveTab(tabId, index)
+}
+
+function onTabDragEnd(): void {
+  resetDrag()
 }
 
 function getTabLabel(tab: TabInfo): string {
@@ -179,16 +219,30 @@ onUnmounted(() => {
     class="tab-bar"
   >
     <div
-      v-for="tab in fileStore.tabs"
+      v-for="(tab, tabIndex) in fileStore.tabs"
       :key="tab.id"
       :data-tab-id="tab.id"
       class="tab"
-      :class="{ active: !aiStore.panelActive && tab.id === fileStore.activeTabId, preview: tab.isPreview }"
+      :class="{ active: !aiStore.panelActive && tab.id === fileStore.activeTabId, preview: tab.isPreview, dragging: dragTabId === tab.id }"
+      draggable="true"
       @click="handleTabClick(tab.id)"
       @dblclick="handleTabDblClick(tab.id)"
       @mousedown="handleMiddleClick(tab.id, $event)"
       @contextmenu.prevent.stop="onTabContextMenu($event, tab)"
+      @dragstart="onTabDragStart(tab, $event)"
+      @dragover="onTabDragOver(tabIndex, $event)"
+      @drop="onTabDrop"
+      @dragend="onTabDragEnd"
     >
+      <span
+        v-if="dropIndex === tabIndex"
+        class="drop-indicator drop-indicator-start"
+      />
+      <span
+        v-if="dropIndex === tabIndex + 1"
+        class="drop-indicator drop-indicator-end"
+      />
+
       <!-- 文件图标 -->
       <component
         :is="getTabIcon(tab)"
@@ -210,6 +264,7 @@ onUnmounted(() => {
       <!-- 关闭按钮 -->
       <button
         class="tab-close-btn"
+        draggable="false"
         @click="handleCloseTab(tab.id, $event)"
       >
         <IconX :size="14" />
@@ -339,6 +394,29 @@ onUnmounted(() => {
   right: 0;
   height: 2px;
   background-color: var(--color-primary);
+}
+
+.tab.dragging {
+  opacity: 0.45;
+}
+
+.drop-indicator {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  width: 2px;
+  border-radius: 1px;
+  background-color: var(--color-primary);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.drop-indicator-start {
+  left: -1px;
+}
+
+.drop-indicator-end {
+  right: -1px;
 }
 
 .tab-icon {

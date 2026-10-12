@@ -136,6 +136,7 @@ export interface TabOps {
   closeTab: (tabId: string) => Promise<boolean>
   closeOtherTabs: (keepTabId: string) => Promise<void>
   closeAllTabs: () => Promise<void>
+  moveTab: (tabId: string, insertIndex: number) => void
   confirmSaveForTab: (tab: TabInfo) => Promise<'save' | 'discard' | 'cancel'>
   confirmSaveBeforeClose: () => Promise<boolean>
 }
@@ -221,6 +222,21 @@ export function createTabOps(state: TabState, deps: TabOpsDeps): TabOps {
     }
   }
 
+  /**
+   * 拖动排序：把 tabId 对应的标签移动到 insertIndex 之前（insertIndex 针对原数组，范围 [0, length]）。
+   * 位置不变时为无操作；不改变激活标签。
+   */
+  function moveTab(tabId: string, insertIndex: number): void {
+    const from = tabs.value.findIndex((tab) => tab.id === tabId)
+    if (from === -1) return
+    let to = Math.max(0, Math.min(insertIndex, tabs.value.length))
+    if (from < to) to -= 1
+    if (to === from) return
+    const [moved] = tabs.value.splice(from, 1)
+    tabs.value.splice(to, 0, moved)
+    deps.persistSession()
+  }
+
   async function confirmSaveBeforeClose(): Promise<boolean> {
     for (const tab of tabs.value) {
       const isTabDirty = tab.document && ((tab.fileInfo?.modified ?? false) || !tab.fileInfo?.path)
@@ -242,6 +258,7 @@ export function createTabOps(state: TabState, deps: TabOpsDeps): TabOps {
     closeTab,
     closeOtherTabs,
     closeAllTabs,
+    moveTab,
     confirmSaveForTab,
     confirmSaveBeforeClose
   }

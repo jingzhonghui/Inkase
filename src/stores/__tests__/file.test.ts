@@ -1157,6 +1157,110 @@ describe('file store', () => {
     })
   })
 
+  describe('moveTab', () => {
+    async function openThreeTabs(store: ReturnType<typeof useFileStore>): Promise<void> {
+      electronAPI.openFile
+        .mockResolvedValueOnce({
+          success: true,
+          data: { document: makeDoc('A'), filePath: 'C:/docs/A.mdx', format: 'mdx' }
+        })
+        .mockResolvedValueOnce({
+          success: true,
+          data: { document: makeDoc('B'), filePath: 'C:/docs/B.mdx', format: 'mdx' }
+        })
+        .mockResolvedValueOnce({
+          success: true,
+          data: { document: makeDoc('C'), filePath: 'C:/docs/C.mdx', format: 'mdx' }
+        })
+      await store.openFile('C:/docs/A.mdx')
+      await store.openFile('C:/docs/B.mdx')
+      await store.openFile('C:/docs/C.mdx')
+    }
+
+    function names(store: ReturnType<typeof useFileStore>): string[] {
+      return store.tabs.map((t) => t.fileInfo?.name ?? '')
+    }
+
+    it('moves a tab to a later position', async () => {
+      const store = useFileStore()
+      await openThreeTabs(store)
+      const a = store.tabs[0]
+
+      store.moveTab(a.id, 3)
+
+      expect(names(store)).toEqual(['B.mdx', 'C.mdx', 'A.mdx'])
+    })
+
+    it('moves a tab to an earlier position', async () => {
+      const store = useFileStore()
+      await openThreeTabs(store)
+      const c = store.tabs[2]
+
+      store.moveTab(c.id, 0)
+
+      expect(names(store)).toEqual(['C.mdx', 'A.mdx', 'B.mdx'])
+    })
+
+    it('inserts before the target index', async () => {
+      const store = useFileStore()
+      await openThreeTabs(store)
+      const a = store.tabs[0]
+
+      store.moveTab(a.id, 2)
+
+      expect(names(store)).toEqual(['B.mdx', 'A.mdx', 'C.mdx'])
+    })
+
+    it('is a no-op when the position does not change', async () => {
+      const store = useFileStore()
+      await openThreeTabs(store)
+      const b = store.tabs[1]
+
+      store.moveTab(b.id, 1)
+
+      expect(names(store)).toEqual(['A.mdx', 'B.mdx', 'C.mdx'])
+    })
+
+    it('clamps a target index beyond the end', async () => {
+      const store = useFileStore()
+      await openThreeTabs(store)
+      const a = store.tabs[0]
+
+      store.moveTab(a.id, 99)
+
+      expect(names(store)).toEqual(['B.mdx', 'C.mdx', 'A.mdx'])
+    })
+
+    it('clamps a negative target index', async () => {
+      const store = useFileStore()
+      await openThreeTabs(store)
+      const c = store.tabs[2]
+
+      store.moveTab(c.id, -5)
+
+      expect(names(store)).toEqual(['C.mdx', 'A.mdx', 'B.mdx'])
+    })
+
+    it('keeps the active tab unchanged', async () => {
+      const store = useFileStore()
+      await openThreeTabs(store)
+      const activeBefore = store.activeTabId
+
+      store.moveTab(store.tabs[0].id, 2)
+
+      expect(store.activeTabId).toBe(activeBefore)
+    })
+
+    it('ignores an unknown tab id', async () => {
+      const store = useFileStore()
+      await openThreeTabs(store)
+
+      store.moveTab('missing', 0)
+
+      expect(names(store)).toEqual(['A.mdx', 'B.mdx', 'C.mdx'])
+    })
+  })
+
   describe('moveItem', () => {
     function mockFolderTree(): void {
       electronAPI.readFolder.mockImplementation(async (dirPath) => {
