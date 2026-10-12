@@ -41,6 +41,7 @@
     "mammoth": "^1.12.3",
     "node-html-parser": "^9.0.1",
     "pdf-parse": "^2.4.5",
+    "prettier": "^3.5.1",
     "sharp": "^0.34.5",
     "zod": "4.4.3"
   },
@@ -79,7 +80,6 @@
     "pinia": "^2.3.0",
     "png-to-ico": "^3.0.2",
     "postcss": "^8.5.3",
-    "prettier": "^3.5.1",
     "prosemirror-commands": "^1.7.1",
     "prosemirror-dropcursor": "^1.8.2",
     "prosemirror-gapcursor": "^1.4.1",

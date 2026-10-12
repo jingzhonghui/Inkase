@@ -2,7 +2,14 @@ import { describe, expect, it } from 'vitest'
 import { EditorState, TextSelection, type Transaction } from 'prosemirror-state'
 import { tableEditing } from 'prosemirror-tables'
 import { markdownSchema } from '../schema'
-import { buildKeymap, handleTab, handleShiftTab, tabFocusModePlugin, tabFocusModeKey } from '../keymap'
+import {
+  buildKeymap,
+  handleTab,
+  handleShiftTab,
+  tabFocusModePlugin,
+  tabFocusModeKey,
+  exitBlockOnArrowUp
+} from '../keymap'
 
 const paragraph = markdownSchema.nodes.paragraph
 const codeBlock = markdownSchema.nodes.code_block
@@ -117,5 +124,174 @@ describe('IR keymap Tab handling', () => {
 
     const next = state.apply(tr!)
     expect(tabFocusModeKey.getState(next)).toBe(true)
+  })
+})
+
+describe('IR keymap code block Backspace', () => {
+  const keymap = buildKeymap(markdownSchema)
+
+  it('removes only the empty first line when pressed at its start', () => {
+    const state = makeState([codeBlock.create({ language: '' }, markdownSchema.text('\nfoo'))], 1)
+
+    const tr = run(keymap['Backspace'], state)
+
+    expect(tr).not.toBeNull()
+    const next = state.apply(tr!)
+    expect(next.doc.textContent).toBe('foo')
+    expect(next.doc.firstChild?.type.name).toBe('code_block')
+    expect(next.selection.from).toBe(1)
+  })
+
+  it('deletes the whole code block only when it is empty', () => {
+    const state = makeState(
+      [paragraph.create(null, markdownSchema.text('a')), codeBlock.create({ language: '' })],
+      4
+    )
+
+    const tr = run(keymap['Backspace'], state)
+
+    expect(tr).not.toBeNull()
+    const next = state.apply(tr!)
+    expect(next.doc.childCount).toBe(1)
+    expect(next.doc.firstChild?.type.name).toBe('paragraph')
+  })
+
+  it('keeps the code block when the first line has content', () => {
+    const state = makeState([codeBlock.create({ language: '' }, markdownSchema.text('bar\nfoo'))], 1)
+
+    const tr = run(keymap['Backspace'], state)
+    const next = tr ? state.apply(tr) : state
+
+    expect(next.doc.textContent).toBe('bar\nfoo')
+    expect(next.doc.firstChild?.type.name).toBe('code_block')
+  })
+})
+
+describe('IR keymap ArrowUp exit block', () => {
+  const arrowUp = exitBlockOnArrowUp(markdownSchema)
+
+  const cell = (text = 'x'): ReturnType<typeof tableCell.create> =>
+    tableCell.create(null, markdownSchema.text(text))
+
+  function tableState(
+    tableNode: ReturnType<typeof table.create>,
+    cellIndex: number,
+    lineOffset = 0,
+    preceding: ReturnType<typeof markdownSchema.node>[] = []
+  ): EditorState {
+    const doc = markdownSchema.node('doc', null, [...preceding, tableNode])
+    let seen = -1
+    let pos = -1
+    doc.descendants((node, p) => {
+      if (node.type.name === 'table_cell') {
+        seen++
+        if (seen === cellIndex) {
+          pos = p + 1 + lineOffset
+          return false
+        }
+      }
+      return true
+    })
+    return EditorState.create({
+      doc,
+      selection: TextSelection.create(doc, pos),
+      plugins: [tabFocusModePlugin]
+    })
+  }
+
+  it('inserts an empty paragraph above a leading code block on the first line', () => {
+    const state = makeState([codeBlock.create({ language: '' }, markdownSchema.text('abc'))], 1)
+
+    const tr = run(arrowUp, state)
+
+    expect(tr).not.toBeNull()
+    const next = state.apply(tr!)
+    expect(next.doc.childCount).toBe(2)
+    expect(next.doc.child(0).type.name).toBe('paragraph')
+    expect(next.doc.child(0).content.size).toBe(0)
+    expect(next.doc.child(1).type.name).toBe('code_block')
+    expect(next.selection.from).toBe(1)
+  })
+
+  it('moves the cursor to the end of a preceding paragraph', () => {
+    const state = makeState(
+      [
+        paragraph.create(null, markdownSchema.text('a')),
+        codeBlock.create({ language: '' }, markdownSchema.text('abc'))
+      ],
+      4
+    )
+
+    const tr = run(arrowUp, state)
+
+    expect(tr).not.toBeNull()
+    const next = state.apply(tr!)
+    expect(next.doc.childCount).toBe(2)
+    expect(next.selection.from).toBe(2)
+  })
+
+  it('inserts an empty paragraph above the code block when the block above is not a paragraph', () => {
+    const state = makeState(
+      [
+        codeBlock.create({ language: '' }, markdownSchema.text('a')),
+        codeBlock.create({ language: '' }, markdownSchema.text('b'))
+      ],
+      4
+    )
+
+    const tr = run(arrowUp, state)
+
+    expect(tr).not.toBeNull()
+    const next = state.apply(tr!)
+    expect(next.doc.childCount).toBe(3)
+    expect(next.doc.child(1).type.name).toBe('paragraph')
+    expect(next.doc.child(1).content.size).toBe(0)
+  })
+
+  it('does not handle ArrowUp on a non-first line of a code block', () => {
+    const state = makeState([codeBlock.create({ language: '' }, markdownSchema.text('a\nb'))], 3)
+
+    expect(arrowUp(state, undefined)).toBe(false)
+  })
+
+  it('moves the cursor to the preceding paragraph from the first row of a table', () => {
+    const tableNode = table.create(null, [tableRow.create(null, [cell('a'), cell('b')])])
+    const state = tableState(tableNode, 0, 0, [paragraph.create(null, markdownSchema.text('p'))])
+
+    const tr = run(arrowUp, state)
+
+    expect(tr).not.toBeNull()
+    const next = state.apply(tr!)
+    expect(next.selection.from).toBe(2)
+  })
+
+  it('inserts an empty paragraph above a leading table', () => {
+    const tableNode = table.create(null, [tableRow.create(null, [cell('a'), cell('b')])])
+    const state = tableState(tableNode, 0)
+
+    const tr = run(arrowUp, state)
+
+    expect(tr).not.toBeNull()
+    const next = state.apply(tr!)
+    expect(next.doc.child(0).type.name).toBe('paragraph')
+    expect(next.doc.child(0).content.size).toBe(0)
+    expect(next.doc.child(1).type.name).toBe('table')
+  })
+
+  it('does not handle ArrowUp outside the first row of a table', () => {
+    const tableNode = table.create(null, [
+      tableRow.create(null, [cell('a'), cell('b')]),
+      tableRow.create(null, [cell('c'), cell('d')])
+    ])
+    const state = tableState(tableNode, 2)
+
+    expect(arrowUp(state, undefined)).toBe(false)
+  })
+
+  it('does not handle ArrowUp on a non-first line inside a table cell', () => {
+    const tableNode = table.create(null, [tableRow.create(null, [cell('a\nb'), cell('c')])])
+    const state = tableState(tableNode, 0, 2)
+
+    expect(arrowUp(state, undefined)).toBe(false)
   })
 })

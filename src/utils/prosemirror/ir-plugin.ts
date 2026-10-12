@@ -114,7 +114,7 @@ const BARE_URL_PATTERN = /(?:\bhttps?:\/\/|\bwww\.)[^\s<>"'`()[\]{}）】\uFFFC]
 
 /**
  * 收集文本块内链接（含裸 URL）的装饰：
- * - 光标（或选区）落在某个链接区间内 → 该链接展开：`[`、`](url)` 以浅色显示
+ * - 光标（或选区）落在链接区间内或紧贴其边界 → 该链接展开：`[`、`](url)` 以浅色显示
  * - 否则折叠：`[`、`](url)` 用 display:none 隐藏，只显示链接文字
  * - 链接文字与裸 URL 始终套用链接样式
  */
@@ -140,7 +140,9 @@ function collectLinkDecorations(state: EditorState, decorations: Decoration[]): 
       const suffixTo = posMap[e]
       linkRanges.push([openFrom, suffixTo])
 
-      const active = selFrom < suffixTo && selTo > openFrom
+      // 闭区间：光标紧邻链接边界（`)` 之后或 `[` 之前）时也保持展开，
+      // 使粘贴超链接后光标停在链接末尾仍显示完整语法（对齐 Typora）。
+      const active = selFrom <= suffixTo && selTo >= openFrom
       const syntaxClass = active ? 'md-link-mark' : 'md-link-hidden'
       decorations.push(Decoration.inline(openFrom, textFrom, { class: syntaxClass }))
       if (suffixTo > suffixFrom) {

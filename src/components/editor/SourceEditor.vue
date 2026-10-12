@@ -13,6 +13,8 @@ import { highlightSelectionMatches } from '@codemirror/search'
 import { closeBrackets, closeBracketsKeymap, autocompletion, completionKeymap, type Completion } from '@codemirror/autocomplete'
 import { oneDark } from '@codemirror/theme-one-dark'
 import { findCodeLanguage } from '../../utils/editor-language'
+import { formatCode, isFormattable } from '../../utils/formatters'
+import { requestDialog } from '../../utils/dialog'
 import { useEditorFontZoom } from '../../composables/useEditorFontZoom'
 import EditorContextMenu from '../common/EditorContextMenu.vue'
 import FindReplacePanel from './FindReplacePanel.vue'
@@ -206,7 +208,7 @@ function createExtensions(): Extension[] {
       ...historyKeymap,
       ...completionKeymap,
       ...(props.plainText
-        ? customKeymap.filter((binding) => ['Mod-f', 'Mod-h', 'Escape'].includes(binding.key))
+        ? customKeymap.filter((binding) => ['Mod-f', 'Mod-h', 'Escape', 'Shift-Alt-f'].includes(binding.key))
         : customKeymap)
     ]),
 
@@ -272,12 +274,70 @@ function runHistoryCommand(command: (view: EditorView) => boolean): void {
   closeSourceContextMenu()
 }
 
+/** 当前标签的文件名（用于按后缀选择格式化器） */
+function activeFileName(): string {
+  return fileStore.activeTab?.fileInfo?.name ?? ''
+}
+
+/** 超过该大小则跳过格式化，避免阻塞主线程 */
+const MAX_FORMAT_SIZE = 2 * 1024 * 1024
+
+function showDialog(title: string, message: string, detail?: string): void {
+  void requestDialog({ title, message, detail, buttons: [{ label: '确定', value: 0, primary: true }] })
+}
+
+/**
+ * 用 Prettier 格式化当前文档。
+ * 成功后以单个事务整体替换（保证 Ctrl+Z 可撤销）；失败弹窗提示。
+ */
+async function formatDocument(view: EditorView): Promise<void> {
+  const name = activeFileName()
+  if (!isFormattable(name)) {
+    showDialog('无法格式化', '当前文件类型不支持格式化')
+    return
+  }
+
+  const text = view.state.doc.toString()
+  if (text.length > MAX_FORMAT_SIZE) {
+    showDialog('无法格式化', '文件过大，已跳过格式化（超过 2 MB）')
+    return
+  }
+
+  const result = await formatCode(text, name)
+  // 等待期间可能已切换标签（视图被销毁/重建），此时丢弃结果
+  if (view !== editorView.value) return
+
+  if (!result.ok) {
+    showDialog('格式化失败', '无法格式化当前文档', result.error)
+    return
+  }
+  if (result.result === text) {
+    view.focus()
+    return
+  }
+
+  const { anchor, head } = view.state.selection.main
+  const maxPos = result.result.length
+  view.dispatch({
+    changes: { from: 0, to: text.length, insert: result.result },
+    selection: { anchor: Math.min(anchor, maxPos), head: Math.min(head, maxPos) }
+  })
+  view.focus()
+}
+
 function buildSourceContextMenuItems(view: EditorView): EditorContextMenuItem[] {
   if (props.plainText) {
-    return [
+    const items: EditorContextMenuItem[] = [
       { label: '撤销', action: () => runHistoryCommand(undo) },
       { label: '重做', action: () => runHistoryCommand(redo) }
     ]
+    if (isFormattable(activeFileName())) {
+      items.push(
+        { label: '', divider: true },
+        { label: '格式化文档', action: () => void formatDocument(view) }
+      )
+    }
+    return items
   }
 
   return [
@@ -391,6 +451,16 @@ const customKeymap = [
     key: 'Mod-Shift-k',
     run: (view: EditorView) => {
       insertImage(view)
+      return true
+    },
+    preventDefault: true
+  },
+  // Shift+Alt+F: 格式化文档（仅代码/纯文本文件）
+  {
+    key: 'Shift-Alt-f',
+    run: (view: EditorView) => {
+      if (!props.plainText || !isFormattable(activeFileName())) return false
+      void formatDocument(view)
       return true
     },
     preventDefault: true

@@ -287,6 +287,75 @@ function exitTableOnLastRow(schema: Schema): Command {
   }
 }
 
+/**
+ * 上方向键「跳出块」处理（对齐 Typora）：光标位于代码块首行、或表格首行且处于
+ * 单元格首行时，跳出该块——
+ * 1. 上方相邻块是段落 / 标题 → 将光标移到该块末尾；
+ * 2. 否则（上方无块，或上方块不是文本块）→ 在该块上方新建空段落并定位。
+ * 其余情况返回 false，交给默认行为（块内换行移动 / 表格单元格导航）。
+ */
+export function exitBlockOnArrowUp(schema: Schema): Command {
+  return (state, dispatch) => {
+    const selection = state.selection
+    if (!selection.empty) return false
+    const { $from } = selection
+
+    // 表格：仅在表格首行、且光标位于单元格首行时跳出
+    if (isInTable(state)) {
+      let tableDepth = -1
+      for (let d = $from.depth; d > 0; d--) {
+        if ($from.node(d).type.name === 'table') {
+          tableDepth = d
+          break
+        }
+      }
+      if (tableDepth === -1) return false
+      if ($from.index(tableDepth) !== 0) return false
+      if ($from.parent.textBetween(0, $from.parentOffset).includes('\n')) return false
+      return jumpAboveBlock(schema, state, dispatch, tableDepth)
+    }
+
+    // 代码块：仅当光标位于首行时跳出
+    if ($from.parent.type.name === 'code_block') {
+      if ($from.parent.textBetween(0, $from.parentOffset).includes('\n')) return false
+      return jumpAboveBlock(schema, state, dispatch, $from.depth)
+    }
+
+    return false
+  }
+}
+
+/**
+ * 在 blockDepth 处向上跳出：上方相邻块为段落 / 标题时把光标移到其末尾，
+ * 否则在该块上方插入一个空段落并将光标移入。
+ */
+function jumpAboveBlock(
+  schema: Schema,
+  state: EditorState,
+  dispatch: ((tr: Transaction) => void) | undefined,
+  blockDepth: number
+): boolean {
+  const { $from } = state.selection
+  const indexInParent = $from.index(blockDepth - 1)
+  const blockStart = $from.before(blockDepth)
+  const prev = indexInParent > 0 ? $from.node(blockDepth - 1).child(indexInParent - 1) : null
+
+  if (prev && (prev.type.name === 'paragraph' || prev.type.name === 'heading')) {
+    if (dispatch) {
+      dispatch(state.tr.setSelection(TextSelection.create(state.doc, blockStart - 1)).scrollIntoView())
+    }
+    return true
+  }
+
+  if (dispatch) {
+    const tr = state.tr.insert(blockStart, schema.nodes.paragraph.create())
+    tr.setSelection(TextSelection.create(tr.doc, blockStart + 1))
+    tr.scrollIntoView()
+    dispatch(tr)
+  }
+  return true
+}
+
 /** 按回车时，将完整的块级 Markdown 标记转换为对应节点。 */
 function convertBlockMarkerOnEnter(schema: Schema): Command {
   return (state, dispatch) => {
@@ -597,7 +666,8 @@ export function buildKeymap(schema: Schema): Record<string, Command> {
     // 水平分割线
     'Mod-Shift--': insertHorizontalRule(),
 
-    // 导航
+    // 导航（ArrowUp 的「跳出代码块 / 表格」逻辑在 plugins.ts 中以独立插件注册，
+    // 需先于 tableEditing 生效，故不放在此 keymap 中）
     'Alt-ArrowUp': joinUp,
     'Alt-ArrowDown': joinDown,
     'Mod-BracketLeft': lift,
@@ -611,7 +681,8 @@ export function buildKeymap(schema: Schema): Record<string, Command> {
       handleEnter(schema)
     ),
 
-    // Backspace — 代码块为空时删除代码块，否则在句首时将代码块替换为段落
+    // Backspace — 代码块为空时删除整个代码块；光标在空的首行行首时仅删除该空行；
+    // 其余情况保留内容，交给后续默认处理
     'Backspace': chainCommands(
       deleteSelection,
       (state, dispatch) => {
@@ -627,12 +698,13 @@ export function buildKeymap(schema: Schema): Record<string, Command> {
             }
             return true
           }
-          if ($from.parentOffset === 0) {
+          if ($from.parentOffset === 0 && $from.parent.textContent.startsWith('\n')) {
+            // 非空代码块、光标位于空的首行行首：只删除该空行（去掉第一个换行符），
+            // 保留代码块其余内容。
             if (dispatch) {
-              const start = $from.before($from.depth)
-              const end = $from.after($from.depth)
-              const tr = state.tr.replaceWith(start, end, schema.nodes.paragraph.create())
-              tr.setSelection(TextSelection.create(tr.doc, start + 1))
+              const contentStart = $from.start()
+              const tr = state.tr.delete(contentStart, contentStart + 1)
+              tr.setSelection(TextSelection.create(tr.doc, contentStart))
               dispatch(tr)
             }
             return true

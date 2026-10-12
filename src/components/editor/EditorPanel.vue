@@ -149,6 +149,10 @@ function onPreviewScroll(ratio: number): void {
               <span>查找</span>
             </div>
             <div class="shortcut-item">
+              <kbd>Shift+Alt+F</kbd>
+              <span>格式化文档</span>
+            </div>
+            <div class="shortcut-item">
               <kbd>Ctrl+/</kbd>
               <span>切换编辑模式</span>
             </div>

@@ -756,7 +756,7 @@ function handleFoldedLinkEndClick(view: EditorView, event: MouseEvent): boolean 
 
   // 仅当链接当前处于折叠态时才校正（展开态下点击文字末尾表示要编辑链接文字）
   const sel = view.state.selection
-  const folded = !(sel.from < link.to && sel.to > link.from)
+  const folded = !(sel.from <= link.to && sel.to >= link.from)
   if (!folded) return false
 
   event.preventDefault()

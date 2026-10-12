@@ -124,6 +124,7 @@ src/
 │   ├── markdown.ts                    # markdown-it 实例、数学公式插件、代码语言映射
 │   ├── shiki.ts                       # 代码高亮 highlighter 单例
 │   ├── fuzzy.ts / dialog.ts / editor-language.ts / windows-filename.ts 等通用工具
+│   ├── formatters/                    # 代码格式化（Prettier standalone，按扩展名懒加载 parser；供纯文本源码右键菜单「格式化文档」/ Shift+Alt+F）
 │   ├── ai/                            # AI 消息解析等工具
 │   └── prosemirror/                   # ProseMirror 工具集
 │       ├── index.ts                   # 统一导出

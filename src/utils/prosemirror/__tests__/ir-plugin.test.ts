@@ -156,10 +156,41 @@ describe('IR marker decorations', () => {
     expect(classedDecos(decos).some((d) => d.cls === 'md-link-mark')).toBe(true)
   })
 
-  it('folds the link when the cursor is just after it', () => {
+  it('keeps the link expanded when the cursor is just after it (adjacent boundary)', () => {
     const doc = parseMarkdown(LINK_MD)
     const b = linkBounds(doc.firstChild!.textContent)
     const decos = decorationsFor(doc, b.suffixTo)
+
+    const deco = classedDecos(decos)
+    expect(deco.some((d) => d.cls === 'md-link-hidden')).toBe(false)
+    expect(deco.some((d) => d.cls === 'md-link-mark')).toBe(true)
+  })
+
+  it('keeps the link expanded when the cursor is just before it (adjacent boundary)', () => {
+    const doc = parseMarkdown(LINK_MD)
+    const b = linkBounds(doc.firstChild!.textContent)
+    const decos = decorationsFor(doc, b.openFrom)
+
+    const deco = classedDecos(decos)
+    expect(deco.some((d) => d.cls === 'md-link-hidden')).toBe(false)
+    expect(deco.some((d) => d.cls === 'md-link-mark')).toBe(true)
+  })
+
+  it('keeps a pasted link expanded (cursor lands right after the syntax)', () => {
+    const doc = parseMarkdown('[pbakaus/impeccable: The design language](https://github.com/pbakaus/impeccable)')
+    const text = doc.firstChild!.textContent
+    const end = 1 + text.length // 段落内容起点 + 文本长度 = 链接末尾之后
+    const decos = decorationsFor(doc, end)
+
+    const deco = classedDecos(decos)
+    expect(deco.some((d) => d.cls === 'md-link-mark')).toBe(true)
+    expect(deco.some((d) => d.cls === 'md-link-hidden')).toBe(false)
+  })
+
+  it('still folds the link when the cursor is one char past its end', () => {
+    const doc = parseMarkdown(LINK_MD)
+    const b = linkBounds(doc.firstChild!.textContent)
+    const decos = decorationsFor(doc, b.suffixTo + 1)
 
     const deco = classedDecos(decos)
     expect(deco.some((d) => d.cls === 'md-link-hidden')).toBe(true)
@@ -178,7 +209,7 @@ describe('IR marker decorations', () => {
   it('folds adjacent links without cross-matching bare URLs', () => {
     const doc = parseMarkdown('[a](https://a.com)[b](https://b.com) tail https://bare.com end')
     const text = doc.firstChild!.textContent
-    const decos = decorationsFor(doc, 1) // 光标在最前，全部折叠
+    const decos = decorationsFor(doc, 1 + text.indexOf('tail')) // 光标在 tail 中，两侧链接均折叠
 
     const deco = classedDecos(decos)
     const hidden = deco
