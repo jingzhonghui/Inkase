@@ -36,8 +36,10 @@ import {
   getListClipboard,
   findLinkAt,
 } from '../../utils/prosemirror'
+import { HorizontalRuleView } from '../../utils/prosemirror/horizontal-rule-view'
 import { findMatches, type SearchMatch } from '../../utils/prosemirror/search'
 import { useEditorFontZoom } from '../../composables/useEditorFontZoom'
+import { applyHeadingLevel } from '../../utils/prosemirror/heading-markers'
 import { NodeSelection, Selection, TextSelection } from 'prosemirror-state'
 import { wrapIn, setBlockType } from 'prosemirror-commands'
 import { undo, redo } from 'prosemirror-history'
@@ -1210,6 +1212,8 @@ function initEditor(): void {
       math_inline: (node) => new MathInlineView(node),
       math_block: (node) => new MathBlockView(node),
       code_block: (node, view, getPos) => new CodeBlockView(node, view, getPos as () => number),
+      horizontal_rule: (node, view, getPos) =>
+        new HorizontalRuleView(node, view, getPos as () => number),
     },
   })
   restoreEditorPosition()
@@ -1306,7 +1310,7 @@ function setBlockTypeCommand(type: string, attrs?: Record<string, unknown>): voi
   const { state, dispatch } = view
   const nodeType = state.schema.nodes[type]
   if (type === 'paragraph') setBlockType(nodeType)(state, dispatch)
-  else if (type === 'heading') setBlockType(nodeType, attrs)(state, dispatch)
+  else if (type === 'heading') applyHeadingLevel((attrs?.level as number) ?? 1)(state, dispatch)
   else if (type === 'code_block') setBlockType(nodeType, attrs)(state, dispatch)
   else if (type === 'blockquote') wrapIn(nodeType)(state, dispatch)
   else if (type === 'bullet_list') wrapInList(nodeType)(state, dispatch)
@@ -1318,7 +1322,8 @@ function toggleHeadingLevel(level: number): void {
   const view = viewRef.value
   if (!view) return
   const { state, dispatch } = view
-  toggleHeading(level)(state, dispatch)
+  if (level === 0) applyHeadingLevel(null)(state, dispatch)
+  else toggleHeading(level)(state, dispatch)
   view.focus()
 }
 
@@ -1547,7 +1552,7 @@ function handleHeadingEvent(e: Event): void {
   if (!view) return
   const level = (e as CustomEvent).detail as number
   if (level === 0) {
-    setBlockType(view.state.schema.nodes.paragraph)(view.state, (tr) => applyAndSync(view, tr))
+    applyHeadingLevel(null)(view.state, (tr) => applyAndSync(view, tr))
   } else {
     toggleHeading(level)(view.state, (tr) => applyAndSync(view, tr))
   }
@@ -1986,36 +1991,34 @@ defineExpose({
   background: var(--color-primary-light);
   border-radius: 0 4px 4px 0;
 }
-/* IR 模式：块级源码标记（仅光标附近显示，与内联标记一致；隐藏时不占位） */
-.ir-editor-wrapper :deep(.ProseMirror h1::before),
-.ir-editor-wrapper :deep(.ProseMirror h2::before),
-.ir-editor-wrapper :deep(.ProseMirror h3::before),
-.ir-editor-wrapper :deep(.ProseMirror h4::before),
-.ir-editor-wrapper :deep(.ProseMirror h5::before),
-.ir-editor-wrapper :deep(.ProseMirror h6::before),
+/* IR 模式：引用块标记（仅光标附近显示，隐藏时不占位） */
 .ir-editor-wrapper :deep(.ProseMirror blockquote::before) {
   content: '';
   font-family: var(--editor-mono-font-family, var(--font-mono));
   font-size: 0.85em;
-  font-weight: 400;
   opacity: 0.4;
   user-select: none;
   pointer-events: none;
 }
-.ir-editor-wrapper :deep(.ProseMirror h1.ir-active-block::before) { content: '# '; }
-.ir-editor-wrapper :deep(.ProseMirror h2.ir-active-block::before) { content: '## '; }
-.ir-editor-wrapper :deep(.ProseMirror h3.ir-active-block::before) { content: '### '; }
-.ir-editor-wrapper :deep(.ProseMirror h4.ir-active-block::before) { content: '#### '; }
-.ir-editor-wrapper :deep(.ProseMirror h5.ir-active-block::before) { content: '##### '; }
-.ir-editor-wrapper :deep(.ProseMirror h6.ir-active-block::before) { content: '###### '; }
-.ir-editor-wrapper :deep(.ProseMirror blockquote.ir-active-block::before) { content: '> '; display: inline; }
-/* 标题标记与标题文本之间的间距 */
-.ir-editor-wrapper :deep(.ProseMirror h1) { padding-left: 0.2em; }
-.ir-editor-wrapper :deep(.ProseMirror h2) { padding-left: 0.4em; }
-.ir-editor-wrapper :deep(.ProseMirror h3) { padding-left: 0.6em; }
-.ir-editor-wrapper :deep(.ProseMirror h4) { padding-left: 0.8em; }
-.ir-editor-wrapper :deep(.ProseMirror h5) { padding-left: 1em; }
-.ir-editor-wrapper :deep(.ProseMirror h6) { padding-left: 1.2em; }
+.ir-editor-wrapper :deep(.ProseMirror blockquote.ir-active-block::before) {
+  content: '> ';
+  display: inline;
+}
+/* IR 模式：标题标记 `# ` 为真实文本，按光标显隐 */
+.ir-editor-wrapper :deep(.md-heading-mark) {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  font-weight: 400;
+  color: var(--color-text-tertiary);
+  opacity: 0.5;
+}
+.ir-editor-wrapper :deep(.md-heading-hidden) {
+  display: inline-block;
+  width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  vertical-align: baseline;
+}
 
 .ir-editor-wrapper :deep(.ProseMirror pre) {
   background: var(--color-bg-secondary);
@@ -2105,10 +2108,17 @@ defineExpose({
 .ir-container.ir-ctrl-pressed .ir-editor-wrapper :deep(.ProseMirror a) {
   cursor: pointer;
 }
-.ir-editor-wrapper :deep(.ProseMirror hr) {
-  border: none;
+/* 分割线节点：NodeView 渲染，可点击选中 */
+.ir-editor-wrapper :deep(.ProseMirror .ir-hr-node) {
+  padding: 8px 0;
+  cursor: pointer;
+}
+.ir-editor-wrapper :deep(.ProseMirror .ir-hr-node .ir-hr-line) {
   border-top: 2px solid var(--color-border);
-  margin: 1.5em 0;
+}
+.ir-editor-wrapper :deep(.ProseMirror .ir-hr-node.ProseMirror-selectednode) {
+  background: var(--color-primary-light);
+  border-radius: 4px;
 }
 .ir-editor-wrapper :deep(.ProseMirror table) { border-collapse: collapse; width: 100%; margin: 0.5em 0; }
 .ir-editor-wrapper :deep(.ProseMirror th),
@@ -2125,7 +2135,7 @@ defineExpose({
 .ir-editor-wrapper :deep(.ProseMirror li[data-type="task_item"] input[type="checkbox"]) {
   margin-top: 0.3em; cursor: pointer;
 }
-.ir-editor-wrapper :deep(.ProseMirror ::selection) { background: var(--color-primary-light); }
+.ir-editor-wrapper :deep(.ProseMirror ::selection) { background: var(--color-selection); }
 .ir-editor-wrapper :deep(.ProseMirror p.is-editor-empty:first-child::before) {
   content: '在此输入内容，支持 Markdown 语法...';
   color: var(--color-text-tertiary); float: left; height: 0; pointer-events: none;

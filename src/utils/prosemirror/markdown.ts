@@ -7,6 +7,7 @@ import MarkdownIt from 'markdown-it'
 import type Token from 'markdown-it/lib/token.mjs'
 import { MarkdownParser, MarkdownSerializer, MarkdownSerializerState } from 'prosemirror-markdown'
 import { markdownSchema } from './schema'
+import { injectHeadingMarkers } from './heading-markers'
 
 /**
  * markdown-it 规则：把相邻的、marker 重新开始的有序列表拆分为独立列表。
@@ -376,8 +377,11 @@ function createMarkdownSerializer(_schema: Schema): MarkdownSerializer {
     },
 
     heading(state, node) {
-      state.write(state.repeat('#', node.attrs.level as number) + ' ')
-      state.renderInline(node)
+      const marker = state.repeat('#', node.attrs.level as number) + ' '
+      // 解析路径下标记必在文本首位；此分支仅兜底非解析途径（如程序化构造、外部插入）产生的、内容不含标记的 heading。
+      // renderInline 传 false 关闭行首转义，避免 `#` 被写成 `\#`。
+      if (!node.textContent.startsWith(marker)) state.write(marker)
+      state.renderInline(node, false)
       state.closeBlock(node)
     },
 
@@ -548,10 +552,11 @@ export function parseMarkdown(content: string): ProseMirrorNode {
     return markdownSchema.node('doc', null, [markdownSchema.node('paragraph')])
   }
 
-  let doc = (
+  const parsed = (
     markdownParser.parse(content) ||
     markdownSchema.node('doc', null, [markdownSchema.node('paragraph')])
   )
+  let doc = injectHeadingMarkers(parsed, markdownSchema)
 
   const lastType = doc.lastChild?.type.name
   // 代码块/表格都是"不透明"的块节点，末尾没有可继续输入/放置光标的段落；

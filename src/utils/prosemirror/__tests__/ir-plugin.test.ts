@@ -44,28 +44,46 @@ function firstBlockPos(doc: ProseMirrorNode, typeName: string): number {
 }
 
 describe('IR marker decorations', () => {
-  it('marks only the heading under the cursor', () => {
+  it('shows the heading marker when the cursor is inside the heading', () => {
     const doc = parseMarkdown('# 一级标题\n\n正文段落')
     const decos = decorationsFor(doc, 2)
-
-    expect(classesOf(decos)).toEqual(['ir-active-block'])
-    expect(decos.find()[0].from).toBe(0)
+    const marker = decos
+      .find()
+      .filter((deco) => !deco.widget && deco.type.attrs.class === 'md-heading-mark')
+    expect(marker).toHaveLength(1)
+    expect(marker[0].from).toBe(1)
+    expect(marker[0].to).toBe(3) // '# ' 长度 2
   })
 
-  it('does not mark other headings in the document', () => {
+  it('hides the heading marker when the cursor is outside the heading', () => {
+    const doc = parseMarkdown('# 标题\n\n普通段落')
+    const decos = decorationsFor(doc, firstBlockPos(doc, 'paragraph'))
+    const hidden = decos
+      .find()
+      .filter((deco) => !deco.widget && deco.type.attrs.class === 'md-heading-hidden')
+    expect(hidden).toHaveLength(1)
+    expect(hidden[0].from).toBe(1)
+  })
+
+  it('hides the marker of every heading when the cursor is elsewhere', () => {
     const doc = parseMarkdown('# 甲\n\n## 乙\n\n正文')
-    const decos = decorationsFor(doc, 2)
-
-    const blocks = decos.find().filter((deco) => deco.type.attrs.class === 'ir-active-block')
-    expect(blocks).toHaveLength(1)
-    expect(blocks[0].to).toBe(doc.child(0).nodeSize)
+    const decos = decorationsFor(doc, doc.content.size - 1)
+    const hidden = decos
+      .find()
+      .filter((deco) => !deco.widget && deco.type.attrs.class === 'md-heading-hidden')
+    expect(hidden).toHaveLength(2)
   })
 
-  it('marks nothing when the cursor is in a plain paragraph', () => {
+  it('only hides the heading marker when the cursor is in a plain paragraph', () => {
     const doc = parseMarkdown('# 标题\n\n普通段落')
     const decos = decorationsFor(doc, firstBlockPos(doc, 'paragraph'))
 
-    expect(decos.find()).toHaveLength(0)
+    const classes = decos
+      .find()
+      .filter((deco) => !deco.widget)
+      .map((deco) => deco.type.attrs.class)
+    expect(classes).not.toContain('ir-active-block')
+    expect(classes).toContain('md-heading-hidden')
   })
 
   it('marks the blockquote under the cursor only', () => {

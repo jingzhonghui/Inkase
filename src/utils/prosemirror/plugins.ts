@@ -9,8 +9,9 @@ import { dropCursor } from 'prosemirror-dropcursor'
 import { gapCursor } from 'prosemirror-gapcursor'
 import { baseKeymap } from 'prosemirror-commands'
 import { tableEditing } from 'prosemirror-tables'
-import { buildKeymap, tabFocusModePlugin, exitBlockOnArrowUp } from './keymap'
+import { buildKeymap, tabFocusModePlugin } from './keymap'
 import { buildInputRules } from './inputrules'
+import { headingMarkerPlugin } from './heading-markers'
 
 /**
  * 插件 Key（用于状态识别）
@@ -42,10 +43,6 @@ export function createPlugins(schema: Schema): Plugin[] {
       }
     }),
 
-    // 上方向键「跳出代码块 / 表格」。必须注册在 tableEditing 之前：
-    // ProseMirror 按插件顺序取首个命中，先注册才能覆盖 tableEditing 的单元格 ↑ 导航。
-    keymap({ ArrowUp: exitBlockOnArrowUp(schema) }),
-
     // 表格编辑核心插件（处理光标定位、单元格导航、选择等）
     tableEditing(),
 
@@ -54,6 +51,9 @@ export function createPlugins(schema: Schema): Plugin[] {
 
     // 输入规则（Markdown 语法自动转换）
     buildInputRules(schema),
+
+    // 标题标记 ↔ level 同步
+    headingMarkerPlugin(),
 
     // 历史记录（撤销/重做）
     history(),

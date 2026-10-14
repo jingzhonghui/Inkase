@@ -1,5 +1,6 @@
 function slugifyHeading(text: string): string {
   return text
+    .replace(/^\s*#{1,6}\s+/, '')
     .trim()
     .toLowerCase()
     .replace(/[^\p{L}\p{N}\s-]/gu, '')

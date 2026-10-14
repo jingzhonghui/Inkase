@@ -1,14 +1,16 @@
 import { Plugin, PluginKey, EditorState } from 'prosemirror-state'
 import { Decoration, DecorationSet } from 'prosemirror-view'
 import type { MarkType, Node as ProseMirrorNode, ResolvedPos } from 'prosemirror-model'
+import { HEADING_MARKER_RE } from './heading-markers'
 
 export const irPluginKey = new PluginKey('ir')
 
 /**
  * 带源码标记的块级节点。
- * 只有光标/选区所在的块才展开 `#`、`>`、``` 等标记，避免整篇文档一起显示。
+ * 只有光标/选区所在的块才展开 `>`、``` 等标记，避免整篇文档一起显示。
+ * （标题的 `#` 为真实文本，改由 collectHeadingMarkerDecorations 单独显隐。）
  */
-const BLOCK_MARKER_TYPES = new Set(['heading', 'blockquote', 'code_block'])
+const BLOCK_MARKER_TYPES = new Set(['blockquote', 'code_block'])
 
 /** 需要在 IR 模式展开源码标记的行内标记（与 schema 中的 data-mark 对应） */
 const INLINE_MARKER_MARKS = new Set(['bold', 'italic', 'strikethrough', 'underline', 'code'])
@@ -24,6 +26,7 @@ export function createIRPlugin(): Plugin {
       decorations(state: EditorState) {
         const decorations: Decoration[] = []
         collectBlockDecorations(state, decorations)
+        collectHeadingMarkerDecorations(state, decorations)
         collectMarkDecorations(state, decorations)
         collectLinkDecorations(state, decorations)
         return decorations.length
@@ -61,6 +64,28 @@ function collectBlockDecorations(state: EditorState, decorations: Decoration[]):
       return false
     }
     return true
+  })
+}
+
+/**
+ * 标题行首标记 `#` 的显隐装饰：
+ * 光标落在某个标题内 → 显示（md-heading-mark，浅色）；否则隐藏（md-heading-hidden，零宽）。
+ */
+function collectHeadingMarkerDecorations(state: EditorState, decorations: Decoration[]): void {
+  const { from: selFrom, to: selTo } = state.selection
+  state.doc.descendants((node, pos) => {
+    if (node.type.name !== 'heading') return true
+    const m = HEADING_MARKER_RE.exec(node.textContent)
+    if (!m) return false
+    const markerFrom = pos + 1
+    const markerTo = markerFrom + m[1].length + 1
+    const active = selFrom < pos + node.nodeSize && selTo > pos
+    decorations.push(
+      Decoration.inline(markerFrom, markerTo, {
+        class: active ? 'md-heading-mark' : 'md-heading-hidden'
+      })
+    )
+    return false
   })
 }
 

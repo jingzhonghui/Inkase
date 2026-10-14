@@ -15,10 +15,25 @@ import {
  * 创建标题输入规则 (# 标题)
  */
 function headingRule(nodeType: NodeType, maxLevel: number): InputRule {
-  return textblockTypeInputRule(
+  return new InputRule(
     new RegExp('^(#{1,' + maxLevel + '})\\s$'),
-    nodeType,
-    (match) => ({ level: match[1].length })
+    (state, match, start, end) => {
+      const level = match[1].length
+      const $start = state.doc.resolve(start)
+      // 标记须位于段落开头
+      if ($start.parent.type.name !== 'paragraph') return null
+      if ($start.parentOffset !== 0) return null
+      // 光标须位于段落内容末尾：确保整块文本就是该标记（排除 `##` 后仍有正文的情况）
+      const $end = state.doc.resolve(end)
+      if ($end.parent !== $start.parent) return null
+      if ($end.parentOffset !== $end.parent.content.size) return null
+      const from = $start.before($start.depth)
+      const to = $start.after($start.depth)
+      const tr = state.tr.setBlockType(from, to, nodeType, { level })
+      // 输入规则触发时会跳过对刚键入空格的默认插入，这里补回，保证标记为 `## `（含尾空格）
+      tr.insertText(' ', end)
+      return tr
+    }
   )
 }
 

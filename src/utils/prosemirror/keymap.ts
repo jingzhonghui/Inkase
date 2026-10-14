@@ -1,9 +1,11 @@
 /**
  * ProseMirror 键盘快捷键和命令
  */
-import { Schema, NodeType } from 'prosemirror-model'
+import { Schema, NodeType, Node as ProseMirrorNode, ResolvedPos } from 'prosemirror-model'
 import {
   TextSelection,
+  Selection,
+  NodeSelection,
   Command,
   Plugin,
   PluginKey,
@@ -33,34 +35,19 @@ import {
   sinkListItem
 } from 'prosemirror-schema-list'
 import { undo, redo } from 'prosemirror-history'
-import { isInTable, goToNextCell } from 'prosemirror-tables'
+import { isInTable, goToNextCell, nextCell, CellSelection } from 'prosemirror-tables'
 import { markdownSchema } from './schema'
+import { applyHeadingLevel } from './heading-markers'
 
 /**
  * 切换标题级别的命令
  */
 function toggleHeading(level: number): Command {
   return (state, dispatch) => {
-    const { $from, $to } = state.selection
-    const nodeType = state.schema.nodes.heading
-    const paragraph = state.schema.nodes.paragraph
-
-    // 检查当前选区是否已经是目标级别的标题
-    let isCurrentHeading = false
-    state.doc.nodesBetween($from.pos, $to.pos, (node) => {
-      if (node.type === nodeType && node.attrs.level === level) {
-        isCurrentHeading = true
-      }
-      return true
-    })
-
-    if (isCurrentHeading) {
-      // 切换回段落
-      return setBlockType(paragraph)(state, dispatch)
-    } else {
-      // 设置为目标级别标题
-      return setBlockType(nodeType, { level })(state, dispatch)
-    }
+    const { $from } = state.selection
+    const node = $from.parent
+    const isSame = node.type.name === 'heading' && node.attrs.level === level
+    return applyHeadingLevel(isSame ? null : level)(state, dispatch)
   }
 }
 
@@ -287,73 +274,264 @@ function exitTableOnLastRow(schema: Schema): Command {
   }
 }
 
+/** 能直接承载光标的块：文本块，或可下钻到段落的容器（引用/列表）。 */
+function isCaretBlock(node: ProseMirrorNode | null | undefined): boolean {
+  if (!node) return false
+  return (
+    node.isTextblock ||
+    node.type.name === 'blockquote' ||
+    node.type.name === 'bullet_list' ||
+    node.type.name === 'ordered_list' ||
+    node.type.name === 'task_list'
+  )
+}
+
+/** 找到 $pos 所在的最外层表格，返回表格在文档中的起始位置（位置在表格之前）。 */
+function tableStartAt($pos: ResolvedPos): number | null {
+  for (let d = $pos.depth; d > 0; d--) {
+    if ($pos.node(d).type.spec.tableRole === 'table') return $pos.before(d)
+  }
+  return null
+}
+
 /**
- * 上方向键「跳出块」处理（对齐 Typora）：光标位于代码块首行、或表格首行且处于
- * 单元格首行时，跳出该块——
- * 1. 上方相邻块是段落 / 标题 → 将光标移到该块末尾；
- * 2. 否则（上方无块，或上方块不是文本块）→ 在该块上方新建空段落并定位。
- * 其余情况返回 false，交给默认行为（块内换行移动 / 表格单元格导航）。
+ * 把光标移出某个块节点（表格/代码块/分割线/公式块）：
+ * - 相邻块能承载光标 → 进入相邻块；
+ * - 否则（分割线/公式块/表格/无相邻块）→ 在来源块与邻居之间插入空段落并落入。
+ * dir: -1 向上/左，1 向下/右。
  */
-export function exitBlockOnArrowUp(schema: Schema): Command {
-  return (state, dispatch) => {
-    const selection = state.selection
-    if (!selection.empty) return false
-    const { $from } = selection
+function moveOutOfBlock(
+  state: EditorState,
+  dispatch: ((tr: Transaction) => void) | undefined,
+  dir: 1 | -1,
+  blockPos: number,
+  blockNode: ProseMirrorNode
+): boolean {
+  const boundary = dir < 0 ? blockPos : blockPos + blockNode.nodeSize
+  const $pos = state.doc.resolve(boundary)
+  const sibling = dir < 0 ? $pos.nodeBefore : $pos.nodeAfter
+  if (isCaretBlock(sibling)) {
+    const target = Selection.near($pos, dir)
+    if (target.eq(state.selection)) return false
+    if (dispatch) dispatch(state.tr.setSelection(target).scrollIntoView())
+    return true
+  }
+  if (!dispatch) return true
+  const tr = state.tr.insert(boundary, state.schema.nodes.paragraph.create())
+  tr.setSelection(TextSelection.create(tr.doc, boundary + 1))
+  dispatch(tr.scrollIntoView())
+  return true
+}
 
-    // 表格：仅在表格首行、且光标位于单元格首行时跳出
-    if (isInTable(state)) {
-      let tableDepth = -1
-      for (let d = $from.depth; d > 0; d--) {
-        if ($from.node(d).type.name === 'table') {
-          tableDepth = d
-          break
+/**
+ * 表格单元格方向键导航。
+ *
+ * 本 schema 的单元格内容是 `inline*`（光标直接位于 table_cell/table_header 内）。
+ * prosemirror-tables 内置的方向键导航依赖 atEndOfCell，而它从 `$head.depth - 1`
+ * 往上寻找单元格，恰好跳过光标所在的单元格本身，因此在本 schema 下完全失效：
+ * 方向键退回浏览器默认行为，越过单元格边界时会出现多余光标 / 幻影单元格。
+ *
+ * 这里补齐等价逻辑：光标位于单元格内容首/尾时移动到相邻单元格；
+ * 抵达表格边界则移出表格——相邻块不能承载光标时补一个空段落。
+ */
+function tableArrowKey(axis: 'horiz' | 'vert', dir: 1 | -1): Command {
+  return (state, dispatch, view) => {
+    if (!view) return false
+    const { selection } = state
+    if (selection instanceof CellSelection) return false
+    if (axis === 'vert' && !selection.empty) return false
+
+    const $head = selection.$head
+    const cell = $head.parent
+    const role = cell.type.spec.tableRole
+    if (role !== 'cell' && role !== 'header_cell') return false
+
+    let atBoundary: boolean
+    if (axis === 'vert') {
+      // 垂直：仅在单元格首行（Up）/ 末行（Down）时跨单元格；
+      // 多行单元格（硬换行）内部的上下移动交还浏览器默认行为。
+      let onFirstLine = true
+      let onLastLine = true
+      for (let i = 0, offset = 0; i < cell.childCount; i++) {
+        const child = cell.child(i)
+        if (child.type.name === 'hard_break') {
+          if (offset < $head.parentOffset) onFirstLine = false
+          else onLastLine = false
         }
+        offset += child.nodeSize
       }
-      if (tableDepth === -1) return false
-      if ($from.index(tableDepth) !== 0) return false
-      if ($from.parent.textBetween(0, $from.parentOffset).includes('\n')) return false
-      return jumpAboveBlock(schema, state, dispatch, tableDepth)
+      atBoundary = dir < 0 ? onFirstLine : onLastLine
+    } else {
+      // 水平：仅在单元格内容首/尾时跨单元格。
+      atBoundary =
+        dir < 0 ? $head.parentOffset === 0 : $head.parentOffset === cell.content.size
+    }
+    if (!atBoundary) return false
+
+    const $cell = state.doc.resolve($head.before($head.depth))
+    const tableStart = tableStartAt($cell) as number
+    const tableNode = state.doc.nodeAt(tableStart) as ProseMirrorNode
+
+    if (axis === 'vert') {
+      const $next = nextCell($cell, axis, dir)
+      if ($next) {
+        if (dispatch) dispatch(state.tr.setSelection(Selection.near($next, 1)).scrollIntoView())
+        return true
+      }
+    } else {
+      // 水平用线性流进入相邻单元格（Selection.near 会跨行、跨单元格）；
+      // 目标仍在同一张表 → 只是单元格间移动；否则视为移出表格。
+      const target = Selection.near(state.doc.resolve(selection.head + dir), dir)
+      if (tableStartAt(target.$from) === tableStart) {
+        if (dispatch) dispatch(state.tr.setSelection(target).scrollIntoView())
+        return true
+      }
     }
 
-    // 代码块：仅当光标位于首行时跳出
-    if ($from.parent.type.name === 'code_block') {
-      if ($from.parent.textBetween(0, $from.parentOffset).includes('\n')) return false
-      return jumpAboveBlock(schema, state, dispatch, $from.depth)
-    }
-
-    return false
+    return moveOutOfBlock(state, dispatch, dir, tableStart, tableNode)
   }
 }
 
 /**
- * 在 blockDepth 处向上跳出：上方相邻块为段落 / 标题时把光标移到其末尾，
- * 否则在该块上方插入一个空段落并将光标移入。
+ * 代码块边界方向键：光标在代码块首/末行（上下）或文本首/尾（左右）时移出代码块；
+ * 相邻块不能承载光标时补一个空段落，块内移动交还浏览器默认行为。
  */
-function jumpAboveBlock(
-  schema: Schema,
-  state: EditorState,
-  dispatch: ((tr: Transaction) => void) | undefined,
-  blockDepth: number
-): boolean {
-  const { $from } = state.selection
-  const indexInParent = $from.index(blockDepth - 1)
-  const blockStart = $from.before(blockDepth)
-  const prev = indexInParent > 0 ? $from.node(blockDepth - 1).child(indexInParent - 1) : null
+function codeBlockArrowKey(axis: 'horiz' | 'vert', dir: 1 | -1): Command {
+  return (state, dispatch, view) => {
+    if (!view) return false
+    const { selection } = state
+    if (!(selection instanceof TextSelection) || !selection.empty) return false
 
-  if (prev && (prev.type.name === 'paragraph' || prev.type.name === 'heading')) {
-    if (dispatch) {
-      dispatch(state.tr.setSelection(TextSelection.create(state.doc, blockStart - 1)).scrollIntoView())
+    const $head = selection.$head
+    const block = $head.parent
+    if (block.type.name !== 'code_block') return false
+
+    const offset = $head.parentOffset
+    let atBoundary: boolean
+    if (axis === 'horiz') {
+      atBoundary = dir < 0 ? offset === 0 : offset === block.content.size
+    } else {
+      const text = block.textContent
+      atBoundary =
+        dir < 0 ? !text.slice(0, offset).includes('\n') : !text.slice(offset).includes('\n')
     }
+    if (!atBoundary) return false
+
+    return moveOutOfBlock(state, dispatch, dir, $head.before($head.depth), block)
+  }
+}
+
+/** 特殊块：需要专门处理方向键进出、光标无法"自然"落进去的块。 */
+function isSpecialBlock(node: ProseMirrorNode | null | undefined): boolean {
+  if (!node) return false
+  return (
+    node.type.name === 'table' ||
+    node.type.name === 'horizontal_rule' ||
+    node.type.name === 'math_block' ||
+    node.type.name === 'code_block'
+  )
+}
+
+/**
+ * 普通文本块 → 相邻特殊块的反向方向键导航。
+ *
+ * 光标在文本块首/末行（上下）或首/尾（左右）时，若该方向相邻的是特殊块
+ * （表格/分割线/公式块/代码块），则把光标移入相邻块（表格落到最末/最前单元格，
+ * 原子块返回其 NodeSelection，代码块落到文本末尾/开头）。
+ *
+ * 若当前文本块为空且可安全删除，则一并删除它（撤销此前为退出特殊块补出的占位空行）。
+ * "不可删"仅指：该空段是文档最后一个块、且其前一个块是表格/代码块——此时删除会被
+ * createPlugins 的 appendTransaction 立即补回，故保留占位。
+ */
+function textBlockArrowKey(axis: 'horiz' | 'vert', dir: 1 | -1): Command {
+  return (state, dispatch, view) => {
+    if (!view) return false
+    const { selection } = state
+    if (!(selection instanceof TextSelection) || !selection.empty) return false
+
+    const $head = selection.$head
+    const parent = $head.parent
+    if (!parent.isTextblock || parent.type.name === 'code_block') return false
+
+    let atBoundary: boolean
+    if (axis === 'horiz') {
+      atBoundary = dir < 0 ? $head.parentOffset === 0 : $head.parentOffset === parent.content.size
+    } else {
+      let onFirstLine = true
+      let onLastLine = true
+      for (let i = 0, offset = 0; i < parent.childCount; i++) {
+        const child = parent.child(i)
+        if (child.type.name === 'hard_break') {
+          if (offset < $head.parentOffset) onFirstLine = false
+          else onLastLine = false
+        }
+        offset += child.nodeSize
+      }
+      atBoundary = dir < 0 ? onFirstLine : onLastLine
+    }
+    if (!atBoundary) return false
+
+    // 文档顺序上的相邻块：沿祖先链上溯，跨出列表项/引用等容器。
+    // 只看直接兄弟会漏掉"列表项末尾的段落 → 该列表之后的表格"这类结构，
+    // 从而退回浏览器默认行为（出现 gap cursor / 幻影单元格）。
+    const doc = state.doc
+    let boundary = -1
+    let sibling: ProseMirrorNode | null = null
+    for (let d = $head.depth; d >= 1; d--) {
+      const b = dir < 0 ? $head.before(d) : $head.after(d)
+      const $b = doc.resolve(b)
+      const node = dir < 0 ? $b.nodeBefore : $b.nodeAfter
+      if (node) {
+        boundary = b
+        sibling = node
+        break
+      }
+    }
+    if (!isSpecialBlock(sibling)) return false
+
+    // 只有顶层空段落才是可安全删除的"占位空行"（嵌套空段落不在此列）。
+    const blockStart = $head.before($head.depth)
+    const blockEnd = $head.after($head.depth)
+    const prev = doc.resolve(blockStart).nodeBefore
+    const deletable =
+      $head.depth === 1 &&
+      parent.content.size === 0 &&
+      !(
+        blockEnd === doc.content.size &&
+        prev !== null &&
+        (prev.type.name === 'table' || prev.type.name === 'code_block')
+      )
+
+    if (!dispatch) return true
+
+    const tr = state.tr
+    if (deletable) tr.delete(blockStart, blockEnd)
+    const target = Selection.near(tr.doc.resolve(deletable ? blockStart : boundary), dir)
+    tr.setSelection(target)
+    dispatch(tr.scrollIntoView())
     return true
   }
+}
 
-  if (dispatch) {
-    const tr = state.tr.insert(blockStart, schema.nodes.paragraph.create())
-    tr.setSelection(TextSelection.create(tr.doc, blockStart + 1))
-    tr.scrollIntoView()
-    dispatch(tr)
+/**
+ * 选中块级节点（NodeSelection，如分割线/公式块）时，方向键把光标移出节点：
+ * 相邻块能承载光标则进入，否则补一个空段落。
+ * 行内节点（图片/行内公式）相邻必为文本，直接落到相邻文本位置。
+ */
+function arrowFromNodeSelection(dir: 1 | -1): Command {
+  return (state, dispatch) => {
+    const { selection } = state
+    if (!(selection instanceof NodeSelection)) return false
+    const node = selection.node
+    if (node.isBlock) {
+      return moveOutOfBlock(state, dispatch, dir, selection.from, node)
+    }
+    const $pos = state.doc.resolve(dir < 0 ? selection.from : selection.to)
+    const target = Selection.near($pos, dir)
+    if (target.eq(state.selection)) return false
+    if (dispatch) dispatch(state.tr.setSelection(target).scrollIntoView())
+    return true
   }
-  return true
 }
 
 /** 按回车时，将完整的块级 Markdown 标记转换为对应节点。 */
@@ -625,7 +803,7 @@ export function buildKeymap(schema: Schema): Record<string, Command> {
     'Mod-4': toggleHeading(4),
     'Mod-5': toggleHeading(5),
     'Mod-6': toggleHeading(6),
-    'Mod-0': setBlockType(schema.nodes.paragraph),
+    'Mod-0': applyHeadingLevel(null),
 
     // 列表
     'Shift-Ctrl-8': wrapInList(schema.nodes.bullet_list),
@@ -672,6 +850,36 @@ export function buildKeymap(schema: Schema): Record<string, Command> {
     'Alt-ArrowDown': joinDown,
     'Mod-BracketLeft': lift,
     'Escape': selectParentNode,
+
+    // 方向键：依次处理
+    // 1) 表格单元格导航（inline 单元格 schema 下 prosemirror-tables 内置逻辑失效）
+    // 2) 代码块边界移出
+    // 3) 文本块 → 相邻特殊块的反向导航（必要时补/删占位空段）
+    // 4) 节点被选中（如分割线）时把光标移出
+    'ArrowLeft': chainCommands(
+      tableArrowKey('horiz', -1),
+      codeBlockArrowKey('horiz', -1),
+      textBlockArrowKey('horiz', -1),
+      arrowFromNodeSelection(-1)
+    ),
+    'ArrowRight': chainCommands(
+      tableArrowKey('horiz', 1),
+      codeBlockArrowKey('horiz', 1),
+      textBlockArrowKey('horiz', 1),
+      arrowFromNodeSelection(1)
+    ),
+    'ArrowUp': chainCommands(
+      tableArrowKey('vert', -1),
+      codeBlockArrowKey('vert', -1),
+      textBlockArrowKey('vert', -1),
+      arrowFromNodeSelection(-1)
+    ),
+    'ArrowDown': chainCommands(
+      tableArrowKey('vert', 1),
+      codeBlockArrowKey('vert', 1),
+      textBlockArrowKey('vert', 1),
+      arrowFromNodeSelection(1)
+    ),
 
     // 回车
     'Enter': chainCommands(
@@ -776,5 +984,9 @@ export {
   toggleCommentCommand,
   customSplitListItem,
   handleTab,
-  handleShiftTab
+  handleShiftTab,
+  tableArrowKey,
+  codeBlockArrowKey,
+  textBlockArrowKey,
+  arrowFromNodeSelection
 }
