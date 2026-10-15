@@ -2,7 +2,7 @@ import { describe, expect, it, vi, afterEach } from 'vitest'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
-import { GitSyncProvider, autoResolveGitignoreConflict, isUntrackedOverwrite, parseStatus, runGit, untrackInkaseIfTracked } from '../git-provider'
+import { GitSyncProvider, autoResolveGitignoreConflict, ensureInkaseExcludedLocally, isUntrackedOverwrite, parseStatus, runGit, untrackInkaseIfTracked } from '../git-provider'
 import type { GitCommandResult } from '../git-provider'
 
 const { execFileMock } = vi.hoisted(() => ({ execFileMock: vi.fn() }))
@@ -258,6 +258,32 @@ describe('GitSyncProvider', () => {
     expect(calls).toContainEqual(['add', '--', 'a.md'])
   })
 
+  it('continueRebase untracks conflicted .inkase instead of staging it', async () => {
+    const { run, calls } = mockRun([
+      { args: ['diff', '--name-only', '--diff-filter=U'], result: { code: 0, stdout: 'a.md\n.inkase/sync.json\n', stderr: '' } },
+      { args: ['rm', '-r', '--cached', '--', '.inkase'], result: { code: 0, stdout: '', stderr: '' } },
+      { args: ['add', '--', 'a.md'], result: { code: 0, stdout: '', stderr: '' } },
+      { args: ['-c', 'core.editor=true', 'rebase', '--continue'], result: { code: 0, stdout: '', stderr: '' } }
+    ])
+    const p = new GitSyncProvider('C:/ws', run)
+    const result = await p.continueRebase?.()
+    expect(result?.success).toBe(true)
+    expect(calls).toContainEqual(['rm', '-r', '--cached', '--', '.inkase'])
+    expect(calls).toContainEqual(['add', '--', 'a.md'])
+  })
+
+  it('continueRebase proceeds with only a conflicted .inkase and runs rebase --continue', async () => {
+    const { run, calls } = mockRun([
+      { args: ['diff', '--name-only', '--diff-filter=U'], result: { code: 0, stdout: '.inkase/sync.json\n', stderr: '' } },
+      { args: ['rm', '-r', '--cached', '--', '.inkase'], result: { code: 0, stdout: '', stderr: '' } },
+      { args: ['-c', 'core.editor=true', 'rebase', '--continue'], result: { code: 0, stdout: '', stderr: '' } }
+    ])
+    const p = new GitSyncProvider('C:/ws', run)
+    const result = await p.continueRebase?.()
+    expect(result?.success).toBe(true)
+    expect(calls).not.toContainEqual(['add', '--', '.inkase/sync.json'])
+  })
+
   it('push uses -u origin HEAD when no upstream', async () => {
     const { run, calls } = mockRun([
       { args: ['symbolic-ref', '--short', 'HEAD'], result: { code: 0, stdout: 'main\n', stderr: '' } },
@@ -270,14 +296,41 @@ describe('GitSyncProvider', () => {
     expect(calls).toContainEqual(['push', '-u', 'origin', 'HEAD'])
   })
 
-  it('commit runs add -A (excluding .inkase) then commit -m', async () => {
+  it('commit runs add -A (no pathspec naming .inkase) then commit -m', async () => {
     const { run, calls } = mockRun([
-      { args: ['add', '-A', '--', '.', ':(exclude).inkase'], result: { code: 0, stdout: '', stderr: '' } },
+      { args: ['add', '-A'], result: { code: 0, stdout: '', stderr: '' } },
+      { args: ['ls-files', '--', '.inkase'], result: { code: 0, stdout: '', stderr: '' } },
       { args: ['commit', '-m', '同步: x'], result: { code: 0, stdout: '', stderr: '' } }
     ])
     const p = new GitSyncProvider('C:/ws', run)
     await p.commit('同步: x')
-    expect(calls).toEqual([['add', '-A', '--', '.', ':(exclude).inkase'], ['commit', '-m', '同步: x']])
+    expect(calls).toEqual([['add', '-A'], ['ls-files', '--', '.inkase'], ['commit', '-m', '同步: x']])
+  })
+
+  it('commit never passes a pathspec naming .inkase (regression: advice.addIgnoredFile)', async () => {
+    const { run, calls } = mockRun([
+      { args: ['add', '-A'], result: { code: 0, stdout: '', stderr: '' } },
+      { args: ['ls-files', '--', '.inkase'], result: { code: 0, stdout: '', stderr: '' } },
+      { args: ['commit', '-m', '同步: x'], result: { code: 0, stdout: '', stderr: '' } }
+    ])
+    const p = new GitSyncProvider('C:/ws', run)
+    await p.commit('同步: x')
+    // 仅 add 不得点名 .inkase（触发 advice.addIgnoredFile）；ls-files / rm --cached 安全
+    for (const args of calls) {
+      if (args[0] === 'add') expect(args.some((a) => a.includes('.inkase'))).toBe(false)
+    }
+  })
+
+  it('commit unstages .inkase when ignore rules failed and it got staged', async () => {
+    const { run, calls } = mockRun([
+      { args: ['add', '-A'], result: { code: 0, stdout: '', stderr: '' } },
+      { args: ['ls-files', '--', '.inkase'], result: { code: 0, stdout: '.inkase/sync.json\n', stderr: '' } },
+      { args: ['rm', '-r', '--cached', '--', '.inkase'], result: { code: 0, stdout: '', stderr: '' } },
+      { args: ['commit', '-m', '同步: x'], result: { code: 0, stdout: '', stderr: '' } }
+    ])
+    const p = new GitSyncProvider('C:/ws', run)
+    await p.commit('同步: x')
+    expect(calls).toContainEqual(['rm', '-r', '--cached', '--', '.inkase'])
   })
 
   it('branchInfo returns null when not on a branch', async () => {
@@ -410,6 +463,59 @@ describe('untrackInkaseIfTracked', () => {
     ])
     await expect(untrackInkaseIfTracked('C:/ws', run)).resolves.toBe(true)
     expect(calls).toHaveLength(3)
+  })
+})
+
+describe('ensureInkaseExcludedLocally', () => {
+  function makeRepoDir(withInfo = true): string {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mdp-inkase-exclude-'))
+    dirsToClean.push(dir)
+    fs.mkdirSync(path.join(dir, '.git'), { recursive: true })
+    if (withInfo) fs.mkdirSync(path.join(dir, '.git', 'info'), { recursive: true })
+    return dir
+  }
+
+  const revParse = { args: ['rev-parse', '--git-path', 'info/exclude'], result: { code: 0, stdout: '.git/info/exclude\n', stderr: '' } }
+
+  it('appends .inkase to the local exclude file', async () => {
+    const dir = makeRepoDir()
+    const { run } = mockRun([revParse])
+    await expect(ensureInkaseExcludedLocally(dir, run)).resolves.toBe(true)
+    const content = fs.readFileSync(path.join(dir, '.git', 'info', 'exclude'), 'utf-8')
+    expect(content).toContain('.inkase')
+  })
+
+  it('is idempotent and preserves existing rules', async () => {
+    const dir = makeRepoDir()
+    fs.writeFileSync(path.join(dir, '.git', 'info', 'exclude'), 'node_modules\n', 'utf-8')
+    const { run } = mockRun([revParse])
+    await expect(ensureInkaseExcludedLocally(dir, run)).resolves.toBe(true)
+    const lines = fs.readFileSync(path.join(dir, '.git', 'info', 'exclude'), 'utf-8').split(/\r?\n/)
+    expect(lines).toContain('node_modules')
+    expect(lines.filter((l) => l.trim() === '.inkase')).toHaveLength(1)
+  })
+
+  it('creates the info directory when missing', async () => {
+    const dir = makeRepoDir(false)
+    const { run } = mockRun([revParse])
+    await expect(ensureInkaseExcludedLocally(dir, run)).resolves.toBe(true)
+    expect(fs.readFileSync(path.join(dir, '.git', 'info', 'exclude'), 'utf-8')).toContain('.inkase')
+  })
+
+  it('returns false when rev-parse fails', async () => {
+    const dir = makeRepoDir()
+    const { run } = mockRun([
+      { args: ['rev-parse', '--git-path', 'info/exclude'], result: { code: 1, stdout: '', stderr: 'fatal' } }
+    ])
+    await expect(ensureInkaseExcludedLocally(dir, run)).resolves.toBe(false)
+  })
+
+  it('returns false when the resolved path is empty', async () => {
+    const dir = makeRepoDir()
+    const { run } = mockRun([
+      { args: ['rev-parse', '--git-path', 'info/exclude'], result: { code: 0, stdout: '', stderr: '' } }
+    ])
+    await expect(ensureInkaseExcludedLocally(dir, run)).resolves.toBe(false)
   })
 })
 

@@ -150,6 +150,36 @@ export async function untrackInkaseIfTracked(
   return c.code === 0
 }
 
+/**
+ * 自我加固：把 `.inkase` 写入本地 `.git/info/exclude`（本机私有、不入库、与远端 .gitignore 不冲突）。
+ * - 即使 `.gitignore` 缺失或处于冲突状态，`git add` 也会跳过 `.inkase`
+ * - 命令行不再点名 `.inkase`：git 会把命令行上被点名的被忽略路径视为显式添加而报错
+ *   （The following paths are ignored by one of your .gitignore files）
+ * 幂等；无法定位 exclude 文件时返回 false。
+ */
+export async function ensureInkaseExcludedLocally(
+  workspacePath: string,
+  run: (args: string[], cwd: string) => Promise<GitCommandResult> = runGit
+): Promise<boolean> {
+  const r = await run(['rev-parse', '--git-path', 'info/exclude'], workspacePath)
+  if (r.code !== 0) return false
+  const rel = r.stdout.trim()
+  if (!rel) return false
+  const target = path.isAbsolute(rel) ? rel : path.resolve(workspacePath, rel)
+  try {
+    fs.mkdirSync(path.dirname(target), { recursive: true })
+    let content = ''
+    if (fs.existsSync(target)) content = fs.readFileSync(target, 'utf-8')
+    const lines = content.split(/\r?\n/)
+    if (lines.some((l) => l.trim() === '.inkase')) return true
+    const sep = content.length > 0 && !content.endsWith('\n') ? '\n' : ''
+    fs.writeFileSync(target, `${content}${sep}.inkase\n`, 'utf-8')
+    return true
+  } catch {
+    return false
+  }
+}
+
 export class GitSyncProvider implements SyncProvider {
   readonly kind = 'git' as const
   constructor(
@@ -177,11 +207,22 @@ export class GitSyncProvider implements SyncProvider {
   }
 
   async commit(message: string): Promise<void> {
-    // 排除 .inkase（本机私有数据）：防止 gitignore 缺失时被全量 add 带入版本库
-    const add = await this.run(['add', '-A', '--', '.', ':(exclude).inkase'], this.workspacePath)
+    // 不在命令行点名 .inkase（旧实现用 :(exclude).inkase 会被 git 视为显式添加被忽略路径而报错），
+    // 改为依赖 .gitignore / .git/info/exclude（见 ensureInkaseExcludedLocally）让 add -A 自动跳过
+    const add = await this.run(['add', '-A'], this.workspacePath)
     if (add.code !== 0) throw new Error(add.stderr || 'git add 失败')
+    // 兜底：忽略规则均失效的极端情况下，确保 .inkase 不进入本次提交
+    await this.unstageInkaseIfStaged()
     const c = await this.run(['commit', '-m', message], this.workspacePath)
     if (c.code !== 0) throw new Error(c.stderr || 'git commit 失败')
+  }
+
+  /** 若 .inkase 意外进入索引（忽略规则失效所致），将其移出索引但保留磁盘文件。 */
+  private async unstageInkaseIfStaged(): Promise<void> {
+    const tracked = await this.run(['ls-files', '--', '.inkase'], this.workspacePath)
+    if (tracked.code === 0 && tracked.stdout.trim() !== '') {
+      await this.run(['rm', '-r', '--cached', '--', '.inkase'], this.workspacePath)
+    }
   }
 
   async pull(): Promise<SyncResult> {
@@ -253,20 +294,34 @@ export class GitSyncProvider implements SyncProvider {
   async continueRebase(): Promise<SyncResult> {
     const conflicted = await this.conflictedFiles()
     if (conflicted.length > 0) {
+      // .inkase（本机私有）不应被 git add 带回版本库：点名忽略路径还会触发 git 报错，
+      // 改为 rm --cached 解决其 unmerged 状态（保留磁盘文件）
+      const inkase = conflicted.filter((f) => this.isInkasePath(f))
+      const others = conflicted.filter((f) => !this.isInkasePath(f))
       // 校验是否仍有未解决的冲突标记（<<<<<<< / >>>>>>>）
-      const unresolved = conflicted.filter((f) => this.hasUnresolvedMarkers(f))
+      const unresolved = others.filter((f) => this.hasUnresolvedMarkers(f))
       if (unresolved.length > 0) {
         const names = unresolved.map((f) => path.relative(this.workspacePath, f).split(path.sep).join('/'))
         return { success: false, error: `以下文件仍存在未解决的冲突标记，请先编辑并保存：\n- ${names.join('\n- ')}` }
       }
-      const relative = conflicted.map((f) => path.relative(this.workspacePath, f).split(path.sep).join('/'))
-      await this.run(['add', '--'].concat(relative), this.workspacePath)
+      if (inkase.length > 0) {
+        await this.run(['rm', '-r', '--cached', '--', '.inkase'], this.workspacePath)
+      }
+      if (others.length > 0) {
+        const relative = others.map((f) => path.relative(this.workspacePath, f).split(path.sep).join('/'))
+        await this.run(['add', '--'].concat(relative), this.workspacePath)
+      }
     }
     const r = await this.run(['-c', 'core.editor=true', 'rebase', '--continue'], this.workspacePath)
     if (r.code !== 0) {
       return { success: false, error: (r.stderr || r.stdout).trim() || 'git rebase --continue 失败' }
     }
     return { success: true }
+  }
+
+  private isInkasePath(filePath: string): boolean {
+    const rel = path.relative(this.workspacePath, filePath).split(path.sep).join('/')
+    return rel === '.inkase' || rel.startsWith('.inkase/')
   }
 
   private hasUnresolvedMarkers(filePath: string): boolean {

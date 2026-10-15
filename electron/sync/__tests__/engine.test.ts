@@ -70,6 +70,9 @@ function makeEngine(
       if (args[0] === 'rev-parse' && args[1] === '--is-inside-work-tree') {
         return { code: 0, stdout: opts.isGitRepo === false ? 'false\n' : 'true\n', stderr: '' }
       }
+      if (args[0] === 'rev-parse' && args[1] === '--git-path') {
+        return { code: 0, stdout: '.git/info/exclude\n', stderr: '' }
+      }
       if (args[0] === 'init') return { code: 0, stdout: '', stderr: '' }
       if (args[0] === 'remote' && args[1] === 'add') return { code: 0, stdout: '', stderr: '' }
       if (args[0] === 'add') return { code: 0, stdout: '', stderr: '' }
@@ -136,6 +139,13 @@ describe('SyncEngine', () => {
     const { engine, dir } = makeEngine({ isGitRepo: true })
     await engine.attach(dir)
     const content = fs.readFileSync(path.join(dir, '.gitignore'), 'utf-8')
+    expect(content).toContain('.inkase')
+  })
+
+  it('attach writes .inkase into the local git exclude file', async () => {
+    const { engine, dir } = makeEngine({ isGitRepo: true })
+    await engine.attach(dir)
+    const content = fs.readFileSync(path.join(dir, '.git', 'info', 'exclude'), 'utf-8')
     expect(content).toContain('.inkase')
   })
 
@@ -322,6 +332,16 @@ describe('SyncEngine', () => {
     expect(result.success).toBe(true)
     expect(provider.pull).toHaveBeenCalled()
     const content = fs.readFileSync(path.join(dir, '.gitignore'), 'utf-8')
+    expect(content).toContain('.inkase')
+  })
+
+  it('enable writes .inkase into the local git exclude file', async () => {
+    const { engine, dir } = makeEngine()
+    await engine.attach(dir)
+    fs.rmSync(path.join(dir, '.git', 'info', 'exclude'), { force: true })
+    const result = await engine.enable(dir, { remoteUrl: 'https://x/repo.git' })
+    expect(result.success).toBe(true)
+    const content = fs.readFileSync(path.join(dir, '.git', 'info', 'exclude'), 'utf-8')
     expect(content).toContain('.inkase')
   })
 

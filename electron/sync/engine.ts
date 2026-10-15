@@ -8,7 +8,7 @@ import type {
   SyncStatus,
   SyncStatusView
 } from './types'
-import { autoResolveGitignoreConflict, isUntrackedOverwrite, untrackInkaseIfTracked } from './git-provider'
+import { autoResolveGitignoreConflict, ensureInkaseExcludedLocally, isUntrackedOverwrite, untrackInkaseIfTracked } from './git-provider'
 import type { GitCommandResult } from './git-provider'
 import { ensureInkaseIgnored, loadSyncConfig, saveSyncConfig, syncConfigPath } from './config'
 import { migrateLegacyConfigDir } from './legacy-migration'
@@ -103,6 +103,7 @@ export class SyncEngine {
     if (this.isGitRepo) {
       ensureInkaseIgnored(workspacePath)
       await untrackInkaseIfTracked(workspacePath, (args, cwd) => this.deps.runGit(args, cwd))
+      await ensureInkaseExcludedLocally(workspacePath, (args, cwd) => this.deps.runGit(args, cwd))
     }
     this.emit()
   }
@@ -322,6 +323,8 @@ export class SyncEngine {
       ensureInkaseIgnored(workspacePath)
       // 远端若已含被跟踪的 .inkase（历史污染），checkout 后立即移出版本控制
       await untrackInkaseIfTracked(workspacePath, (args, cwd) => this.deps.runGit(args, cwd))
+      // 本地排除兜底：即使 .gitignore 缺失/冲突，git add 也不会带入 .inkase
+      await ensureInkaseExcludedLocally(workspacePath, (args, cwd) => this.deps.runGit(args, cwd))
       // 本地有变更（首次内容 + .gitignore 等）则提交；空提交 guard 已由 porcelain 判断
       const porcelain = await this.deps.runGit(['status', '--porcelain'], workspacePath)
       if (porcelain.code === 0 && porcelain.stdout.trim() !== '') {
