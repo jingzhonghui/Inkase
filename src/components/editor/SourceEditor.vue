@@ -2,6 +2,8 @@
 import { ref, onMounted, onUnmounted, watch, shallowRef } from 'vue'
 import { useFileStore } from '../../stores/file'
 import { useThemeStore } from '../../stores/theme'
+import { useOutlineStore } from '../../stores/outline'
+import { extractHeadings, type HeadingItem } from '../../utils/markdown'
 import { EditorView, keymap, lineNumbers, highlightActiveLineGutter, highlightSpecialChars, drawSelection, dropCursor, rectangularSelection, crosshairCursor, highlightActiveLine, Decoration, type DecorationSet } from '@codemirror/view'
 import { EditorState, Compartment, StateField, StateEffect, type Extension } from '@codemirror/state'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
@@ -39,6 +41,54 @@ const emit = defineEmits<{
 // Store
 const fileStore = useFileStore()
 const themeStore = useThemeStore()
+const outlineStore = useOutlineStore()
+
+// ====== 大纲：发布到 store + 响应跳转 ======
+/** 最近一次发布的标题（含行号），供跳转与高亮定位 */
+let outlineHeadings: HeadingItem[] = []
+
+/** 从当前文件内容提取顶层标题并发布（仅 Markdown 文件） */
+function publishOutline(): void {
+  if (!fileStore.canSwitchEditorMode) {
+    outlineHeadings = []
+    outlineStore.clear()
+    return
+  }
+  outlineHeadings = extractHeadings(fileStore.fileContent)
+  outlineStore.setHeadings(outlineHeadings.map((h) => ({ level: h.level, text: h.text })))
+}
+
+/** 根据滚动位置计算顶部可见行之上最近的标题索引并发布 */
+function updateActiveOutline(): void {
+  const view = editorView.value
+  if (!view || outlineHeadings.length === 0) {
+    outlineStore.setActiveIndex(-1)
+    return
+  }
+  const topLine = view.state.doc.lineAt(view.lineBlockAtHeight(view.scrollDOM.scrollTop).from).number
+  let active = -1
+  for (let i = 0; i < outlineHeadings.length; i++) {
+    if (outlineHeadings[i].line <= topLine) active = i
+    else break
+  }
+  outlineStore.setActiveIndex(active)
+}
+
+/** 响应侧栏大纲点击：按索引定位到对应行 */
+function handleOutlineJump(event: Event): void {
+  const index = (event as CustomEvent<{ index: number }>).detail?.index
+  const view = editorView.value
+  const heading = index == null ? undefined : outlineHeadings[index]
+  if (!view || !heading) return
+  const lineNo = Math.min(Math.max(1, heading.line), view.state.doc.lines)
+  const line = view.state.doc.line(lineNo)
+  view.dispatch({
+    selection: { anchor: line.from },
+    effects: EditorView.scrollIntoView(line.from, { y: 'start' })
+  })
+  view.focus()
+  outlineStore.setActiveIndex(index as number)
+}
 
 // Refs
 const editorRef = ref<HTMLDivElement>()
@@ -105,6 +155,7 @@ const codeHighlightLight = HighlightStyle.define(
 // 查找替换面板状态
 const searchOpen = ref(false)
 const searchReplaceMode = ref(false)
+const searchInitialQuery = ref('')
 const searchMatches = ref<Array<{ from: number; to: number }>>([])
 const currentMatchIndex = ref(-1)
 const lastSearchQuery = ref('')
@@ -889,6 +940,7 @@ function handleScroll(): void {
     const ratio = scroller.scrollTop / maxScroll
     emit('scroll', ratio)
   }
+  updateActiveOutline()
 }
 
 /**
@@ -1165,6 +1217,13 @@ function handleModeToggleKeydown(event: KeyboardEvent): void {
 
 function openSearch(replaceMode = false): void {
   searchReplaceMode.value = replaceMode
+  const view = editorView.value
+  if (view) {
+    const sel = view.state.selection.main
+    searchInitialQuery.value = sel.empty ? '' : view.state.sliceDoc(sel.from, sel.to)
+  } else {
+    searchInitialQuery.value = ''
+  }
   searchOpen.value = true
 }
 
@@ -1177,6 +1236,10 @@ function closeSearch(): void {
     view.dispatch({ effects: searchDecoEffect.of(Decoration.none) })
   }
   editorView.value?.focus()
+}
+
+function toggleReplaceMode(): void {
+  searchReplaceMode.value = !searchReplaceMode.value
 }
 
 function computeMatches(text: string, query: string, caseSensitive: boolean): Array<{ from: number; to: number }> {
@@ -1290,6 +1353,7 @@ function insertTable(view: EditorView): void {
 // Lifecycle
 onMounted(() => {
   initEditor()
+  publishOutline()
 
   // 添加拖放和粘贴事件监听
   const editorEl = editorRef.value
@@ -1315,6 +1379,7 @@ onMounted(() => {
   window.addEventListener('editor:paste', handlePasteEvent)
   window.addEventListener('editor:find', handleSearchEvent)
   window.addEventListener('editor:replace', handleReplaceEvent)
+  window.addEventListener('inkase:outline-jump', handleOutlineJump)
   document.addEventListener('click', closeSourceContextMenu)
 })
 
@@ -1341,6 +1406,7 @@ onUnmounted(() => {
   window.removeEventListener('editor:paste', handlePasteEvent)
   window.removeEventListener('editor:find', handleSearchEvent)
   window.removeEventListener('editor:replace', handleReplaceEvent)
+  window.removeEventListener('inkase:outline-jump', handleOutlineJump)
   document.removeEventListener('click', closeSourceContextMenu)
 
   destroyEditor()
@@ -1348,6 +1414,7 @@ onUnmounted(() => {
 
 // Watch for content changes from store (incremental diff sync)
 watch(() => [fileStore.activeTabId, fileStore.fileContent] as const, ([newTabId, newContent], [oldTabId]) => {
+  publishOutline()
   const view = editorView.value
   if (!view) return
 
@@ -1416,12 +1483,14 @@ defineExpose({
       :replace-mode="searchReplaceMode"
       :match-count="searchMatches.length"
       :current-index="currentMatchIndex"
+      :initial-query="searchInitialQuery"
       @close="closeSearch"
       @search="handleSearch"
       @next="nextMatch"
       @prev="prevMatch"
       @replace="handleReplace"
       @replace-all="handleReplaceAll"
+      @toggle-replace="toggleReplaceMode"
     />
     <EditorContextMenu
       :visible="sourceContextMenu.visible"

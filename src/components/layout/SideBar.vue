@@ -1,16 +1,21 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref } from 'vue'
 import {
+  IconChevronsLeft,
   IconChevronsRight,
   IconFile,
   IconFolder,
   IconPlus
 } from '@tabler/icons-vue'
 import FileExplorer from '../sidebar/FileExplorer.vue'
+import OutlinePanel from '../sidebar/OutlinePanel.vue'
 import Tooltip from '../common/Tooltip.vue'
 import { useFileStore } from '../../stores/file'
 
 const fileStore = useFileStore()
+
+/** 侧栏当前标签：文件浏览器 / 大纲 */
+const activeTab = ref<'files' | 'outline'>('files')
 
 const MIN_SIDEBAR_WIDTH = 180
 const MAX_SIDEBAR_WIDTH = 420
@@ -143,11 +148,40 @@ function openFolder(): void {
       </Tooltip>
     </div>
 
-    <!-- 展开状态：显示资源管理器 -->
-    <FileExplorer
-      v-else
-      @collapse="toggleSidebar"
-    />
+    <!-- 展开状态：标签栏 + 文件浏览器 / 大纲 -->
+    <template v-else>
+      <div class="sidebar-tabs">
+        <button
+          class="sidebar-tab"
+          :class="{ 'is-active': activeTab === 'files' }"
+          type="button"
+          @click="activeTab = 'files'"
+        >
+          文件
+        </button>
+        <button
+          class="sidebar-tab"
+          :class="{ 'is-active': activeTab === 'outline' }"
+          type="button"
+          @click="activeTab = 'outline'"
+        >
+          大纲
+        </button>
+        <Tooltip content="收起侧边栏">
+          <button
+            class="sidebar-collapse-btn"
+            type="button"
+            aria-label="收起侧边栏"
+            @click="toggleSidebar"
+          >
+            <IconChevronsLeft />
+          </button>
+        </Tooltip>
+      </div>
+
+      <FileExplorer v-if="activeTab === 'files'" />
+      <OutlinePanel v-else />
+    </template>
     <div
       v-if="!props.collapsed"
       ref="resizeHandleRef"
@@ -182,6 +216,65 @@ function openFolder(): void {
 
 .sidebar.collapsed {
   width: 48px !important;
+}
+
+/* 标签栏（文件 / 大纲 + 收起按钮） */
+.sidebar-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 36px;
+  padding: 0 4px 0 6px;
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.sidebar-tab {
+  padding: 4px 10px;
+  font-size: calc(var(--ui-font-size) - 1px);
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  color: var(--color-text-tertiary);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color 0.15s, background-color 0.15s;
+}
+
+.sidebar-tab:hover {
+  color: var(--color-text);
+  background: var(--color-bg-secondary);
+}
+
+.sidebar-tab.is-active {
+  color: var(--color-text);
+}
+
+.sidebar-collapse-btn {
+  width: 28px;
+  height: 28px;
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  color: var(--color-text-secondary);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color 0.2s, background-color 0.2s;
+}
+
+.sidebar-collapse-btn:hover {
+  color: var(--color-text);
+  background-color: var(--color-bg-secondary);
+}
+
+.sidebar-collapse-btn svg {
+  width: 16px;
+  height: 16px;
 }
 
 /* 折叠状态下的图标栏 */

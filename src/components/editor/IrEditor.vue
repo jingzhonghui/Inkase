@@ -16,6 +16,7 @@ import {
   IconTrash
 } from '@tabler/icons-vue'
 import { useFileStore } from '../../stores/file'
+import { useOutlineStore } from '../../stores/outline'
 import { findHeadingForAnchor } from '../../utils/prosemirror/anchors'
 import { useThemeStore } from '../../stores/theme'
 import { storeToRefs } from 'pinia'
@@ -35,7 +36,9 @@ import {
   createPastePlugin,
   getListClipboard,
   findLinkAt,
+  collectOutlineHeadings,
 } from '../../utils/prosemirror'
+import type { OutlineHeading } from '../../utils/prosemirror/outline'
 import { HorizontalRuleView } from '../../utils/prosemirror/horizontal-rule-view'
 import { findMatches, type SearchMatch } from '../../utils/prosemirror/search'
 import { useEditorFontZoom } from '../../composables/useEditorFontZoom'
@@ -137,12 +140,69 @@ const tableToolbarRef = ref<HTMLDivElement>()
 const viewRef = shallowRef<EditorView | null>(null)
 let editorTabId: string | null = null
 
+// ====== 大纲：发布到 store + 响应跳转 ======
+const outlineStore = useOutlineStore()
+/** 最近一次发布的标题（含文档位置），供跳转与高亮定位 */
+let currentHeadings: OutlineHeading[] = []
+
+/** 从当前文档模型重新提取顶层标题并发布到大纲 store */
+function publishOutline(): void {
+  const view = viewRef.value
+  if (!view) return
+  currentHeadings = collectOutlineHeadings(view.state.doc)
+  outlineStore.setHeadings(currentHeadings.map((h) => ({ level: h.level, text: h.text })))
+}
+
+/** 根据滚动位置计算视口顶部之上最近的标题索引并发布 */
+function updateActiveOutline(): void {
+  const view = viewRef.value
+  const container = containerRef.value
+  if (!view || !container) return
+  const threshold = container.getBoundingClientRect().top + 8
+  let active = -1
+  for (let i = 0; i < currentHeadings.length; i++) {
+    const dom = view.nodeDOM(currentHeadings[i].pos) as HTMLElement | null
+    if (!dom) continue
+    if (dom.getBoundingClientRect().top <= threshold) active = i
+    else break
+  }
+  outlineStore.setActiveIndex(active)
+}
+
+let outlineScrollRaf = 0
+function handleOutlineScroll(): void {
+  if (outlineScrollRaf) return
+  outlineScrollRaf = requestAnimationFrame(() => {
+    outlineScrollRaf = 0
+    updateActiveOutline()
+  })
+}
+
+/** 响应侧栏大纲点击：按索引定位到对应标题 */
+function handleOutlineJump(event: Event): void {
+  const index = (event as CustomEvent<{ index: number }>).detail?.index
+  const view = viewRef.value
+  const item = index == null ? undefined : currentHeadings[index]
+  if (!view || !item) return
+  const start = Math.min(item.pos + 1, view.state.doc.content.size)
+  try {
+    const sel = TextSelection.near(view.state.doc.resolve(start), 1)
+    view.dispatch(view.state.tr.setSelection(sel).setMeta('addToHistory', false))
+  } catch {
+    // 位置非法时仅滚动，不改变选区
+  }
+  const dom = view.nodeDOM(item.pos) as HTMLElement | null
+  dom?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
+  outlineStore.setActiveIndex(index as number)
+}
+
 // Ctrl+滚轮缩放编辑区字号
 const { attach: attachFontZoom } = useEditorFontZoom()
 
 // ====== 查找 / 替换状态 ======
 const searchOpen = ref(false)
 const searchReplaceMode = ref(false)
+const searchInitialQuery = ref('')
 const searchMatches = ref<SearchMatch[]>([])
 const currentMatchIndex = ref(-1)
 const lastSearchQuery = ref('')
@@ -1032,6 +1092,13 @@ function replaceAll(query: string, replaceText: string, caseSensitive: boolean):
 
 function openSearch(replaceMode = false): void {
   searchReplaceMode.value = replaceMode
+  const view = viewRef.value
+  if (view) {
+    const { from, to } = view.state.selection
+    searchInitialQuery.value = from !== to ? view.state.doc.textBetween(from, to, '\n') : ''
+  } else {
+    searchInitialQuery.value = ''
+  }
   searchOpen.value = true
 }
 
@@ -1042,6 +1109,10 @@ function closeSearch(): void {
     view.dispatch(view.state.tr.setMeta(searchPluginKey, DecorationSet.empty))
   }
   viewRef.value?.focus()
+}
+
+function toggleReplaceMode(): void {
+  searchReplaceMode.value = !searchReplaceMode.value
 }
 
 function createEditorState(content: string): EditorState {
@@ -1200,6 +1271,10 @@ function initEditor(): void {
       if (selectionChanged) publishSelectionFromProseMirror()
       nextTick(() => updateTableToolbar(view))
       if (!view.hasFocus() && !searchOpen.value) view.focus()
+      if (tr.docChanged) {
+        publishOutline()
+        updateActiveOutline()
+      }
       if (tr.docChanged && searchOpen.value) {
         recomputeMatches(lastSearchQuery.value, lastCaseSensitive.value)
       }
@@ -1217,6 +1292,7 @@ function initEditor(): void {
     },
   })
   restoreEditorPosition()
+  publishOutline()
 }
 
 /**
@@ -1413,6 +1489,7 @@ watch([activeTabId, fileContent], ([newTabId, newContent], [oldTabId]) => {
   })
   view.updateState(newState)
   isUpdatingFromStore = false
+  publishOutline()
   // 切换 tab 后编辑器选区被重置为文档开头，重新发布快照避免残留旧 tab 的选区。
   if (tabChanged) publishSelectionFromProseMirror()
   nextTick(() => loadEditorImages())
@@ -1673,6 +1750,7 @@ onMounted(() => {
     container.addEventListener('contextmenu', handleEditorBlankContextMenu)
     container.addEventListener('scroll', handleTableToolbarLayout, { passive: true })
     container.addEventListener('scroll', handlePositionScroll, { passive: true })
+    container.addEventListener('scroll', handleOutlineScroll, { passive: true })
   }
   window.addEventListener('editor:format', handleFormatEvent)
   window.addEventListener('editor:heading', handleHeadingEvent)
@@ -1687,6 +1765,7 @@ onMounted(() => {
   window.addEventListener('editor:paste', handlePasteEvent)
   window.addEventListener('editor:find', handleEditorFind)
   window.addEventListener('editor:replace', handleEditorReplace)
+  window.addEventListener('inkase:outline-jump', handleOutlineJump)
   document.addEventListener('click', closeContextMenu)
   document.addEventListener('contextmenu', closeContextMenu, true)
   window.addEventListener(CLOSE_ALL_CONTEXT_MENUS_EVENT, closeContextMenu)
@@ -1702,12 +1781,16 @@ onMounted(() => {
   nextTick(() => {
     loadEditorImages()
     focusEditor()
-    if (viewRef.value) updateTableToolbar(viewRef.value)
+    if (viewRef.value) {
+      updateTableToolbar(viewRef.value)
+      updateActiveOutline()
+    }
   })
 })
 
 onUnmounted(() => {
   saveEditorPosition()
+  if (outlineScrollRaf) cancelAnimationFrame(outlineScrollRaf)
   // 组件卸载前强制同步内容到 store，防止切换模式时内容丢失
   const view = viewRef.value
   if (view && editorTabId === activeTabId.value) {
@@ -1728,6 +1811,7 @@ onUnmounted(() => {
     container.removeEventListener('contextmenu', handleEditorBlankContextMenu)
     container.removeEventListener('scroll', handleTableToolbarLayout)
     container.removeEventListener('scroll', handlePositionScroll)
+    container.removeEventListener('scroll', handleOutlineScroll)
   }
   window.removeEventListener('editor:format', handleFormatEvent)
   window.removeEventListener('editor:heading', handleHeadingEvent)
@@ -1742,6 +1826,7 @@ onUnmounted(() => {
   window.removeEventListener('editor:paste', handlePasteEvent)
   window.removeEventListener('editor:find', handleEditorFind)
   window.removeEventListener('editor:replace', handleEditorReplace)
+  window.removeEventListener('inkase:outline-jump', handleOutlineJump)
   window.removeEventListener('keydown', updateCtrlPressed)
   window.removeEventListener('keyup', clearCtrlPressed)
   window.removeEventListener('blur', clearCtrlPressedOnBlur)
@@ -1770,83 +1855,87 @@ defineExpose({
 </script>
 
 <template>
-  <div
-    ref="containerRef"
-    class="ir-container"
-    :class="{ dragging: isDragging, 'ir-ctrl-pressed': ctrlPressed }"
-  >
+  <div class="ir-outer">
     <div
-      v-if="tableToolbar.visible"
-      ref="tableToolbarRef"
-      class="table-toolbar"
-      :style="{ left: `${tableToolbar.x}px`, top: `${tableToolbar.y}px` }"
-      @mousedown.stop.prevent
+      ref="containerRef"
+      class="ir-container"
+      :class="{ dragging: isDragging, 'ir-ctrl-pressed': ctrlPressed }"
     >
-      <Tooltip content="整张表格左对齐">
-        <button
-          class="table-toolbar-btn"
-          :class="{ active: tableToolbar.align === 'left' }"
-          aria-label="整张表格左对齐"
-          @click="viewRef && setTableAlign(viewRef, 'left')"
-        >
-          <IconAlignLeft />
-        </button>
-      </Tooltip>
-      <Tooltip content="整张表格居中对齐">
-        <button
-          class="table-toolbar-btn"
-          :class="{ active: tableToolbar.align === 'center' }"
-          aria-label="整张表格居中对齐"
-          @click="viewRef && setTableAlign(viewRef, 'center')"
-        >
-          <IconAlignCenter />
-        </button>
-      </Tooltip>
-      <Tooltip content="整张表格右对齐">
-        <button
-          class="table-toolbar-btn"
-          :class="{ active: tableToolbar.align === 'right' }"
-          aria-label="整张表格右对齐"
-          @click="viewRef && setTableAlign(viewRef, 'right')"
-        >
-          <IconAlignRight />
-        </button>
-      </Tooltip>
-      <span class="table-toolbar-divider" />
-      <Tooltip content="复制整张表格">
-        <button
-          class="table-toolbar-btn"
-          aria-label="复制整张表格"
-          @click="viewRef && void copyCurrentTable(viewRef)"
-        >
-          <IconCopy />
-        </button>
-      </Tooltip>
-      <Tooltip content="删除整张表格">
-        <button
-          class="table-toolbar-btn danger"
-          aria-label="删除整张表格"
-          @click="viewRef && deleteCurrentTable(viewRef)"
-        >
-          <IconTrash />
-        </button>
-      </Tooltip>
+      <div
+        v-if="tableToolbar.visible"
+        ref="tableToolbarRef"
+        class="table-toolbar"
+        :style="{ left: `${tableToolbar.x}px`, top: `${tableToolbar.y}px` }"
+        @mousedown.stop.prevent
+      >
+        <Tooltip content="整张表格左对齐">
+          <button
+            class="table-toolbar-btn"
+            :class="{ active: tableToolbar.align === 'left' }"
+            aria-label="整张表格左对齐"
+            @click="viewRef && setTableAlign(viewRef, 'left')"
+          >
+            <IconAlignLeft />
+          </button>
+        </Tooltip>
+        <Tooltip content="整张表格居中对齐">
+          <button
+            class="table-toolbar-btn"
+            :class="{ active: tableToolbar.align === 'center' }"
+            aria-label="整张表格居中对齐"
+            @click="viewRef && setTableAlign(viewRef, 'center')"
+          >
+            <IconAlignCenter />
+          </button>
+        </Tooltip>
+        <Tooltip content="整张表格右对齐">
+          <button
+            class="table-toolbar-btn"
+            :class="{ active: tableToolbar.align === 'right' }"
+            aria-label="整张表格右对齐"
+            @click="viewRef && setTableAlign(viewRef, 'right')"
+          >
+            <IconAlignRight />
+          </button>
+        </Tooltip>
+        <span class="table-toolbar-divider" />
+        <Tooltip content="复制整张表格">
+          <button
+            class="table-toolbar-btn"
+            aria-label="复制整张表格"
+            @click="viewRef && void copyCurrentTable(viewRef)"
+          >
+            <IconCopy />
+          </button>
+        </Tooltip>
+        <Tooltip content="删除整张表格">
+          <button
+            class="table-toolbar-btn danger"
+            aria-label="删除整张表格"
+            @click="viewRef && deleteCurrentTable(viewRef)"
+          >
+            <IconTrash />
+          </button>
+        </Tooltip>
+      </div>
+      <div
+        ref="editorRef"
+        class="ir-editor-wrapper"
+      />
     </div>
     <FindReplacePanel
       :open="searchOpen"
       :replace-mode="searchReplaceMode"
       :match-count="searchMatches.length"
       :current-index="currentMatchIndex"
+      :initial-query="searchInitialQuery"
       @close="closeSearch"
       @search="recomputeMatches"
       @next="nextMatch"
       @prev="prevMatch"
       @replace="replaceCurrent"
       @replace-all="replaceAll"
-    />
-    <div
-      ref="editorRef"
-      class="ir-editor-wrapper"
+      @toggle-replace="toggleReplaceMode"
     />
   </div>
 
@@ -1860,8 +1949,17 @@ defineExpose({
 </template>
 
 <style scoped>
+.ir-outer {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
 .ir-container {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   background-color: var(--color-bg-primary);
   position: relative;

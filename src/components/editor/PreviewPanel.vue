@@ -236,6 +236,20 @@ function scrollToLine(line: number): void {
   }
 }
 
+/** 按 0 起始的标题序号定位（供侧栏大纲跳转） */
+function scrollToHeading(index: number): void {
+  if (!previewRef.value) return
+  const headings = previewRef.value.querySelectorAll('h1, h2, h3, h4, h5, h6')
+  headings[index]?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
+}
+
+/** 响应侧栏大纲点击 */
+function handleOutlineJump(event: Event): void {
+  const index = (event as CustomEvent<{ index: number }>).detail?.index
+  if (index == null) return
+  scrollToHeading(index)
+}
+
 // ────── Watchers ──────
 watch(() => fileStore.fileContent, () => {
   teardownScrollLazy()
@@ -266,10 +280,12 @@ onMounted(() => {
   initShiki()
   renderPreview()
   if (previewWrapperRef.value) attachFontZoom(previewWrapperRef.value)
+  window.addEventListener('inkase:outline-jump', handleOutlineJump)
 })
 
 onUnmounted(() => {
   teardownScrollLazy()
+  window.removeEventListener('inkase:outline-jump', handleOutlineJump)
 })
 
 defineExpose({

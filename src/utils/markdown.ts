@@ -230,17 +230,30 @@ export interface HeadingItem {
   line: number
 }
 
+/** 行首 ATX 标题：1~6 个 `#` + 空格 + 文本，可选的行尾闭合 `#`。 */
+const ATX_HEADING_RE = /^(#{1,6})\s+(.*?)(?:\s+#+)?\s*$/
+/** 围栏代码块起始/结束（``` 或 ~~~）。 */
+const FENCE_RE = /^\s*(```|~~~)/
+
 /**
- * 提取 Markdown 标题
+ * 提取 Markdown 标题（顶层 ATX 标题，1~6 级）。
+ * 跳过围栏代码块内的行；忽略引用块等前缀行；剥离行尾闭合的 `#`。
  * @param content Markdown 内容
- * @returns 标题列表
+ * @returns 标题列表，line 为 1 起始的行号
  */
 export function extractHeadings(content: string): HeadingItem[] {
   const headings: HeadingItem[] = []
   const lines = content.split('\n')
+  let inFence = false
 
   lines.forEach((line, index) => {
-    const match = line.match(/^(#{1,4})\s+(.+)$/)
+    if (FENCE_RE.test(line)) {
+      inFence = !inFence
+      return
+    }
+    if (inFence) return
+
+    const match = ATX_HEADING_RE.exec(line)
     if (match) {
       headings.push({
         level: match[1].length,

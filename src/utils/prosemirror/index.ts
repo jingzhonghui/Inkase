@@ -51,6 +51,10 @@ export {
 export { createIRPlugin, irPluginKey, findLinkAt } from './ir-plugin'
 export type { LinkInfo } from './ir-plugin'
 
+// IR 模式大纲
+export { collectOutlineHeadings } from './outline'
+export type { OutlineHeading } from './outline'
+
 // ProseMirror 核心类型重导出
 export type { EditorState, Transaction, Selection } from 'prosemirror-state'
 export type { Node as ProseMirrorNode } from 'prosemirror-model'

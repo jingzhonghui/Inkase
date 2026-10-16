@@ -1,9 +1,8 @@
 <script setup lang="ts">
 import { ref, reactive, provide, onMounted, onUnmounted, nextTick, watch } from 'vue'
-import { IconChevronsLeft, IconFolderOpen } from '@tabler/icons-vue'
+import { IconFolderOpen } from '@tabler/icons-vue'
 import { useFileStore, type FileTreeNode } from '../../stores/file'
 import { requestDialog } from '../../utils/dialog'
-import Tooltip from '../common/Tooltip.vue'
 import { validateWindowsFolderName, validateWindowsFileName } from '../../utils/windows-filename'
 import { dedupeTopLevelPaths } from '../../../shared/fs/dedupe'
 import FileTreeItem from './FileTreeItem.vue'
@@ -131,10 +130,6 @@ watch(() => fileStore.activeTabId, () => {
 watch(() => fileStore.fileTree, () => {
   if (scrollRevealPending) void tryScrollToActiveFile()
 }, { deep: true })
-
-const emit = defineEmits<{
-  (e: 'collapse'): void
-}>()
 
 const CLOSE_ALL_CONTEXT_MENUS_EVENT = 'inkase:close-context-menus'
 
@@ -522,21 +517,6 @@ onUnmounted(() => {
 
 <template>
   <div class="file-explorer">
-    <!-- 资源管理器标题栏 -->
-    <div class="explorer-titlebar">
-      <span class="explorer-title">资源管理器</span>
-      <Tooltip content="收起侧边栏">
-        <button
-          class="explorer-collapse-btn"
-          type="button"
-          aria-label="收起侧边栏"
-          @click="emit('collapse')"
-        >
-          <IconChevronsLeft />
-        </button>
-      </Tooltip>
-    </div>
-
     <!-- 文件列表 -->
     <div
       ref="fileListRef"
@@ -746,52 +726,8 @@ onUnmounted(() => {
 .file-explorer {
   display: flex;
   flex-direction: column;
-  height: 100%;
-}
-
-.explorer-titlebar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  height: 36px;
-  padding: 0 8px 0 12px;
-  border-bottom: 1px solid var(--color-border);
-  flex-shrink: 0;
-}
-
-.explorer-title {
-  font-size: calc(var(--ui-font-size) - 1px);
-  font-weight: 600;
-  color: var(--color-text-secondary);
-  letter-spacing: 0.3px;
-}
-
-.explorer-titlebar :deep(.tooltip-trigger) {
-  flex: none;
-}
-
-.explorer-collapse-btn {
-  width: 28px;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  background: transparent;
-  color: var(--color-text-secondary);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.explorer-collapse-btn:hover {
-  color: var(--color-text);
-  background-color: var(--color-bg-secondary);
-}
-
-.explorer-collapse-btn svg {
-  width: 16px;
-  height: 16px;
+  flex: 1;
+  min-height: 0;
 }
 
 .file-list {

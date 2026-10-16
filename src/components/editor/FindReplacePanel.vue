@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, nextTick } from 'vue'
-import { IconArrowDown, IconArrowUp, IconX } from '@tabler/icons-vue'
+import { IconArrowDown, IconArrowUp, IconChevronDown, IconChevronRight, IconX } from '@tabler/icons-vue'
 import Tooltip from '../common/Tooltip.vue'
 
 const props = defineProps<{
@@ -8,6 +8,7 @@ const props = defineProps<{
   replaceMode: boolean
   matchCount: number
   currentIndex: number
+  initialQuery?: string
 }>()
 
 const emit = defineEmits<{
@@ -17,6 +18,7 @@ const emit = defineEmits<{
   prev: []
   replace: [query: string, replaceText: string, caseSensitive: boolean]
   replaceAll: [query: string, replaceText: string, caseSensitive: boolean]
+  toggleReplace: []
 }>()
 
 const query = ref('')
@@ -29,6 +31,7 @@ watch(
   () => props.open,
   (open) => {
     if (open) {
+      if (props.initialQuery) query.value = props.initialQuery
       nextTick(() => {
         if (props.replaceMode) {
           replaceInputRef.value?.focus()
@@ -54,6 +57,11 @@ function emitReplace(): void {
 function emitReplaceAll(): void {
   emit('replaceAll', query.value, replaceText.value, caseSensitive.value)
 }
+
+function onToggleReplace(): void {
+  emit('toggleReplace')
+  nextTick(() => searchInputRef.value?.focus())
+}
 </script>
 
 <template>
@@ -62,6 +70,25 @@ function emitReplaceAll(): void {
     class="find-replace-panel"
   >
     <div class="find-replace-row">
+      <span class="find-replace-toggle-wrap">
+        <Tooltip :content="replaceMode ? '隐藏替换' : '显示替换'">
+          <button
+            class="find-replace-toggle"
+            :aria-label="replaceMode ? '隐藏替换' : '显示替换'"
+            :aria-expanded="replaceMode"
+            @click="onToggleReplace"
+          >
+            <IconChevronDown
+              v-if="replaceMode"
+              :size="14"
+            />
+            <IconChevronRight
+              v-else
+              :size="14"
+            />
+          </button>
+        </Tooltip>
+      </span>
       <input
         ref="searchInputRef"
         v-model="query"
@@ -106,6 +133,7 @@ function emitReplaceAll(): void {
       v-if="replaceMode"
       class="find-replace-row"
     >
+      <span class="find-replace-toggle-spacer" />
       <input
         ref="replaceInputRef"
         v-model="replaceText"
@@ -186,6 +214,34 @@ function emitReplaceAll(): void {
   border: 1px solid var(--color-border);
   border-radius: 6px;
   cursor: pointer;
+  white-space: nowrap;
+}
+.find-replace-toggle-wrap {
+  display: inline-flex;
+  flex: 0 0 20px;
+  width: 20px;
+}
+.find-replace-toggle {
+  display: inline-flex;
+  flex: 0 0 20px;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  color: var(--color-text-secondary);
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.find-replace-toggle:hover {
+  color: var(--color-text-primary);
+  background: var(--color-bg-secondary);
+}
+.find-replace-toggle-spacer {
+  flex: 0 0 20px;
+  width: 20px;
 }
 .find-replace-btn:hover {
   color: var(--color-text-primary);

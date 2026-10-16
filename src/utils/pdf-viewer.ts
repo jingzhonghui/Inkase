@@ -63,6 +63,19 @@ export function scrollOffsetsForPage(layouts: PageLayout[], page: number): numbe
   return layouts[index].top
 }
 
+/**
+ * 计算侧栏大纲中应高亮的目录项索引（“当前章节”）：
+ * 页码 ≤ 当前页的最后一项。无可定位项时返回 -1。
+ */
+export function activeOutlineIndex(items: Array<{ page: number | null }>, currentPage: number): number {
+  let active = -1
+  for (let i = 0; i < items.length; i++) {
+    const page = items[i].page
+    if (page !== null && page <= currentPage) active = i
+  }
+  return active
+}
+
 /** 目录项 title 最大长度，超出截断 */
 const OUTLINE_TITLE_MAX = 80
 

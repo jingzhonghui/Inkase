@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { clampScale, fitWidthScale, flattenOutline, pageAtScroll, scaledPageSize, scrollOffsetsForPage, ZOOM_STEP } from '../pdf-viewer'
+import { activeOutlineIndex, clampScale, fitWidthScale, flattenOutline, pageAtScroll, scaledPageSize, scrollOffsetsForPage, ZOOM_STEP } from '../pdf-viewer'
 
 describe('scaledPageSize', () => {
   it('scales base page size by the given scale', () => {
@@ -106,6 +106,32 @@ describe('scrollOffsetsForPage', () => {
     expect(scrollOffsetsForPage([], 0)).toBe(0)
     expect(scrollOffsetsForPage([{ top: 0, height: 10 }], -1)).toBe(0)
     expect(scrollOffsetsForPage([{ top: 0, height: 10 }], 99)).toBe(0)
+  })
+})
+
+describe('activeOutlineIndex', () => {
+  const items = [
+    { page: 1 },
+    { page: null },
+    { page: 3 },
+    { page: 5 }
+  ]
+
+  it('returns -1 when there are no items', () => {
+    expect(activeOutlineIndex([], 1)).toBe(-1)
+  })
+
+  it('returns the last item whose page is not after the current page', () => {
+    expect(activeOutlineIndex(items, 1)).toBe(0)
+    expect(activeOutlineIndex(items, 2)).toBe(0)
+    expect(activeOutlineIndex(items, 3)).toBe(2)
+    expect(activeOutlineIndex(items, 4)).toBe(2)
+    expect(activeOutlineIndex(items, 5)).toBe(3)
+    expect(activeOutlineIndex(items, 99)).toBe(3)
+  })
+
+  it('ignores items without a resolvable page', () => {
+    expect(activeOutlineIndex([{ page: null }, { page: null }], 5)).toBe(-1)
   })
 })
 

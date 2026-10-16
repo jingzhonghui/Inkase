@@ -2,8 +2,10 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist'
 import { useFileStore } from '../../stores/file'
+import { useOutlineStore } from '../../stores/outline'
 import Tooltip from '../common/Tooltip.vue'
 import {
+  activeOutlineIndex,
   clampScale,
   fitWidthScale,
   flattenOutline,
@@ -35,6 +37,7 @@ async function ensurePdfjs(): Promise<PdfjsModule> {
 }
 
 const fileStore = useFileStore()
+const outlineStore = useOutlineStore()
 
 const activeTab = computed(() => fileStore.activeTab)
 const fileName = computed(() => activeTab.value?.fileInfo?.name ?? '')
@@ -52,12 +55,11 @@ const scalePercent = computed(() => `${Math.round(scale.value * 100)}%`)
 const pageInput = ref('')
 const pageInputEl = ref<HTMLInputElement | null>(null)
 
-const outlineOpen = ref(false)
 const outlineItems = ref<OutlineFlatNode[]>([])
-const outlineLoading = ref(false)
 
-// 滚动导致当前页变化时，同步页码输入框（用户正在输入时不打断）
+// 滚动导致当前页变化时，同步页码输入框与侧栏大纲高亮（用户正在输入时不打断输入框）
 watch(currentPage, (page) => {
+  outlineStore.setActiveIndex(activeOutlineIndex(outlineItems.value, page))
   if (pageInputEl.value && document.activeElement === pageInputEl.value) return
   pageInput.value = String(page)
 })
@@ -92,8 +94,7 @@ async function loadPdf(): Promise<void> {
   loading.value = true
   loadError.value = ''
   outlineItems.value = []
-  outlineLoading.value = false
-  outlineOpen.value = false
+  outlineStore.setLoading('pdf')
 
   const base64 = activeTab.value?.pdfBase64
   if (!base64) {
@@ -116,7 +117,7 @@ async function loadPdf(): Promise<void> {
     pdfDoc = doc
     pageCount.value = doc.numPages
     pageInput.value = '1'
-    void loadOutline(doc)
+    void loadOutline(doc, generation)
 
     const firstPage = await doc.getPage(1)
     if (generation !== renderGeneration) return
@@ -159,21 +160,25 @@ async function resolveOutlinePage(doc: PDFDocumentProxy, node: OutlineNode): Pro
   }
 }
 
-/** 异步加载并解析目录（有目录才可展开；无目录/失败则目录为空） */
-async function loadOutline(doc: PDFDocumentProxy): Promise<void> {
+/** 异步加载并解析目录并发布到大纲 store（无目录/失败则发布空列表） */
+async function loadOutline(doc: PDFDocumentProxy, generation: number): Promise<void> {
+  let items: OutlineFlatNode[] = []
   try {
     const raw = await doc.getOutline()
-    if (!raw || raw.length === 0) {
-      outlineItems.value = []
-      return
+    if (raw && raw.length > 0) {
+      items = await flattenOutline(raw, (node) => resolveOutlinePage(doc, node))
     }
-    outlineLoading.value = true
-    outlineItems.value = await flattenOutline(raw, (node) => resolveOutlinePage(doc, node))
   } catch {
-    outlineItems.value = []
-  } finally {
-    outlineLoading.value = false
+    items = []
   }
+  // 已切换到其它 PDF/标签时丢弃过期结果
+  if (generation !== renderGeneration) return
+  outlineItems.value = items
+  outlineStore.setHeadings(
+    items.map((it) => ({ level: it.depth + 1, text: it.title, page: it.page })),
+    'pdf'
+  )
+  outlineStore.setActiveIndex(activeOutlineIndex(items, currentPage.value))
 }
 
 async function renderPage(pageNumber: number): Promise<void> {
@@ -338,9 +343,13 @@ function jumpToPage(page: number): void {
   pageInput.value = String(page)
 }
 
-function onOutlineClick(item: OutlineFlatNode): void {
-  if (item.page === null) return
+/** 响应侧栏大纲点击：按索引跳到对应页码 */
+function handleOutlineJump(event: Event): void {
+  const index = (event as CustomEvent<{ index: number }>).detail?.index
+  const item = index == null ? undefined : outlineItems.value[index]
+  if (!item || item.page === null) return
   jumpToPage(item.page)
+  outlineStore.setActiveIndex(index as number)
 }
 
 function onPageInputEnter(event: KeyboardEvent): void {
@@ -362,6 +371,7 @@ resizeObserver = new ResizeObserver(() => {
 
 onMounted(() => {
   containerRef.value?.addEventListener('wheel', onStageWheel, { passive: false })
+  window.addEventListener('inkase:outline-jump', handleOutlineJump)
 })
 
 watch(
@@ -375,6 +385,7 @@ watch(
 onUnmounted(() => {
   renderGeneration++
   containerRef.value?.removeEventListener('wheel', onStageWheel)
+  window.removeEventListener('inkase:outline-jump', handleOutlineJump)
   resizeObserver?.disconnect()
   resizeObserver = null
   if (scrollTimer !== null) window.clearTimeout(scrollTimer)
@@ -389,19 +400,6 @@ onUnmounted(() => {
   <div class="pdf-viewer">
     <div class="pdf-toolbar">
       <span class="pdf-file-name">{{ fileName }}</span>
-      <Tooltip
-        v-if="outlineItems.length > 0"
-        content="目录"
-      >
-        <button
-          class="pdf-btn pdf-outline-toggle"
-          :class="{ 'is-active': outlineOpen }"
-          :disabled="outlineLoading"
-          @click="outlineOpen = !outlineOpen"
-        >
-          目录
-        </button>
-      </Tooltip>
       <div class="pdf-toolbar-controls">
         <div class="pdf-page-nav">
           <input
@@ -446,34 +444,6 @@ onUnmounted(() => {
     </div>
 
     <div class="pdf-body">
-      <aside
-        v-if="outlineOpen && outlineItems.length > 0"
-        class="pdf-outline-panel"
-      >
-        <ul class="pdf-outline-list">
-          <Tooltip
-            v-for="(item, i) in outlineItems"
-            :key="i"
-            :content="item.page !== null ? `第 ${item.page} 页` : '无法定位'"
-          >
-            <li
-              class="pdf-outline-item"
-              :class="{
-                'is-active': item.page !== null && item.page === currentPage,
-                'is-disabled': item.page === null
-              }"
-              :style="{ paddingLeft: `${12 + item.depth * 14}px` }"
-              @click="onOutlineClick(item)"
-            >
-              <span class="pdf-outline-title">{{ item.title }}</span>
-              <span
-                v-if="item.page !== null"
-                class="pdf-outline-page"
-              >{{ item.page }}</span>
-            </li>
-          </Tooltip>
-        </ul>
-      </aside>
       <div class="pdf-stage">
         <div
           v-if="loadError"
@@ -528,11 +498,6 @@ onUnmounted(() => {
   padding: 6px 12px;
   border-bottom: 1px solid var(--color-border);
   flex-shrink: 0;
-}
-
-/* Tooltip 根元素带 flex:1（给 AppHeader/ToolBar 等使用），在这里会把目录按钮顶到中部；恢复自然宽度使其靠右 */
-.pdf-toolbar > :deep(.tooltip-trigger) {
-  flex: 0 0 auto;
 }
 
 .pdf-file-name {
@@ -614,75 +579,11 @@ onUnmounted(() => {
   min-width: 44px;
 }
 
-.pdf-outline-toggle.is-active {
-  border-color: var(--color-primary);
-  color: var(--color-primary);
-  background: var(--color-bg-secondary);
-}
-
 .pdf-body {
   flex: 1;
   min-height: 0;
   display: flex;
   align-items: stretch;
-}
-
-.pdf-outline-panel {
-  width: 220px;
-  flex-shrink: 0;
-  overflow-y: auto;
-  border-right: 1px solid var(--color-border);
-  background: var(--color-bg-primary);
-}
-
-.pdf-outline-list {
-  list-style: none;
-  margin: 0;
-  padding: 4px 0;
-}
-
-.pdf-outline-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 4px 12px;
-  font-size: calc(var(--ui-font-size) - 1px);
-  line-height: 1.4;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.pdf-outline-item:hover {
-  background: var(--color-bg-secondary);
-  color: var(--color-text);
-}
-
-.pdf-outline-item.is-active {
-  color: var(--color-primary);
-  background: var(--color-bg-secondary);
-}
-
-.pdf-outline-item.is-disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-
-.pdf-outline-item.is-disabled:hover {
-  background: transparent;
-  color: var(--color-text-secondary);
-}
-
-.pdf-outline-title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.pdf-outline-page {
-  flex-shrink: 0;
-  font-size: calc(var(--ui-font-size) - 2px);
-  color: var(--color-text-tertiary);
 }
 
 .pdf-stage {
