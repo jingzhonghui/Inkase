@@ -157,7 +157,7 @@ describe('FileTreeItem icons', () => {
 
     const icon = wrapper.find('.node-icon svg')
     expect(icon.exists()).toBe(true)
-    expect(icon.attributes('class')).toContain('tabler-icon-file-text')
+    expect(icon.attributes('class')).toContain('tabler-icon-markdown')
   })
 })
 

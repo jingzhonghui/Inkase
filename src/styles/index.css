@@ -1,4 +1,5 @@
 @import 'katex/dist/katex.min.css';
+@import './file-icons.css';
 
 @tailwind base;
 @tailwind components;

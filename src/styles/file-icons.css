@@ -1,0 +1,59 @@
+/*
+ * 文件图标配色。
+ *
+ * 仅按 data-file-icon 键设置自定义属性 `--file-icon-color`，由消费端以
+ * `color: var(--file-icon-color, <fallback>)` 引用。这样避免全局属性选择器
+ * 与组件内 .node-icon / .tab-icon 的 color 规则发生优先级竞争：颜色随组件
+ * 自身的规则生效，只有「键 → 颜色」这一层集中在此处维护。
+ */
+
+[data-file-icon='folder'] { --file-icon-color: var(--color-accent-yellow, #d4a017); }
+[data-file-icon='markdown'] { --file-icon-color: #519aba; }
+[data-file-icon='pdf'] { --file-icon-color: #e5252a; }
+[data-file-icon='image'] { --file-icon-color: #a074c4; }
+[data-file-icon='svg'] { --file-icon-color: #ffb13b; }
+[data-file-icon='archive'] { --file-icon-color: #d97706; }
+
+[data-file-icon='typescript'] { --file-icon-color: #3178c6; }
+[data-file-icon='javascript'] { --file-icon-color: #cbcb41; }
+[data-file-icon='react'] { --file-icon-color: #61dafb; }
+[data-file-icon='vue'] { --file-icon-color: #41b883; }
+[data-file-icon='html'] { --file-icon-color: #e34c26; }
+[data-file-icon='css'] { --file-icon-color: #42a5f5; }
+[data-file-icon='sass'] { --file-icon-color: #cf649a; }
+[data-file-icon='python'] { --file-icon-color: #3572a5; }
+[data-file-icon='rust'] { --file-icon-color: #ce422b; }
+[data-file-icon='go'] { --file-icon-color: #00add8; }
+[data-file-icon='java'] { --file-icon-color: #b07219; }
+[data-file-icon='kotlin'] { --file-icon-color: #7f52ff; }
+[data-file-icon='swift'] { --file-icon-color: #f05138; }
+[data-file-icon='php'] { --file-icon-color: #7377ad; }
+[data-file-icon='c'] { --file-icon-color: #6b7280; }
+[data-file-icon='cpp'] { --file-icon-color: #00599c; }
+[data-file-icon='csharp'] { --file-icon-color: #68217a; }
+[data-file-icon='shell'] { --file-icon-color: #4eaa25; }
+[data-file-icon='powershell'] { --file-icon-color: #5391fe; }
+[data-file-icon='sql'] { --file-icon-color: #e38c00; }
+[data-file-icon='code'] { --file-icon-color: #3b82f6; }
+
+[data-file-icon='json'] { --file-icon-color: #cbcb41; }
+[data-file-icon='yaml'] { --file-icon-color: #cb171e; }
+[data-file-icon='toml'] { --file-icon-color: #9c6d56; }
+[data-file-icon='xml'] { --file-icon-color: #0060ac; }
+[data-file-icon='csv'] { --file-icon-color: #207245; }
+
+[data-file-icon='word'] { --file-icon-color: #2b579a; }
+[data-file-icon='excel'] { --file-icon-color: #217346; }
+[data-file-icon='powerpoint'] { --file-icon-color: #d24726; }
+[data-file-icon='text'] { --file-icon-color: var(--color-text-secondary); }
+[data-file-icon='log'] { --file-icon-color: #8b949e; }
+
+[data-file-icon='docker'] { --file-icon-color: #2496ed; }
+[data-file-icon='git'] { --file-icon-color: #f14e32; }
+[data-file-icon='license'] { --file-icon-color: #d4a017; }
+[data-file-icon='env'] { --file-icon-color: #b7a600; }
+[data-file-icon='npm'] { --file-icon-color: #cb3837; }
+[data-file-icon='config'] { --file-icon-color: #8b949e; }
+[data-file-icon='lock'] { --file-icon-color: #b8860b; }
+
+[data-file-icon='file'] { --file-icon-color: var(--color-text-secondary); }

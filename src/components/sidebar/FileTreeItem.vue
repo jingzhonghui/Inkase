@@ -1,21 +1,9 @@
 <script setup lang="ts">
 import { computed, inject } from 'vue'
-import {
-  IconBraces,
-  IconChevronRight,
-  IconFile,
-  IconFileCode,
-  IconFileDescription,
-  IconFileText,
-  IconFileTypePdf,
-  IconFileTypeZip,
-  IconFolder,
-  IconPhoto,
-  type Icon
-} from '@tabler/icons-vue'
+import { IconChevronRight } from '@tabler/icons-vue'
 import { useFileStore, type FileTreeNode } from '../../stores/file'
 import { requestDialog } from '../../utils/dialog'
-import { getFileIconType } from '../../utils/file-icons'
+import { FILE_ICON_COMPONENTS, getFileIconKey } from '../../utils/file-icons'
 import Tooltip from '../common/Tooltip.vue'
 
 interface DragState {
@@ -45,20 +33,8 @@ const isDragOver = computed(() => dragState?.hoverPath === props.node.path)
 
 const depth = computed(() => props.depth ?? 0)
 
-const fileIcons: Record<string, Icon> = {
-  folder: IconFolder,
-  markdown: IconFileText,
-  pdf: IconFileTypePdf,
-  image: IconPhoto,
-  archive: IconFileTypeZip,
-  data: IconBraces,
-  code: IconFileCode,
-  text: IconFileDescription,
-  file: IconFile
-}
-
-const iconType = computed(() => getFileIconType(props.node.name, props.node.isDirectory))
-const iconComponent = computed(() => fileIcons[iconType.value])
+const iconKey = computed(() => getFileIconKey(props.node.name, props.node.isDirectory))
+const iconComponent = computed(() => FILE_ICON_COMPONENTS[iconKey.value])
 
 function normalizePath(value: string): string {
   return value.replace(/[\\/]+/g, '/').replace(/\/+$/, '')
@@ -235,7 +211,7 @@ function onDrop(event: DragEvent): void {
       <!-- 文件夹/文件图标 -->
       <span
         class="node-icon"
-        :class="`node-icon-${iconType}`"
+        :data-file-icon="iconKey"
       >
         <component
           :is="iconComponent"
@@ -360,22 +336,13 @@ function onDrop(event: DragEvent): void {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  color: var(--color-text-secondary);
+  color: var(--file-icon-color, var(--color-text-secondary));
 }
 
 .node-icon svg {
   width: 16px;
   height: 16px;
 }
-
-.node-icon-folder { color: var(--color-accent-yellow, #d4a017); }
-.node-icon-markdown { color: #2387a8; }
-.node-icon-pdf { color: var(--color-error); }
-.node-icon-image { color: #9b6dcc; }
-.node-icon-archive { color: #d97706; }
-.node-icon-data { color: #0f9d8a; }
-.node-icon-code { color: #3b82f6; }
-.node-icon-text { color: var(--color-text-secondary); }
 
 .item-content.is-active .node-icon {
   color: var(--color-primary);

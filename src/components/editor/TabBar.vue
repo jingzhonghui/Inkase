@@ -1,15 +1,6 @@
 <script setup lang="ts">
 import { ref, reactive, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import {
-  IconBraces,
-  IconFile,
-  IconFileCode,
-  IconFileDescription,
-  IconFileText,
-  IconFileTypePdf,
-  IconFileTypeZip,
-  IconFolder,
-  IconPhoto,
   IconMessageChatbot,
   IconX,
   type Icon
@@ -17,7 +8,7 @@ import {
 import { useFileStore } from '../../stores/file'
 import { useAiStore } from '../../stores/ai'
 import type { TabInfo } from '../../stores/file'
-import { getFileIconType } from '../../utils/file-icons'
+import { FILE_ICON_COMPONENTS, getFileIconKey, type FileIconKey } from '../../utils/file-icons'
 import Tooltip from '../common/Tooltip.vue'
 
 const fileStore = useFileStore()
@@ -115,20 +106,12 @@ function getTabLabel(tab: TabInfo): string {
   return tab.fileInfo?.name || '未命名.mdx'
 }
 
-const fileIcons: Record<string, Icon> = {
-  folder: IconFolder,
-  markdown: IconFileText,
-  pdf: IconFileTypePdf,
-  image: IconPhoto,
-  archive: IconFileTypeZip,
-  data: IconBraces,
-  code: IconFileCode,
-  text: IconFileDescription,
-  file: IconFile
+function getTabIconKey(tab: TabInfo): FileIconKey {
+  return getFileIconKey(getTabLabel(tab), false)
 }
 
 function getTabIcon(tab: TabInfo): Icon {
-  return fileIcons[getFileIconType(getTabLabel(tab), false)]
+  return FILE_ICON_COMPONENTS[getTabIconKey(tab)]
 }
 
 const CLOSE_ALL_CONTEXT_MENUS_EVENT = 'inkase:close-context-menus'
@@ -247,6 +230,7 @@ onUnmounted(() => {
       <component
         :is="getTabIcon(tab)"
         class="tab-icon"
+        :data-file-icon="getTabIconKey(tab)"
         :size="16"
         stroke="1.8"
       />
@@ -423,7 +407,7 @@ onUnmounted(() => {
   width: 14px;
   height: 14px;
   flex-shrink: 0;
-  color: var(--color-text-secondary);
+  color: var(--file-icon-color, var(--color-text-secondary));
 }
 
 .tab.active .tab-icon {
