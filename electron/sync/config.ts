@@ -19,14 +19,28 @@ export function syncConfigPath(workspacePath: string): string {
 }
 
 /**
- * 读取同步配置。文件不存在返回 null；JSON 损坏时备份为 .sync.json.bak 并返回 null。
+ * 读取同步配置。文件不存在返回 null；provider 未知或 JSON 损坏时返回 null
+ * （JSON 损坏时备份为 .sync.json.bak）。
  */
 export function loadSyncConfig(workspacePath: string): SyncConfig | null {
   const filePath = syncConfigPath(workspacePath)
   if (!fs.existsSync(filePath)) return null
   try {
     const raw = JSON.parse(fs.readFileSync(filePath, 'utf-8')) as Partial<SyncConfig>
-    if (raw.version !== 1 || raw.provider !== 'git') return null
+    if (raw.version !== 1 || (raw.provider !== 'git' && raw.provider !== 'webdav')) return null
+    if (raw.provider === 'webdav') {
+      return {
+        version: 1,
+        provider: 'webdav',
+        // WebDAV 无提交概念，autoCommit 恒为 false
+        autoCommit: false,
+        autoPull: typeof raw.autoPull === 'boolean' ? raw.autoPull : DEFAULT_SYNC_CONFIG.autoPull,
+        autoPush: typeof raw.autoPush === 'boolean' ? raw.autoPush : DEFAULT_SYNC_CONFIG.autoPush,
+        url: typeof raw.url === 'string' ? raw.url : undefined,
+        username: typeof raw.username === 'string' ? raw.username : undefined,
+        remoteRoot: typeof raw.remoteRoot === 'string' ? raw.remoteRoot : undefined
+      }
+    }
     return {
       version: 1,
       provider: 'git',

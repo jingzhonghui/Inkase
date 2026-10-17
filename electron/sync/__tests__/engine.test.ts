@@ -3,7 +3,8 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { SyncEngine } from '../engine'
-import type { SyncConfig, SyncProvider, SyncResult, SyncStatus } from '../types'
+import { WebdavConflictError, WebdavSyncProvider, type WebdavClient } from '../webdav-provider'
+import type { SyncConfig, SyncProvider, SyncProviderKind, SyncResult, SyncStatus } from '../types'
 import type { GitCommandResult } from '../git-provider'
 
 const dirsToClean: string[] = []
@@ -29,6 +30,7 @@ function makeProvider(overrides: Partial<SyncProvider> = {}): SyncProvider {
 function makeEngine(
   opts: {
     configured?: boolean
+    provider?: SyncProviderKind
     isGitRepo?: boolean
     fetchOk?: boolean
     hasRemoteBranch?: boolean
@@ -39,6 +41,8 @@ function makeEngine(
     gitignoreConflict?: boolean
     gitignoreOurs?: string
     gitignoreTheirs?: string
+    /** 不注入 crypto（模拟 safeStorage 整体不可用的环境） */
+    noCrypto?: boolean
   } = {}
 ) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mdp-sync-engine-'))
@@ -47,7 +51,7 @@ function makeEngine(
     fs.mkdirSync(path.join(dir, '.inkase'), { recursive: true })
     fs.writeFileSync(
       path.join(dir, '.inkase', 'sync.json'),
-      JSON.stringify({ version: 1, provider: 'git', autoCommit: true, autoPull: true, autoPush: false }),
+      JSON.stringify({ version: 1, provider: opts.provider ?? 'git', autoCommit: true, autoPull: true, autoPush: false }),
       'utf-8'
     )
   }
@@ -62,6 +66,12 @@ function makeEngine(
   const watcher = { dispose: vi.fn() }
   const deps = {
     createProvider: vi.fn((_p: string, _c: SyncConfig) => provider),
+    // 与 credentials.test.ts 同款假 crypto：可逆前缀 `enc:`，用于断言「密码不落明文」
+    crypto: {
+      isEncryptionAvailable: () => true,
+      encryptString: (plain: string) => Buffer.from(`enc:${plain}`, 'utf-8'),
+      decryptString: (buf: Buffer) => buf.toString('utf-8').replace(/^enc:/, '')
+    },
     createWatcher: vi.fn((_p: string, cb: (files: string[]) => void) => {
       watcherCallback = cb
       return watcher
@@ -108,7 +118,71 @@ function makeEngine(
     })
   }
   const engine = new SyncEngine(deps)
+  if (opts.noCrypto) delete (deps as { crypto?: unknown }).crypto
   return { engine, provider, watcher, deps, dir, triggerWatcher: (files: string[]) => watcherCallback(files) }
+}
+
+/** 规范化远端路径：去掉首尾斜杠（`/r/a.mdx` → `r/a.mdx`） */
+function normalizeRemotePath(p: string): string {
+  return p.replace(/^\/+/, '').replace(/\/+$/, '')
+}
+
+/**
+ * 内存版 WebDAV 客户端，供引擎级测试注入真实 `WebdavSyncProvider`。
+ * 关键建模：远端根不存在时 `list()` 抛错（等价于真实客户端 PROPFIND 404），
+ * 只有 `ensureDir()` 才会创建目录 —— 用于验证 C1（首绑建根）与 I1（首绑并集）。
+ */
+function makeMemoryClient(initial: Record<string, string> = {}) {
+  const files = new Map<string, { data: Buffer; etag: string }>(
+    Object.entries(initial).map(([k, v]) => {
+      const key = normalizeRemotePath(k)
+      return [key, { data: Buffer.from(v, 'utf-8'), etag: `"${key}"` }]
+    })
+  )
+  const dirs = new Set<string>([''])
+  const addParents = (key: string): void => {
+    const parts = key.split('/')
+    parts.pop()
+    let cur = ''
+    for (const part of parts) {
+      cur = cur === '' ? part : `${cur}/${part}`
+      dirs.add(cur)
+    }
+  }
+  for (const key of files.keys()) addParents(key)
+  const client: WebdavClient = {
+    async ensureDir(p: string): Promise<void> {
+      const key = normalizeRemotePath(p)
+      if (key === '') return
+      addParents(key)
+      dirs.add(key)
+    },
+    async list(p: string) {
+      const root = normalizeRemotePath(p)
+      if (!dirs.has(root)) throw new Error(`404 ${p}`)
+      const prefix = root === '' ? '' : `${root}/`
+      return [...files.entries()]
+        .filter(([key]) => key.startsWith(prefix))
+        .map(([key, f]) => ({ path: key.slice(prefix.length), etag: f.etag, size: f.data.length, mtime: 0 }))
+    },
+    async readFile(p: string): Promise<Buffer> {
+      const f = files.get(normalizeRemotePath(p))
+      if (!f) throw new Error(`404 ${p}`)
+      return f.data
+    },
+    async writeFile(p: string, data: Buffer, etag: string | null): Promise<string | null> {
+      const key = normalizeRemotePath(p)
+      const cur = files.get(key) ?? null
+      if (etag !== null && (cur?.etag ?? null) !== etag) throw new WebdavConflictError(p)
+      const next = `"${key}-${data.length}"`
+      files.set(key, { data, etag: next })
+      return next
+    },
+    async delete(p: string): Promise<void> {
+      files.delete(normalizeRemotePath(p))
+    }
+  }
+  return { client, files, dirs }
 }
 
 describe('SyncEngine', () => {
@@ -628,6 +702,25 @@ describe('SyncEngine', () => {
     expect(events).toContain('pendingCommit')
   })
 
+  // C2：WebDAV 无提交概念（autoCommit 恒 false），变更后必须走 autoPush → push（§5.3）
+  it('webdav autoPush pushes on watcher changes', async () => {
+    const { engine, provider, triggerWatcher, dir } = makeEngine({ provider: 'webdav' })
+    await engine.attach(dir)
+    engine.setConfig({ autoPush: true })
+    triggerWatcher(['C:/ws/a.md'])
+    await vi.waitFor(() => expect(provider.push).toHaveBeenCalled())
+    expect(provider.commit).not.toHaveBeenCalled()
+  })
+
+  // C2：WebDAV 下 autoPush 关闭时不得 push
+  it('webdav autoPush disabled does not push on watcher changes', async () => {
+    const { engine, provider, triggerWatcher, dir } = makeEngine({ provider: 'webdav' })
+    await engine.attach(dir)
+    triggerWatcher(['C:/ws/a.md'])
+    await new Promise((r) => setTimeout(r, 50))
+    expect(provider.push).not.toHaveBeenCalled()
+  })
+
   it('attach entering conflict emits conflicted files to renderer', async () => {
     const { engine, provider, dir } = makeEngine()
     const changed: string[][] = []
@@ -667,5 +760,217 @@ describe('SyncEngine', () => {
     expect(result.success).toBe(true)
     expect(changed).toContainEqual(['C:/ws/docs/a.md'])
     expect(engine.getStatusView().conflictedFiles).toEqual(['C:/ws/docs/a.md'])
+  })
+
+  it('exposes the configured provider in the status view', async () => {
+    const { engine, dir } = makeEngine()
+    await engine.attach(dir)
+    expect(engine.getStatusView().provider).toBe('git')
+  })
+
+  it('exposes the webdav provider in the status view', async () => {
+    const { engine, dir } = makeEngine({ provider: 'webdav' })
+    await engine.attach(dir)
+    expect(engine.getStatusView().provider).toBe('webdav')
+  })
+
+  it('does not run git self-heal for a webdav workspace', async () => {
+    const { engine, deps, dir } = makeEngine({ provider: 'webdav' })
+    await engine.attach(dir)
+    const calls = (deps.runGit as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0][0])
+    expect(calls).not.toContain('ls-files')
+  })
+
+  it('attach reports isGitRepo=false for webdav even inside a git workspace (§5.7)', async () => {
+    const { engine, deps, dir } = makeEngine({ provider: 'webdav', isGitRepo: true })
+    await engine.attach(dir)
+    expect(engine.getStatusView().isGitRepo).toBe(false)
+    // WebDAV 下不执行任何 git 命令（含 isGitRepoAt 的 rev-parse 探测）
+    expect(deps.runGit).not.toHaveBeenCalled()
+  })
+
+  it('enable with webdav runs no git commands', async () => {
+    const { engine, deps, dir } = makeEngine({ configured: false })
+    const res = await engine.enable(dir, {
+      provider: 'webdav',
+      url: 'https://d',
+      username: 'u',
+      password: 'p',
+      remoteRoot: '/r'
+    })
+    expect(res.success).toBe(true)
+    expect(deps.runGit).not.toHaveBeenCalled()
+  })
+
+  it('enable with webdav rejects missing credentials', async () => {
+    const { engine, dir } = makeEngine({ configured: false })
+    const res = await engine.enable(dir, { provider: 'webdav', url: 'https://d' })
+    expect(res.success).toBe(false)
+    expect(res.error).toMatch(/必填/)
+  })
+
+  it('enable with webdav requires a password (§10.1)', async () => {
+    const { engine, dir } = makeEngine({ configured: false })
+    const res = await engine.enable(dir, { provider: 'webdav', url: 'https://d', username: 'u', remoteRoot: '/r' })
+    expect(res.success).toBe(false)
+    expect(res.error).toContain('必填')
+    expect(res.error).toContain('密码')
+    expect(fs.existsSync(path.join(dir, '.inkase', 'sync.json'))).toBe(false)
+  })
+
+  it('enable with webdav fails and rolls back when crypto is unavailable', async () => {
+    const { engine, dir } = makeEngine({ configured: false, noCrypto: true })
+    const res = await engine.enable(dir, {
+      provider: 'webdav',
+      url: 'https://d',
+      username: 'u',
+      password: 'p',
+      remoteRoot: '/r'
+    })
+    expect(res.success).toBe(false)
+    expect(res.error).toBe('当前系统不支持安全存储，无法保存密码')
+    expect(engine.getStatusView().status).toBe('error')
+    expect(engine.getConfig()).toBeNull()
+    // 回滚生效：sync.json 未被留下，也未写出任何凭据文件
+    expect(fs.existsSync(path.join(dir, '.inkase', 'sync.json'))).toBe(false)
+    expect(fs.existsSync(path.join(dir, '.inkase', 'credentials.json'))).toBe(false)
+  })
+
+  it('enable with webdav saves config and aligns the remote via provider.push', async () => {
+    const { engine, provider, dir } = makeEngine({ configured: false })
+    const res = await engine.enable(dir, {
+      provider: 'webdav',
+      url: 'https://d',
+      username: 'u',
+      password: 'p',
+      remoteRoot: '/r'
+    })
+    expect(res.success).toBe(true)
+    expect(provider.push).toHaveBeenCalled()
+    expect(engine.getConfig()).toMatchObject({
+      provider: 'webdav',
+      autoCommit: false,
+      url: 'https://d',
+      username: 'u',
+      remoteRoot: '/r'
+    })
+    expect(engine.getStatusView().provider).toBe('webdav')
+  })
+
+  // I1：首绑必须取并集（本地独有→上传、远端独有→下载），且不得产生任何删除（§5.6/§10.1）
+  it('enable with webdav aligns both sides (union) and never deletes', async () => {
+    const { engine, deps, dir } = makeEngine({ configured: false })
+    fs.writeFileSync(path.join(dir, 'local.mdx'), 'L', 'utf-8')
+    const remote = makeMemoryClient({ '/r/remote.mdx': 'R' })
+    ;(deps.createProvider as ReturnType<typeof vi.fn>).mockImplementation(
+      (p: string, c: SyncConfig) => new WebdavSyncProvider(p, c, remote.client)
+    )
+    const res = await engine.enable(dir, {
+      provider: 'webdav',
+      url: 'https://d',
+      username: 'u',
+      password: 'p',
+      remoteRoot: '/r'
+    })
+    expect(res.success).toBe(true)
+    // 远端独有 → 下载到本地
+    expect(fs.readFileSync(path.join(dir, 'remote.mdx'), 'utf-8')).toBe('R')
+    // 本地独有 → 上传到远端
+    expect(remote.files.has('r/local.mdx')).toBe(true)
+    // 两侧原有文件均未被删除
+    expect(fs.existsSync(path.join(dir, 'local.mdx'))).toBe(true)
+    expect(remote.files.has('r/remote.mdx')).toBe(true)
+    expect(engine.getStatusView().status).toBe('upToDate')
+  })
+
+  // C1：远端根不存在时首绑仍应成功（先建根再列举），而不是误报连接错误
+  it('enable with webdav creates a missing remote root instead of a connection error', async () => {
+    const { engine, deps, dir } = makeEngine({ configured: false })
+    fs.writeFileSync(path.join(dir, 'a.mdx'), 'A', 'utf-8')
+    const remote = makeMemoryClient()
+    ;(deps.createProvider as ReturnType<typeof vi.fn>).mockImplementation(
+      (p: string, c: SyncConfig) => new WebdavSyncProvider(p, c, remote.client)
+    )
+    const res = await engine.enable(dir, {
+      provider: 'webdav',
+      url: 'https://d',
+      username: 'u',
+      password: 'p',
+      remoteRoot: '/r'
+    })
+    expect(res.success).toBe(true)
+    expect(engine.getStatusView().status).not.toBe('error')
+    expect(remote.files.has('r/a.mdx')).toBe(true)
+  })
+
+  it('enable with webdav never writes the password in plain text', async () => {
+    const { engine, dir } = makeEngine({ configured: false })
+    const res = await engine.enable(dir, {
+      provider: 'webdav',
+      url: 'https://d',
+      username: 'u',
+      password: 's3cret',
+      remoteRoot: '/r'
+    })
+    expect(res.success).toBe(true)
+    const credentialsFile = path.join(dir, '.inkase', 'credentials.json')
+    expect(fs.existsSync(credentialsFile)).toBe(true)
+    expect(fs.readFileSync(credentialsFile, 'utf-8')).not.toContain('s3cret')
+    expect(fs.readFileSync(path.join(dir, '.inkase', 'sync.json'), 'utf-8')).not.toContain('s3cret')
+  })
+
+  it('disable for webdav removes state but keeps .git', async () => {
+    const { engine, dir } = makeEngine({ provider: 'webdav' })
+    fs.mkdirSync(path.join(dir, '.git'), { recursive: true })
+    fs.writeFileSync(path.join(dir, '.gitignore'), '.inkase\n', 'utf-8')
+    fs.writeFileSync(path.join(dir, '.inkase', 'sync-state.json'), '{}', 'utf-8')
+    fs.writeFileSync(path.join(dir, '.inkase', 'credentials.json'), '{}', 'utf-8')
+    await engine.attach(dir)
+    engine.disable()
+    expect(fs.existsSync(path.join(dir, '.git'))).toBe(true)
+    expect(fs.existsSync(path.join(dir, '.gitignore'))).toBe(true)
+    expect(fs.existsSync(path.join(dir, '.inkase', 'sync.json'))).toBe(false)
+    expect(fs.existsSync(path.join(dir, '.inkase', 'sync-state.json'))).toBe(false)
+    expect(fs.existsSync(path.join(dir, '.inkase', 'credentials.json'))).toBe(false)
+  })
+
+  it('resolveConflicts delegates to the provider', async () => {
+    const { engine, provider, dir } = makeEngine()
+    const resolve = vi.fn(async (): Promise<SyncResult> => ({ success: true, changedFiles: ['C:/ws/a.md'] }))
+    ;(provider as SyncProvider).resolveConflicts = resolve
+    await engine.attach(dir)
+    const choices = [{ path: 'C:/ws/a.md', choice: 'local' as const }]
+    const result = await engine.resolveConflicts(choices)
+    expect(resolve).toHaveBeenCalledWith(choices)
+    expect(result).toEqual({ success: true, changedFiles: ['C:/ws/a.md'] })
+  })
+
+  it('resolveConflicts returns an error when the provider does not support it', async () => {
+    const { engine, dir } = makeEngine()
+    await engine.attach(dir)
+    const result = await engine.resolveConflicts([{ path: 'C:/ws/a.md', choice: 'local' }])
+    expect(result.success).toBe(false)
+    expect(result.error).toBe('当前提供者不支持此操作')
+  })
+
+  it('attach with webdav autoPull pulls without branch info', async () => {
+    const { engine, provider, dir } = makeEngine({ provider: 'webdav' })
+    delete (provider as { branchInfo?: unknown }).branchInfo
+    await engine.attach(dir)
+    expect(provider.pull).toHaveBeenCalled()
+  })
+
+  it('refreshStatus reports a webdav-specific error message', async () => {
+    const { engine, provider, dir } = makeEngine({ provider: 'webdav' })
+    ;(provider.status as ReturnType<typeof vi.fn>).mockResolvedValue('error')
+    await engine.attach(dir)
+    expect(engine.getStatusView().error).toBe('无法连接到远端，请检查网络、地址与凭据')
+  })
+
+  it('refreshStatus keeps the git error message', async () => {
+    const { engine, provider, dir } = makeEngine()
+    ;(provider.status as ReturnType<typeof vi.fn>).mockResolvedValue('error')
+    await engine.attach(dir)
+    expect(engine.getStatusView().error).toBe('仓库状态异常（可能未配置远程分支），请在同步面板中检查')
   })
 })

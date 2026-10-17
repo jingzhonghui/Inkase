@@ -1,6 +1,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import type {
+  ConflictChoice,
   EnableSyncOptions,
   SyncConfig,
   SyncProvider,
@@ -12,11 +13,18 @@ import { autoResolveGitignoreConflict, ensureInkaseExcludedLocally, isUntrackedO
 import type { GitCommandResult } from './git-provider'
 import { ensureInkaseIgnored, loadSyncConfig, saveSyncConfig, syncConfigPath } from './config'
 import { migrateLegacyConfigDir } from './legacy-migration'
+import { createCredentialStore, credentialsPath, type CryptoLike } from './credentials'
+import { syncStatePath } from './sync-state'
 
 export interface SyncEngineDeps {
   createProvider: (workspacePath: string, config: SyncConfig) => SyncProvider
   createWatcher: (workspacePath: string, onChanges: (files: string[]) => void) => { dispose(): void }
   runGit: (args: string[], cwd: string) => Promise<GitCommandResult>
+  /**
+   * 凭据加密后端（Electron `safeStorage` 的最小抽象）。
+   * WebDAV `enable()` 用它加密保存密码；缺省时不写凭据文件（绝不降级为明文）。
+   */
+  crypto?: CryptoLike
 }
 
 /**
@@ -40,6 +48,14 @@ export class SyncEngine {
 
   constructor(private readonly deps: SyncEngineDeps) {}
 
+  /**
+   * 当前工作区是否走 git 后端（未配置时沿用历史默认 git）。
+   * 仅用于圈定 git 专属副作用；git 路径下恒为 true，行为与引入前一致。
+   */
+  private isGit(): boolean {
+    return (this.config?.provider ?? 'git') === 'git'
+  }
+
   getStatusView(): SyncStatusView {
     return {
       status: this.currentStatus,
@@ -48,6 +64,7 @@ export class SyncEngine {
       isGitRepo: this.isGitRepo,
       branch: this.branch,
       upstream: this.upstream,
+      provider: this.config?.provider ?? 'git',
       conflictedFiles: this.conflictedFiles,
       inRebase: this.inRebase
     }
@@ -80,15 +97,25 @@ export class SyncEngine {
     // 先迁移旧目录再读配置，旧 .markdownPlus/sync.json 才能被读到
     migrateLegacyConfigDir(workspacePath)
     this.config = loadSyncConfig(workspacePath)
-    this.isGitRepo = await this.isGitRepoAt(workspacePath)
+    // §5.7：WebDAV 下 isGitRepo 恒为 false（且不执行任何 git 命令）
+    this.isGitRepo = this.isGit() ? await this.isGitRepoAt(workspacePath) : false
 
     if (this.config) {
       this.provider = this.deps.createProvider(workspacePath, this.config)
       this.watcher = this.deps.createWatcher(workspacePath, (files) => this.onWorkspaceChanges(files))
       await this.refreshStatus()
       if (this.config.autoPull) {
-        const info = this.provider.branchInfo ? await this.provider.branchInfo() : null
-        if (info?.upstream) {
+        if (this.isGit()) {
+          // git 需要先确认存在 upstream 才 pull（否则 pull 会因无跟踪分支失败）
+          const info = this.provider.branchInfo ? await this.provider.branchInfo() : null
+          if (info?.upstream) {
+            const r = await this.pullInternal()
+            if (r.success && r.changedFiles && r.changedFiles.length > 0) {
+              this.emitFiles(r.changedFiles)
+            }
+          }
+        } else {
+          // webdav 无分支概念：直接拉取
           const r = await this.pullInternal()
           if (r.success && r.changedFiles && r.changedFiles.length > 0) {
             this.emitFiles(r.changedFiles)
@@ -100,7 +127,7 @@ export class SyncEngine {
     }
     // 自愈：git 工作区补齐 .gitignore，并把被误跟踪的 .inkase 移出版本控制
     // （历史版本 bug 或远端污染所致；置于 autoPull 之后，可清理 pull 带入的污染）
-    if (this.isGitRepo) {
+    if (this.isGitRepo && this.isGit()) {
       ensureInkaseIgnored(workspacePath)
       await untrackInkaseIfTracked(workspacePath, (args, cwd) => this.deps.runGit(args, cwd))
       await ensureInkaseExcludedLocally(workspacePath, (args, cwd) => this.deps.runGit(args, cwd))
@@ -126,15 +153,25 @@ export class SyncEngine {
 
   disable(): void {
     const workspacePath = this.workspacePath
+    // 必须在 detach() 清空 this.config 之前判定 provider
+    const isGit = this.isGit()
     this.detach()
     if (workspacePath) {
       const configPath = syncConfigPath(workspacePath)
       if (fs.existsSync(configPath)) fs.unlinkSync(configPath)
-      // 停用同步：删除 git 仓库与 .gitignore（.inkase 目录保留，可能含 AI 会话等其它数据）
-      const gitDir = path.join(workspacePath, '.git')
-      if (fs.existsSync(gitDir)) fs.rmSync(gitDir, { recursive: true, force: true })
-      const gitignorePath = path.join(workspacePath, '.gitignore')
-      if (fs.existsSync(gitignorePath)) fs.unlinkSync(gitignorePath)
+      if (isGit) {
+        // 停用同步：删除 git 仓库与 .gitignore（.inkase 目录保留，可能含 AI 会话等其它数据）
+        const gitDir = path.join(workspacePath, '.git')
+        if (fs.existsSync(gitDir)) fs.rmSync(gitDir, { recursive: true, force: true })
+        const gitignorePath = path.join(workspacePath, '.gitignore')
+        if (fs.existsSync(gitignorePath)) fs.unlinkSync(gitignorePath)
+      } else {
+        // WebDAV：保留工作区文件与 .git/.gitignore，只清理同步清单与凭据（磁盘不残留凭据密文）
+        const statePath = syncStatePath(workspacePath)
+        if (fs.existsSync(statePath)) fs.unlinkSync(statePath)
+        const credPath = credentialsPath(workspacePath)
+        if (fs.existsSync(credPath)) fs.unlinkSync(credPath)
+      }
     }
     this.emit()
   }
@@ -245,6 +282,29 @@ export class SyncEngine {
     }
   }
 
+  /**
+   * 人工裁决冲突文件（WebDAV 等无 rebase 的后端）。
+   * provider 不支持时返回明确错误；成功后刷新状态（全部解决应回到 upToDate）。
+   */
+  async resolveConflicts(choices: ConflictChoice[]): Promise<SyncResult> {
+    if (this.busy) return { success: false, error: '同步进行中，请稍候' }
+    if (!this.provider?.resolveConflicts) return { success: false, error: '当前提供者不支持此操作' }
+    this.busy = true
+    try {
+      const result = await this.provider.resolveConflicts(choices)
+      if (!result.success) {
+        this.error = result.error ?? '解决冲突失败'
+        this.emit()
+        return result
+      }
+      await this.refreshStatus()
+      this.emit()
+      return result
+    } finally {
+      this.busy = false
+    }
+  }
+
   async enable(workspacePath: string, options: EnableSyncOptions): Promise<SyncResult> {
     if (this.busy) return { success: false, error: '同步进行中，请稍候' }
     if (!workspacePath) return { success: false, error: '未打开工作区' }
@@ -256,8 +316,13 @@ export class SyncEngine {
       this.detach()
       this.workspacePath = workspacePath
       migrateLegacyConfigDir(workspacePath)
+      // provider 分支必须由入参显式驱动：此时 this.config 仍为 null，复用 isGit() 会被默认值判成 git
+      const providerKind = options.provider ?? 'git'
+      if (providerKind === 'webdav') {
+        return await this.enableWebdav(workspacePath, options)
+      }
       this.isGitRepo = await this.isGitRepoAt(workspacePath)
-      if (!this.isGitRepo) {
+      if (this.isGit() && !this.isGitRepo) {
         const r = await this.deps.runGit(['init'], workspacePath)
         if (r.code !== 0) {
           const error = r.stderr.trim() || 'git init 失败'
@@ -268,7 +333,7 @@ export class SyncEngine {
         }
         this.isGitRepo = true
       }
-      if (options.remoteUrl) {
+      if (this.isGit() && options.remoteUrl) {
         const add = await this.deps.runGit(['remote', 'add', 'origin', options.remoteUrl], workspacePath)
         if (add.code !== 0) {
           const set = await this.deps.runGit(['remote', 'set-url', 'origin', options.remoteUrl], workspacePath)
@@ -284,7 +349,7 @@ export class SyncEngine {
       // 保存配置并提前创建 provider，供后续 pull/commit/push 复用
       this.config = {
         version: 1,
-        provider: 'git',
+        provider: providerKind,
         autoCommit: options.autoCommit ?? true,
         autoPull: options.autoPull ?? true,
         autoPush: options.autoPush ?? false
@@ -294,7 +359,7 @@ export class SyncEngine {
 
       let remoteError: string | null = null
       let align: 'ok' | 'conflict' | 'error' = 'ok'
-      if (options.remoteUrl) {
+      if (this.isGit() && options.remoteUrl) {
         const fetch = await this.deps.runGit(['fetch', 'origin'], workspacePath)
         if (fetch.code !== 0) {
           remoteError = (fetch.stderr || fetch.stdout).trim() || '远程拉取失败（请检查网络或认证）'
@@ -320,11 +385,13 @@ export class SyncEngine {
       }
 
       // 对齐成功（含空远端）：此时再创建/追加 .gitignore，避免先动 .gitignore 造成首次同步冲突
-      ensureInkaseIgnored(workspacePath)
-      // 远端若已含被跟踪的 .inkase（历史污染），checkout 后立即移出版本控制
-      await untrackInkaseIfTracked(workspacePath, (args, cwd) => this.deps.runGit(args, cwd))
-      // 本地排除兜底：即使 .gitignore 缺失/冲突，git add 也不会带入 .inkase
-      await ensureInkaseExcludedLocally(workspacePath, (args, cwd) => this.deps.runGit(args, cwd))
+      if (this.isGit()) {
+        ensureInkaseIgnored(workspacePath)
+        // 远端若已含被跟踪的 .inkase（历史污染），checkout 后立即移出版本控制
+        await untrackInkaseIfTracked(workspacePath, (args, cwd) => this.deps.runGit(args, cwd))
+        // 本地排除兜底：即使 .gitignore 缺失/冲突，git add 也不会带入 .inkase
+        await ensureInkaseExcludedLocally(workspacePath, (args, cwd) => this.deps.runGit(args, cwd))
+      }
       // 本地有变更（首次内容 + .gitignore 等）则提交；空提交 guard 已由 porcelain 判断
       const porcelain = await this.deps.runGit(['status', '--porcelain'], workspacePath)
       if (porcelain.code === 0 && porcelain.stdout.trim() !== '') {
@@ -360,6 +427,89 @@ export class SyncEngine {
     } finally {
       this.busy = false
     }
+  }
+
+  /**
+   * WebDAV 启用：**不执行任何 git 命令**。
+   * 校验必填项 → 保存配置 → 加密保存密码 → 建 provider → `provider.push()` 完成首次对齐
+   * （空远端=全量上传；非空=取并集，冲突交由用户选边）→ 建 watcher → 刷新状态。
+   * 首次对齐失败（网络/认证）不阻塞配置保存，以 `error` 状态呈现，用户可重试
+   * （与 git 版 `remoteError` 处理一致）。
+   */
+  private async enableWebdav(workspacePath: string, options: EnableSyncOptions): Promise<SyncResult> {
+    const url = options.url?.trim() ?? ''
+    const username = options.username?.trim() ?? ''
+    const remoteRoot = options.remoteRoot?.trim() ?? ''
+    const missing: string[] = []
+    if (!url) missing.push('服务地址')
+    if (!username) missing.push('用户名')
+    if (!options.password) missing.push('密码')
+    if (!remoteRoot) missing.push('远端目录')
+    if (missing.length > 0) {
+      const error = `必填项缺失：${missing.join('、')}`
+      this.currentStatus = 'error'
+      this.error = error
+      this.emit()
+      return { success: false, error }
+    }
+
+    this.config = {
+      version: 1,
+      provider: 'webdav',
+      // WebDAV 无提交概念，恒为 false
+      autoCommit: false,
+      autoPull: options.autoPull ?? true,
+      autoPush: options.autoPush ?? false,
+      url,
+      username,
+      remoteRoot
+    }
+    saveSyncConfig(workspacePath, this.config)
+
+    // 密码只以密文落盘；加密不可用时（crypto 整体缺失，或 crypto 存在但
+    // isEncryptionAvailable()===false）一律**拒绝保存并回滚**刚写入的配置，
+    // 避免留下「已配置但无凭据」的半成品，且绝不静默跳过（绝不降级为明文）。
+    // 错误文案与 credentials.ts 的「加密不可用」分支逐字一致。
+    if (options.password) {
+      try {
+        if (!this.deps.crypto) throw new Error('当前系统不支持安全存储，无法保存密码')
+        createCredentialStore(workspacePath, this.deps.crypto).save(options.password)
+      } catch (e) {
+        const error = e instanceof Error ? e.message : '保存密码失败'
+        const configPath = syncConfigPath(workspacePath)
+        if (fs.existsSync(configPath)) fs.unlinkSync(configPath)
+        this.config = null
+        this.currentStatus = 'error'
+        this.error = error
+        this.emit()
+        return { success: false, error }
+      }
+    }
+
+    this.provider = this.deps.createProvider(workspacePath, this.config)
+
+    // 首次绑定对齐（§5.6/§10.1 步骤 5）：真正取并集——先 pull 下载「远端独有」，
+    // 再 push 上传「本地独有」，两侧同名按 §5.6 处理（冲突留给用户选边）。
+    // 与 git 版「先对齐（pull）再推送（push）」的节奏一致：pull 时基准尚为空，
+    // 结构上不可能产生 deleteLocal，故「首次绑定不产生任何删除」。
+    // 对齐失败（网络/认证）不阻塞配置保存，以 error 状态呈现，用户可重试。
+    let alignError: string | null = null
+    const pulled = await this.provider.pull()
+    if (!pulled.success) {
+      alignError = pulled.error ?? '首次同步失败'
+    } else {
+      const pushed = await this.provider.push()
+      if (!pushed.success) alignError = pushed.error ?? '首次同步失败'
+    }
+
+    this.watcher = this.deps.createWatcher(workspacePath, (files) => this.onWorkspaceChanges(files))
+    await this.refreshStatus()
+    if (alignError) {
+      this.currentStatus = 'error'
+      this.error = alignError
+    }
+    this.emit()
+    return { success: true }
   }
 
   /**
@@ -482,6 +632,31 @@ export class SyncEngine {
   private async autoCommit(): Promise<void> {
     if (!this.provider || !this.config) return
     if (this.busy) return
+    // WebDAV 无提交概念（autoCommit 恒为 false）：变更后按 autoPush 直接 push（设计 §5.3）。
+    // 必须与 git 路径分开判断，否则会因 autoCommit=false 提前返回，autoPush 永不触发（静默失败）。
+    if (!this.isGit()) {
+      if (!this.config.autoPush) {
+        await this.refreshStatus()
+        this.emit()
+        return
+      }
+      this.busy = true
+      try {
+        const pushResult = await this.provider.push()
+        if (!pushResult.success) {
+          await this.refreshStatus()
+          if (this.currentStatus !== 'conflict') this.currentStatus = 'error'
+          this.error = pushResult.error ?? '自动上传失败'
+        }
+      } catch (e) {
+        this.error = e instanceof Error ? e.message : '自动上传失败'
+      } finally {
+        this.busy = false
+      }
+      await this.refreshStatus()
+      this.emit()
+      return
+    }
     if (!this.config.autoCommit) {
       await this.refreshStatus()
       this.emit()
@@ -523,7 +698,12 @@ export class SyncEngine {
     const prev = this.currentStatus
     const st = await this.provider.status()
     this.currentStatus = st
-    this.error = st === 'error' ? '仓库状态异常（可能未配置远程分支），请在同步面板中检查' : null
+    this.error =
+      st === 'error'
+        ? this.isGit()
+          ? '仓库状态异常（可能未配置远程分支），请在同步面板中检查'
+          : '无法连接到远端，请检查网络、地址与凭据'
+        : null
     if (st === 'conflict') {
       this.conflictedFiles = this.provider.conflictedFiles ? await this.provider.conflictedFiles() : []
       this.inRebase = this.provider.rebaseInProgress ? await this.provider.rebaseInProgress() : false

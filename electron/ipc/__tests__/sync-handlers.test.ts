@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { IPC_CHANNELS } from '../channels'
 import type { SyncEngine } from '../../sync/engine'
-import type { SyncConfig, SyncStatusView } from '../../sync/types'
+import type { ConflictChoice, SyncConfig, SyncResult, SyncStatusView } from '../../sync/types'
 
 type Handler = (...args: unknown[]) => unknown
 
@@ -34,12 +34,13 @@ function makeStatusView(overrides: Partial<SyncStatusView> = {}): SyncStatusView
     isGitRepo: true,
     branch: 'main',
     upstream: 'origin/main',
+    provider: 'git',
     ...overrides
   }
 }
 
 describe('sync-handlers', () => {
-  let engine: Pick<SyncEngine, 'getStatusView' | 'pull' | 'push' | 'enable' | 'disable' | 'getConfig' | 'setConfig' | 'attach' | 'detach' | 'onEvent' | 'onFileChanged' | 'continueRebase' | 'abortRebase'>
+  let engine: Pick<SyncEngine, 'getStatusView' | 'pull' | 'push' | 'enable' | 'disable' | 'getConfig' | 'setConfig' | 'attach' | 'detach' | 'onEvent' | 'onFileChanged' | 'continueRebase' | 'abortRebase' | 'resolveConflicts'>
 
   beforeEach(async () => {
     electronMocks.handlers.clear()
@@ -56,6 +57,7 @@ describe('sync-handlers', () => {
       detach: vi.fn(),
       continueRebase: vi.fn(async () => ({ success: true })),
       abortRebase: vi.fn(async () => ({ success: true })),
+      resolveConflicts: vi.fn(async () => ({ success: true })),
       onEvent: vi.fn(),
       onFileChanged: vi.fn()
     }
@@ -103,5 +105,41 @@ describe('sync-handlers', () => {
     const result = (await handler({})) as { success: boolean }
     expect(result.success).toBe(true)
     expect(engine.abortRebase).toHaveBeenCalled()
+  })
+
+  it('RESOLVE_CONFLICTS is registered', () => {
+    expect(electronMocks.handlers.has(IPC_CHANNELS.SYNC.RESOLVE_CONFLICTS)).toBe(true)
+  })
+
+  it('RESOLVE_CONFLICTS forwards choices to engine.resolveConflicts', async () => {
+    const handler = electronMocks.handlers.get(IPC_CHANNELS.SYNC.RESOLVE_CONFLICTS)!
+    const choices: ConflictChoice[] = [
+      { path: 'C:/ws/a.md', choice: 'local' },
+      { path: 'C:/ws/b.md', choice: 'remote' }
+    ]
+    const result = (await handler({}, choices)) as { success: boolean; data?: SyncResult }
+    expect(engine.resolveConflicts).toHaveBeenCalledWith(choices)
+    expect(result.success).toBe(true)
+  })
+
+  it('RESOLVE_CONFLICTS falls back to an empty list when choices are missing', async () => {
+    const handler = electronMocks.handlers.get(IPC_CHANNELS.SYNC.RESOLVE_CONFLICTS)!
+    await handler({})
+    await handler({}, null)
+    await handler({}, undefined)
+    expect(engine.resolveConflicts).toHaveBeenCalledTimes(3)
+    expect(engine.resolveConflicts).toHaveBeenNthCalledWith(1, [])
+    expect(engine.resolveConflicts).toHaveBeenNthCalledWith(2, [])
+    expect(engine.resolveConflicts).toHaveBeenNthCalledWith(3, [])
+  })
+
+  it('RESOLVE_CONFLICTS passes the engine result back unchanged', async () => {
+    const handler = electronMocks.handlers.get(IPC_CHANNELS.SYNC.RESOLVE_CONFLICTS)!
+    vi.mocked(engine.resolveConflicts).mockResolvedValueOnce({
+      success: false,
+      error: '当前提供者不支持此操作'
+    })
+    const result = (await handler({}, [])) as SyncResult
+    expect(result).toEqual({ success: false, error: '当前提供者不支持此操作' })
   })
 })

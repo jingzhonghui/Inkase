@@ -1,6 +1,13 @@
 import { ref, watch } from 'vue'
 import { defineStore } from 'pinia'
-import type { EnableSyncOptions, SyncConfig, SyncStatus, SyncStatusView } from '../../shared/sync/types'
+import type {
+  ConflictChoice,
+  EnableSyncOptions,
+  SyncConfig,
+  SyncProviderKind,
+  SyncStatus,
+  SyncStatusView
+} from '../../shared/sync/types'
 import { useFileStore } from './file'
 import { requestDialog } from '../utils/dialog'
 
@@ -13,6 +20,7 @@ export const useSyncStore = defineStore('sync', () => {
   const error = ref<string | null>(null)
   const configured = ref(false)
   const isGitRepo = ref(false)
+  const provider = ref<SyncProviderKind>('git')
   const branch = ref<string | null>(null)
   const upstream = ref<string | null>(null)
   const conflictedFiles = ref<string[]>([])
@@ -37,6 +45,7 @@ export const useSyncStore = defineStore('sync', () => {
     error.value = view.error
     configured.value = view.configured
     isGitRepo.value = view.isGitRepo
+    provider.value = view.provider ?? 'git'
     branch.value = view.branch
     upstream.value = view.upstream
     conflictedFiles.value = view.conflictedFiles ?? []
@@ -134,6 +143,16 @@ export const useSyncStore = defineStore('sync', () => {
     return res
   }
 
+  /**
+   * 提交冲突选边结果并刷新状态。
+   * 成功后主进程会完成合并/提交，需要重新拉取状态视图。
+   */
+  async function resolveConflicts(choices: ConflictChoice[]): Promise<{ success: boolean; error?: string }> {
+    const res = await window.electronAPI.syncResolveConflicts(choices)
+    if (res.success) await refresh()
+    return { success: res.success, error: res.error }
+  }
+
   /** 从主进程读取持久化配置，同步三个自动开关的勾选框状态（未配置时保持默认） */
   async function loadConfigFlags(): Promise<void> {
     const cfg = await window.electronAPI.getSyncConfig()
@@ -208,6 +227,7 @@ export const useSyncStore = defineStore('sync', () => {
     error,
     configured,
     isGitRepo,
+    provider,
     branch,
     upstream,
     conflictedFiles,
@@ -223,6 +243,7 @@ export const useSyncStore = defineStore('sync', () => {
     push,
     continueRebase,
     abortRebase,
+    resolveConflicts,
     enable,
     disable,
     setConfig,

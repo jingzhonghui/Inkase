@@ -1,12 +1,15 @@
 <script setup lang="ts">
 import { reactive, ref, watch } from 'vue'
-import { IconX } from '@tabler/icons-vue'
+import { IconEye, IconEyeOff, IconX } from '@tabler/icons-vue'
+import Tooltip from '../common/Tooltip.vue'
 import type { AiConfigInput, AiConnectionTestResult } from '../../../shared/ai/types'
 
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ close: []; readiness: [ready: boolean] }>()
 const form = reactive({ baseUrl: '', model: '', apiKey: '', temperature: 0.3, maxOutputTokens: undefined as number | undefined, contextWindow: undefined as number | undefined, maxSteps: undefined as number | undefined })
 const hasApiKey = ref(false)
+/** API Key 是否明文显示（小眼睛切换） */
+const showApiKey = ref(false)
 const loading = ref(false)
 const message = ref('')
 const capabilities = ref<AiConnectionTestResult | null>(null)
@@ -137,13 +140,38 @@ watch(
           <label>API Key <span
             v-if="hasApiKey"
             class="saved"
-          >已保存 Key</span><input
-            v-model="form.apiKey"
-            data-testid="ai-api-key"
-            type="password"
-            autocomplete="new-password"
-            :placeholder="hasApiKey ? '留空以保留现有 Key' : '输入 API Key'"
-          ></label>
+          >已保存 Key</span>
+            <div class="key-field">
+              <input
+                v-model="form.apiKey"
+                data-testid="ai-api-key"
+                :type="showApiKey ? 'text' : 'password'"
+                autocomplete="new-password"
+                :placeholder="hasApiKey ? '留空以保留现有 Key' : '输入 API Key'"
+              >
+              <div class="key-field-toggle">
+                <Tooltip :content="showApiKey ? '隐藏密钥' : '显示密钥'">
+                  <button
+                    type="button"
+                    class="key-field-btn"
+                    data-testid="ai-api-key-toggle"
+                    :aria-label="showApiKey ? '隐藏密钥' : '显示密钥'"
+                    :aria-pressed="showApiKey"
+                    @click="showApiKey = !showApiKey"
+                  >
+                    <IconEyeOff
+                      v-if="showApiKey"
+                      :size="14"
+                    />
+                    <IconEye
+                      v-else
+                      :size="14"
+                    />
+                  </button>
+                </Tooltip>
+              </div>
+            </div>
+          </label>
           <div class="grid">
             <label>温度<input
               v-model.number="form.temperature"
@@ -216,4 +244,5 @@ watch(
 header { display: flex; justify-content: space-between; padding: 14px 20px 10px; border-bottom: 1px solid var(--color-border); } h2 { margin: 2px 0 0; font-size: calc(var(--ui-font-size) + 5px); } header small { color: var(--color-primary); font-size: calc(var(--ui-font-size) - 3px); font-weight: 700; letter-spacing: .12em; text-transform: uppercase; } header button { border: 0; background: transparent; color: var(--color-text-secondary); font-size: calc(var(--ui-font-size) + 11px); cursor: pointer; }
 form { display: grid; gap: 9px; padding: 14px 20px 16px; } label { display: grid; gap: 4px; font-size: calc(var(--ui-font-size) - 1px); font-weight: 600; } input, textarea { padding: 7px 9px; border: 1px solid var(--color-border); border-radius: 5px; outline: none; background: var(--color-bg-secondary); color: var(--color-text); font: inherit; } input:focus,textarea:focus { border-color: var(--color-primary); box-shadow: 0 0 0 2px var(--color-primary-light); }.saved { float: right; color: var(--color-primary); font-weight: 500; }.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .privacy,.message { margin: 0; color: var(--color-text); font-size: calc(var(--ui-font-size) - 1px); line-height: 1.6; }.privacy { opacity: .85; }.capabilities { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 12px; border: 1px solid var(--color-border); border-radius: 6px; font-size: calc(var(--ui-font-size) - 1px); color: var(--color-text); }.capabilities strong { grid-column: 1 / -1; color: var(--color-primary); font-size: var(--ui-font-size); } footer { display: flex; justify-content: flex-end; gap: 8px; } footer button { padding: 8px 14px; border: 1px solid var(--color-border); border-radius: 5px; background: var(--color-bg-secondary); color: var(--color-text); cursor: pointer; }.primary { border-color: var(--color-primary); background: var(--color-primary); color: white; }
+.key-field { position: relative; }.key-field input { width: 100%; padding-right: 30px; }.key-field-toggle { position: absolute; top: 50%; right: 5px; transform: translateY(-50%); }.key-field-btn { display: flex; align-items: center; justify-content: center; padding: 2px; border: 0; border-radius: 4px; background: transparent; color: var(--color-text-secondary); cursor: pointer; }.key-field-btn:hover { color: var(--color-text); }
 </style>

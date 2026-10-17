@@ -40,6 +40,21 @@ describe('sync config', () => {
     expect(loadSyncConfig(tmpDir)).toEqual(DEFAULT_SYNC_CONFIG)
   })
 
+  it('round-trips a webdav config with url/username/remoteRoot', () => {
+    const config: SyncConfig = {
+      version: 1, provider: 'webdav', autoCommit: false, autoPull: true, autoPush: true,
+      url: 'https://dav.example.com/dav', username: 'me', remoteRoot: '/inkase'
+    }
+    saveSyncConfig(tmpDir, config)
+    expect(loadSyncConfig(tmpDir)).toEqual(config)
+  })
+
+  it('returns null for an unknown provider', () => {
+    fs.mkdirSync(path.join(tmpDir, '.inkase'), { recursive: true })
+    fs.writeFileSync(syncConfigPath(tmpDir), JSON.stringify({ version: 1, provider: 'ftp' }), 'utf-8')
+    expect(loadSyncConfig(tmpDir)).toBeNull()
+  })
+
   it('returns null and backs up corrupt json', () => {
     fs.mkdirSync(path.join(tmpDir, '.inkase'), { recursive: true })
     fs.writeFileSync(syncConfigPath(tmpDir), '{oops', 'utf-8')

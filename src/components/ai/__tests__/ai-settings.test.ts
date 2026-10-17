@@ -145,4 +145,24 @@ describe('AI settings', () => {
     await vi.waitFor(() => expect(electronAPI.setAiConfig).toHaveBeenCalledOnce())
     expect(wrapper.emitted('readiness')?.at(-1)).toEqual([true])
   })
+
+  it('toggles the API key visibility with an eye button', async () => {
+    const wrapper = mountDialog()
+    await vi.waitFor(() => expect(electronAPI.getAiConfig).toHaveBeenCalledOnce())
+
+    const keyInput = () => wrapper.get('[data-testid="ai-api-key"]')
+    const toggle = () => wrapper.get('[data-testid="ai-api-key-toggle"]')
+    const type = () => (keyInput().element as HTMLInputElement).type
+
+    expect(type()).toBe('password')
+    expect(toggle().attributes('aria-label')).toBe('显示密钥')
+
+    await toggle().trigger('click')
+    expect(type()).toBe('text')
+    expect(toggle().attributes('aria-label')).toBe('隐藏密钥')
+
+    await toggle().trigger('click')
+    expect(type()).toBe('password')
+    expect(toggle().attributes('aria-label')).toBe('显示密钥')
+  })
 })

@@ -17,6 +17,7 @@ function createMockElectronAPI(overrides: Record<string, unknown> = {}) {
     syncPush: vi.fn(async () => ({ success: true })),
     syncContinueRebase: vi.fn(async () => ({ success: true })),
     syncAbortRebase: vi.fn(async () => ({ success: true })),
+    syncResolveConflicts: vi.fn(async () => ({ success: true })),
     enableSync: vi.fn(async () => ({ success: true })),
     disableSync: vi.fn(async () => ({ success: true })),
     getSyncConfig: vi.fn(async () => ({ success: true, data: { version: 1, provider: 'git', autoCommit: true, autoPull: true, autoPush: false } })),
@@ -271,5 +272,114 @@ describe('sync store', () => {
     const res = await store.abortRebase()
     expect(res.success).toBe(true)
     expect(api.syncAbortRebase).toHaveBeenCalled()
+  })
+
+  it('defaults provider to git before any status view arrives', () => {
+    const store = useSyncStore()
+    expect(store.provider).toBe('git')
+  })
+
+  it('applyView writes the provider from the status view into the store', async () => {
+    const api = window.electronAPI as unknown as ReturnType<typeof createMockElectronAPI>
+    api.getSyncStatus.mockResolvedValue({
+      success: true,
+      data: {
+        status: 'upToDate',
+        error: null,
+        configured: true,
+        isGitRepo: false,
+        branch: null,
+        upstream: null,
+        provider: 'webdav'
+      }
+    })
+    const store = useSyncStore()
+    await store.init()
+    await store.refresh()
+    expect(store.provider).toBe('webdav')
+  })
+
+  it('applyView keeps provider as git when the view reports git', async () => {
+    const api = window.electronAPI as unknown as ReturnType<typeof createMockElectronAPI>
+    api.getSyncStatus.mockResolvedValue({
+      success: true,
+      data: {
+        status: 'upToDate',
+        error: null,
+        configured: true,
+        isGitRepo: true,
+        branch: 'main',
+        upstream: 'origin/main',
+        provider: 'git'
+      }
+    })
+    const store = useSyncStore()
+    await store.init()
+    await store.refresh()
+    expect(store.provider).toBe('git')
+  })
+
+  it('falls back to git when a status view omits the provider', async () => {
+    const api = window.electronAPI as unknown as ReturnType<typeof createMockElectronAPI>
+    api.getSyncStatus.mockResolvedValue({
+      success: true,
+      data: {
+        status: 'upToDate',
+        error: null,
+        configured: true,
+        isGitRepo: true,
+        branch: 'main',
+        upstream: 'origin/main'
+      }
+    })
+    const store = useSyncStore()
+    await store.init()
+    await store.refresh()
+    expect(store.provider).toBe('git')
+  })
+
+  it('enable forwards provider and webdav options untouched', async () => {
+    const api = window.electronAPI as unknown as ReturnType<typeof createMockElectronAPI>
+    const { useFileStore } = await import('../file')
+    useFileStore().openedFolderPath = 'C:/ws'
+    const store = useSyncStore()
+    await store.init()
+    const options = {
+      provider: 'webdav' as const,
+      url: 'https://dav.example.com/remote.php/dav',
+      username: 'alice',
+      password: 'secret',
+      remoteRoot: '/inkase'
+    }
+    await store.enable(options)
+    expect(api.enableSync).toHaveBeenCalledWith('C:/ws', options)
+  })
+
+  it('resolveConflicts forwards the choices to the main process', async () => {
+    const api = window.electronAPI as unknown as ReturnType<typeof createMockElectronAPI>
+    const store = useSyncStore()
+    const choices = [
+      { path: 'C:/ws/a.md', choice: 'local' as const },
+      { path: 'C:/ws/b.md', choice: 'remote' as const }
+    ]
+    await store.resolveConflicts(choices)
+    expect(api.syncResolveConflicts).toHaveBeenCalledWith(choices)
+  })
+
+  it('resolveConflicts refreshes and returns success when resolution succeeds', async () => {
+    const api = window.electronAPI as unknown as ReturnType<typeof createMockElectronAPI>
+    const store = useSyncStore()
+    const res = await store.resolveConflicts([{ path: 'C:/ws/a.md', choice: 'local' as const }])
+    expect(res).toEqual({ success: true })
+    expect(api.getSyncStatus).toHaveBeenCalledTimes(1)
+  })
+
+  it('resolveConflicts surfaces the error and skips refresh when resolution fails', async () => {
+    const api = window.electronAPI as unknown as ReturnType<typeof createMockElectronAPI>
+    api.syncResolveConflicts.mockResolvedValueOnce({ success: false, error: 'RESOLVE_FAILED' })
+    const store = useSyncStore()
+    const res = await store.resolveConflicts([{ path: 'C:/ws/a.md', choice: 'remote' as const }])
+    expect(res).toEqual({ success: false, error: 'RESOLVE_FAILED' })
+    expect(api.getSyncStatus).not.toHaveBeenCalled()
   })
 })

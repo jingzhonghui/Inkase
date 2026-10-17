@@ -1,6 +1,7 @@
-import type { SyncProviderKind, SyncResult, SyncStatus } from '../../shared/sync/types'
+import type { ConflictChoice, SyncProviderKind, SyncResult, SyncStatus } from '../../shared/sync/types'
 
 export type {
+  ConflictChoice,
   EnableSyncOptions,
   SyncConfig,
   SyncProviderKind,
@@ -40,5 +41,7 @@ export interface SyncProvider {
   continueRebase?(): Promise<SyncResult>
   /** 中止 rebase（可选能力） */
   abortRebase?(): Promise<SyncResult>
+  /** 冲突文件的人工裁决（可选能力，webdav 等无 rebase 的后端提供） */
+  resolveConflicts?(choices: ConflictChoice[]): Promise<SyncResult>
   dispose(): void
 }

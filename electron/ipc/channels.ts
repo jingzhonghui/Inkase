@@ -96,6 +96,7 @@ export const IPC_CHANNELS = {
     PUSH: 'sync:push',
     CONTINUE_REBASE: 'sync:continueRebase',
     ABORT_REBASE: 'sync:abortRebase',
+    RESOLVE_CONFLICTS: 'sync:resolveConflicts',
     ENABLE: 'sync:enable',
     DISABLE: 'sync:disable',
     CONFIG: {

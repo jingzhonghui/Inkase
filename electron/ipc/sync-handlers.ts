@@ -51,6 +51,10 @@ export function registerSyncHandlers(engine: SyncEngine, getWindow: () => Browse
     return await engine.abortRebase()
   })
 
+  ipcMain.handle(IPC_CHANNELS.SYNC.RESOLVE_CONFLICTS, async (_, choices) => {
+    return await engine.resolveConflicts(choices ?? [])
+  })
+
   ipcMain.handle(IPC_CHANNELS.SYNC.ENABLE, async (_, workspacePath: string, options) => {
     return await engine.enable(workspacePath, options || {})
   })

@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, ipcMain, screen } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, screen, safeStorage } from 'electron'
 import * as fs from 'fs'
 import { join, resolve } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -15,6 +15,8 @@ import { initUpdater, checkForUpdates, openReleasesPage } from './updater'
 import { inspectLaunchTarget, parseLaunchTargets, type LaunchTarget } from './launch-target'
 import { SyncEngine } from './sync/engine'
 import { GitSyncProvider } from './sync/git-provider'
+import { createWebdavClient, WebdavSyncProvider } from './sync/webdav-provider'
+import { createCredentialStore, type CryptoLike } from './sync/credentials'
 import { createWorkspaceWatcher } from './sync/watcher'
 import { registerSyncHandlers } from './ipc/sync-handlers'
 import { registerExternalWatchHandlers } from './ipc/watch-handlers'
@@ -34,13 +36,38 @@ let mainWindow: BrowserWindow | null = null
 const pendingOpenTargets: LaunchTarget[] = []
 let rendererReady = false
 
+/**
+ * 凭据加密后端：Electron `safeStorage` 的最小抽象（形状见 `sync/credentials.ts` 的 `CryptoLike`）。
+ * 同时供凭据存储与同步引擎（WebDAV 启用时加密保存密码）使用，避免两处构造不一致。
+ */
+const cryptoBackend: CryptoLike = {
+  isEncryptionAvailable: () => safeStorage.isEncryptionAvailable(),
+  encryptString: (plain) => safeStorage.encryptString(plain),
+  decryptString: (encrypted) => safeStorage.decryptString(encrypted)
+}
+
 const syncEngine = new SyncEngine({
-  createProvider: (workspacePath, _config) => new GitSyncProvider(workspacePath),
+  createProvider: (workspacePath, config) => {
+    if (config.provider === 'webdav') {
+      return new WebdavSyncProvider(
+        workspacePath,
+        config,
+        createWebdavClient({
+          url: config.url!,
+          username: config.username!,
+          // 口令只从本机加密凭据库读取，明文不落盘
+          password: createCredentialStore(workspacePath, cryptoBackend).load() ?? ''
+        })
+      )
+    }
+    return new GitSyncProvider(workspacePath)
+  },
   createWatcher: (workspacePath, onChanges) => createWorkspaceWatcher(workspacePath, onChanges),
   runGit: async (args, cwd) => {
     const { runGit } = await import('./sync/git-provider')
     return runGit(args, cwd)
-  }
+  },
+  crypto: cryptoBackend
 })
 
 function flushOpenTargets(): void {

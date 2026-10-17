@@ -14,7 +14,7 @@ import type {
   ConversationRecord,
   ToolExecutionResult
 } from '../shared/ai/types'
-import type { EnableSyncOptions, SyncConfig, SyncResult, SyncStatusView } from './sync/types'
+import type { ConflictChoice, EnableSyncOptions, SyncConfig, SyncResult, SyncStatusView } from './sync/types'
 
 export type { UpdateInfoPayload }
 
@@ -202,6 +202,7 @@ export interface ElectronAPI {
   syncPush: () => Promise<{ success: boolean; data?: SyncResult; error?: string }>
   syncContinueRebase: () => Promise<{ success: boolean; data?: SyncResult; error?: string }>
   syncAbortRebase: () => Promise<{ success: boolean; data?: SyncResult; error?: string }>
+  syncResolveConflicts: (choices: ConflictChoice[]) => Promise<{ success: boolean; data?: SyncResult; error?: string }>
   enableSync: (workspacePath: string, options: EnableSyncOptions) => Promise<{ success: boolean; data?: SyncResult; error?: string }>
   disableSync: () => Promise<{ success: boolean; error?: string }>
   getSyncConfig: () => Promise<{ success: boolean; data?: SyncConfig | null; error?: string }>
@@ -357,6 +358,7 @@ const api: ElectronAPI = {
   syncPush: () => ipcRenderer.invoke(IPC_CHANNELS.SYNC.PUSH),
   syncContinueRebase: () => ipcRenderer.invoke(IPC_CHANNELS.SYNC.CONTINUE_REBASE),
   syncAbortRebase: () => ipcRenderer.invoke(IPC_CHANNELS.SYNC.ABORT_REBASE),
+  syncResolveConflicts: (choices) => ipcRenderer.invoke(IPC_CHANNELS.SYNC.RESOLVE_CONFLICTS, choices),
   enableSync: (workspacePath, options) => ipcRenderer.invoke(IPC_CHANNELS.SYNC.ENABLE, workspacePath, options),
   disableSync: () => ipcRenderer.invoke(IPC_CHANNELS.SYNC.DISABLE),
   getSyncConfig: () => ipcRenderer.invoke(IPC_CHANNELS.SYNC.CONFIG.GET),

@@ -4,7 +4,10 @@ import vue from '@vitejs/plugin-vue'
 
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin()],
+    // `webdav` 是 ESM-only（`"type": "module"`，exports 无 `require` 条件）。
+    // 若外置，main.cjs 会 `require("webdav")`，在 Electron 内置 Node 20 上直接 ERR_REQUIRE_ESM。
+    // 因此排除它，让 rollup 把 ESM 打成 CJS 内联进产物。
+    plugins: [externalizeDepsPlugin({ exclude: ['webdav'] })],
     build: {
       outDir: 'out/main',
       rollupOptions: {
