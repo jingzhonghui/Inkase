@@ -39,6 +39,7 @@ function handleRecall(messageId: string): void {
       <AiMessageList
         :messages="store.messages"
         :tool-calls="store.toolCalls"
+        :approvals="store.approvalHistory"
         :running="store.running"
         @recall="handleRecall"
       />
@@ -63,6 +64,6 @@ function handleRecall(messageId: string): void {
 </template>
 
 <style scoped>
-.ai-panel { display: flex; flex: 1; min-width: 0; min-height: 0; background: var(--color-bg-primary); color: var(--color-text); }.workbench { display: flex; width: 100%; flex: 1; min-width: 0; min-height: 0; flex-direction: column; }.panel-header { display: flex; align-items: center; justify-content: space-between; min-height: 46px; padding: 0 16px; border-bottom: 1px solid var(--color-border); }.panel-header div { display: flex; align-items: center; gap: 9px; }.panel-header strong { font-size: var(--ui-font-size); }.panel-header span { color: var(--color-text-tertiary); font-size: calc(var(--ui-font-size) - 3px); }.panel-header span.ready { color: var(--color-primary); }.panel-header button { padding: 5px 8px; border: 0; border-radius: 4px; background: transparent; color: var(--color-text-secondary); cursor: pointer; }.panel-header button:hover:not(:disabled) { background: var(--color-bg-secondary); }.panel-header button:disabled { cursor: not-allowed; opacity: .45; }.composer-wrap { padding: 8px clamp(18px, 5vw, 64px) 18px; }.error { margin: 0 18px 5px; color: var(--color-error, #ef4444); font-size: calc(var(--ui-font-size) - 1px); }
+.ai-panel { display: flex; flex: 1; min-width: 0; min-height: 0; background: var(--color-bg-primary); color: var(--color-text); }.workbench { display: flex; width: 100%; flex: 1; min-width: 0; min-height: 0; flex-direction: column; }.panel-header { display: flex; align-items: center; justify-content: space-between; min-height: 46px; padding: 0 16px; border-bottom: 1px solid var(--color-border); }.panel-header div { display: flex; align-items: center; gap: 9px; }.panel-header strong { font-size: var(--ui-font-size); }.panel-header span { color: var(--color-text-tertiary); font-size: calc(var(--ui-font-size) - 3px); }.panel-header span.ready { color: var(--color-primary); }.panel-header button { padding: 5px 8px; border: 0; border-radius: 4px; background: transparent; color: var(--color-text-secondary); cursor: pointer; }.panel-header button:hover:not(:disabled) { background: var(--color-bg-secondary); }.panel-header button:disabled { cursor: not-allowed; opacity: .45; }.composer-wrap { padding: 8px clamp(18px, 5vw, 64px) 18px; }.error { max-width: 780px; margin: 0 auto 5px; padding: 0 clamp(18px, 5vw, 64px); color: var(--color-error, #ef4444); font-size: calc(var(--ui-font-size) - 1px); }
 @media (max-width: 760px) { .composer-wrap { padding: 8px 12px 12px; } }
 </style>

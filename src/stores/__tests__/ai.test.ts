@@ -1044,4 +1044,237 @@ describe('ai store', () => {
       expect(useFileStore().fileContent).toBe('visible content')
     })
   })
+
+  describe('approval records in the conversation', () => {
+    /** 起一个已产生工具调用、正等待审批的运行 */
+    function raiseApproval(store: ReturnType<typeof useAiStore>, approval = makeApproval({ id: 'a1', runId: 'r1' })): void {
+      store.init()
+      emit({ type: 'run-started', runId: 'r1' })
+      emit({ type: 'tool-call-started', runId: 'r1', toolCallId: 'tc1', toolName: 'edit_document' })
+      emit({ type: 'approval-required', runId: 'r1', approval })
+    }
+
+    /**
+     * 主进程的真实顺序：工具先执行、后上报 tool-call，
+     * 所以审批事件比 tool-call-started 先到（e2e E4 有断言）。
+     * 这条路径必须照样能把审批挂到消息上，否则卡片会掉到会话末尾。
+     */
+    function raiseApprovalBeforeToolCall(store: ReturnType<typeof useAiStore>): void {
+      store.init()
+      emit({ type: 'run-started', runId: 'r1' })
+      emit({ type: 'text-delta', runId: 'r1', text: '我先读一下当前文档。' })
+      emit({ type: 'approval-required', runId: 'r1', approval: makeApproval({ id: 'a1', runId: 'r1' }) })
+      emit({ type: 'tool-call-started', runId: 'r1', toolCallId: 'tc1', toolName: 'edit_document' })
+    }
+
+    it('records the request as soon as it is raised, attached to its assistant message', () => {
+      const store = useAiStore()
+      raiseApproval(store)
+
+      expect(store.approvalHistory).toHaveLength(1)
+      expect(store.approvalHistory[0]).toMatchObject({
+        id: 'a1',
+        toolName: 'edit_document',
+        title: '编辑文档',
+        effect: 'write',
+        riskLevel: 'medium',
+        messageId: store.messages[0].id
+      })
+      expect(store.approvalHistory[0].decision).toBeUndefined()
+    })
+
+    it('attaches the request even when it arrives before tool-call-started', () => {
+      const store = useAiStore()
+      raiseApprovalBeforeToolCall(store)
+
+      // 审批和随后的工具调用落在同一条助手消息上
+      expect(store.approvalHistory).toHaveLength(1)
+      expect(store.approvalHistory[0].messageId).toBe(store.messages[0].id)
+      expect(store.toolCalls[0].messageId).toBe(store.messages[0].id)
+    })
+
+    it('creates the owning message when an approval is the very first event', () => {
+      const store = useAiStore()
+      store.init()
+      emit({ type: 'run-started', runId: 'r1' })
+      emit({ type: 'approval-required', runId: 'r1', approval: makeApproval({ id: 'a1', runId: 'r1' }) })
+
+      expect(store.messages).toHaveLength(1)
+      expect(store.messages[0].role).toBe('assistant')
+      expect(store.approvalHistory[0].messageId).toBe(store.messages[0].id)
+    })
+
+    it('keeps the record and its verdict after the run ends', async () => {
+      const store = useAiStore()
+      raiseApproval(store)
+      electronApi.resolveAiApproval.mockResolvedValue({ success: true })
+
+      await store.resolveApproval('a1', { status: 'approved', scope: 'once' })
+      emit({ type: 'run-completed', runId: 'r1' })
+
+      expect(store.pendingApprovals).toEqual([])
+      expect(store.approvalHistory).toHaveLength(1)
+      expect(store.approvalHistory[0].decision).toEqual({ status: 'approved', scope: 'once' })
+      expect(store.approvalHistory[0].decidedAt).toBeTypeOf('number')
+    })
+
+    it('records a rejection with its reason', async () => {
+      const store = useAiStore()
+      raiseApproval(store)
+      electronApi.resolveAiApproval.mockResolvedValue({ success: true })
+
+      await store.resolveApproval('a1', { status: 'rejected', reason: '不需要' })
+      emit({ type: 'run-completed', runId: 'r1' })
+
+      expect(store.approvalHistory[0].decision).toEqual({ status: 'rejected', reason: '不需要' })
+    })
+
+    it('records the execution outcome for an approved renderer operation', async () => {
+      const fileStore = useFileStore()
+      fileStore.createGeneratedDocument('标题', 'old', 'markdown')
+      const snap = createExecutionSnapshot(fileStore)
+      const store = useAiStore()
+      raiseApproval(store, makeApproval({
+        id: 'a1',
+        runId: 'r1',
+        execution: {
+          location: 'renderer',
+          operation: { type: 'replace-document', target: snap.activeDocument!, content: 'new', reason: '' }
+        }
+      }))
+      electronApi.resolveAiApproval.mockResolvedValue({ success: true })
+
+      await store.resolveApproval('a1', { status: 'approved', scope: 'once' })
+
+      expect(store.approvalHistory[0].outcome).toBe('applied')
+    })
+
+    it('marks approvals still pending when the run ends as cancelled instead of dropping them', () => {
+      const store = useAiStore()
+      raiseApproval(store)
+
+      emit({ type: 'run-cancelled', runId: 'r1' })
+
+      expect(store.pendingApprovals).toEqual([])
+      expect(store.approvalHistory).toHaveLength(1)
+      expect(store.approvalHistory[0].decision).toEqual({ status: 'cancelled' })
+    })
+
+    it('persists approvals with the conversation and restores them on reload', async () => {
+      const store = useAiStore()
+      store.activeConversationId = 'conv_1'
+      raiseApproval(store)
+      electronApi.resolveAiApproval.mockResolvedValue({ success: true })
+      await store.resolveApproval('a1', { status: 'rejected', reason: 'no' })
+      emit({ type: 'run-completed', runId: 'r1' })
+
+      store.persistConversation()
+      await vi.waitFor(() => expect(electronApi.saveAiConversation).toHaveBeenCalled())
+      const saved = electronApi.saveAiConversation.mock.calls[0][1]
+      expect(saved.approvals).toHaveLength(1)
+      expect(saved.approvals[0].decision).toEqual({ status: 'rejected', reason: 'no' })
+
+      electronApi.listAiConversations.mockResolvedValueOnce({
+        success: true,
+        data: [{ id: 'conv_1', title: 't', createdAt: 1, updatedAt: 2, messageCount: 1 }]
+      })
+      electronApi.loadAiConversation.mockResolvedValueOnce({ success: true, data: saved })
+      vi.stubGlobal('localStorage', {
+        getItem: vi.fn(() => JSON.stringify({ aiActiveConversationId: 'conv_1' })),
+        setItem: vi.fn(),
+        removeItem: vi.fn()
+      })
+
+      await store.loadConversations(null)
+
+      expect(store.approvalHistory).toHaveLength(1)
+      expect(store.approvalHistory[0]).toMatchObject({ title: '编辑文档', toolName: 'edit_document' })
+      expect(store.approvalHistory[0].decision).toEqual({ status: 'rejected', reason: 'no' })
+    })
+
+    it('tolerates conversation files written before approvals were recorded', async () => {
+      const store = useAiStore()
+      store.activeConversationId = 'conv_1'
+      store.approvalHistory.push({
+        ...makeApproval({ id: 'a1' }),
+        decision: { status: 'approved', scope: 'once' }
+      } as never)
+      electronApi.listAiConversations.mockResolvedValueOnce({
+        success: true,
+        data: [{ id: 'conv_2', title: '旧会话', createdAt: 1, updatedAt: 2, messageCount: 0 }]
+      })
+      electronApi.loadAiConversation.mockResolvedValueOnce({
+        success: true,
+        data: {
+          version: 1, id: 'conv_2', title: '旧会话', createdAt: 1, updatedAt: 2,
+          messageCount: 0, messages: [], toolSummaries: []
+        }
+      })
+      vi.stubGlobal('localStorage', {
+        getItem: vi.fn(() => JSON.stringify({ aiActiveConversationId: 'conv_2' })),
+        setItem: vi.fn(),
+        removeItem: vi.fn()
+      })
+
+      await store.loadConversations(null)
+
+      expect(store.approvalHistory).toEqual([])
+    })
+
+    it('reattaches an approval saved without an owning message', async () => {
+      const store = useAiStore()
+      electronApi.listAiConversations.mockResolvedValueOnce({
+        success: true,
+        data: [{ id: 'conv_2', title: '旧会话', createdAt: 1, updatedAt: 2, messageCount: 1 }]
+      })
+      electronApi.loadAiConversation.mockResolvedValueOnce({
+        success: true,
+        data: {
+          version: 1, id: 'conv_2', title: '旧会话', createdAt: 1, updatedAt: 2,
+          messageCount: 1,
+          messages: [{ id: 'msg_1', role: 'assistant', content: '读完了。' }],
+          toolSummaries: [{ toolCallId: 'tc1', toolName: 'edit_document', status: 'completed', messageId: 'msg_1' }],
+          // 早期版本没记下 messageId，直接落盘的就是这种记录
+          approvals: [{
+            ...makeApproval({ id: 'a1' }),
+            decision: { status: 'approved', scope: 'once' }
+          }]
+        }
+      })
+      vi.stubGlobal('localStorage', {
+        getItem: vi.fn(() => JSON.stringify({ aiActiveConversationId: 'conv_2' })),
+        setItem: vi.fn(),
+        removeItem: vi.fn()
+      })
+
+      await store.loadConversations(null)
+
+      // 靠 toolCallId 从工具调用摘要里补回归属，卡片才不会掉到会话末尾
+      expect(store.approvalHistory).toHaveLength(1)
+      expect(store.approvalHistory[0].messageId).toBe('msg_1')
+    })
+
+    it('clears approval records when starting a new conversation', () => {
+      const store = useAiStore()
+      raiseApproval(store)
+
+      store.newConversation()
+
+      expect(store.approvalHistory).toEqual([])
+    })
+
+    it('drops approval records that belong to recalled messages', () => {
+      const store = useAiStore()
+      store.messages.push({ id: 'msg_1', role: 'user', content: 'hi' })
+      store.messages.push({ id: 'msg_2', role: 'assistant', content: 'ok' })
+      store.approvalHistory.push({
+        ...makeApproval({ id: 'a1' }),
+        messageId: 'msg_2',
+        decision: { status: 'approved', scope: 'once' }
+      } as never)
+
+      expect(store.recallMessage('msg_1')).toBe('hi')
+      expect(store.approvalHistory).toEqual([])
+    })
+  })
 })

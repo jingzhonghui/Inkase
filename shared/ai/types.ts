@@ -235,6 +235,34 @@ export interface ConversationToolSummary {
   messageId?: string
 }
 
+/**
+ * 会话内的审批记录：一次「请求批准」及其判定结果。
+ *
+ * 与 ToolApprovalRequest 的区别是不含 execution —— 那是主进程/渲染进程之间
+ * 传递待执行操作的载体，落盘时既无用也过大；会话里需要留存的只是
+ * 「当时问了什么、预览长什么样、用户怎么答的」。
+ */
+export interface ConversationApprovalRecord {
+  id: string
+  runId: string
+  toolCallId: string
+  toolName: string
+  title: string
+  description: string
+  reason?: string
+  effect: ToolPolicy['effect']
+  riskLevel: ToolPolicy['riskLevel']
+  preview: ApprovalPreview
+  createdAt: number
+  /** 未判定时缺省，表示仍在等待用户操作 */
+  decision?: ApprovalDecision
+  decidedAt?: number
+  /** 渲染进程执行结果的状态（applied / conflict / failed），仅写入类操作有 */
+  outcome?: ToolExecutionResult['status']
+  /** 承载该工具调用的助手消息 id，用于在会话流中定位卡片 */
+  messageId?: string
+}
+
 export interface ConversationMeta {
   id: string
   title: string
@@ -247,6 +275,8 @@ export interface ConversationRecord extends ConversationMeta {
   version: 1
   messages: AiConversationMessage[]
   toolSummaries: ConversationToolSummary[]
+  /** 旧会话文件没有这一项，读取时按空数组兜底 */
+  approvals?: ConversationApprovalRecord[]
 }
 
 export type SearchTruncationReason =

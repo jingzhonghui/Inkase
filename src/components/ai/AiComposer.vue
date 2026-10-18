@@ -62,7 +62,8 @@ defineExpose({ setText })
 </template>
 
 <style scoped>
-.composer { display: flex; align-items: flex-end; gap: 10px; padding: 12px; border: 1px solid var(--color-border); border-radius: 10px; background: var(--color-bg-primary); box-shadow: 0 8px 24px rgb(0 0 0 / 8%); }
+/* 与消息列同宽居中，否则输入框和上方的会话对不齐 */
+.composer { display: flex; align-items: flex-end; gap: 10px; max-width: 780px; margin: 0 auto; padding: 12px; border: 1px solid var(--color-border); border-radius: 10px; background: var(--color-bg-primary); box-shadow: 0 8px 24px rgb(0 0 0 / 8%); }
 textarea { flex: 1; min-height: 42px; resize: none; border: 0; outline: none; background: transparent; color: var(--color-text); font: inherit; line-height: 1.5; }
 button { min-width: 62px; padding: 8px 13px; border: 0; border-radius: 6px; background: var(--color-primary); color: white; cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .45; }.stop { background: var(--color-text-secondary); }

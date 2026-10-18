@@ -5,6 +5,7 @@ import type {
   AiRunEvent,
   AiRunInput,
   ApprovalDecision,
+  ConversationApprovalRecord,
   ConversationMeta,
   ConversationRecord,
   ToolApprovalRequest,
@@ -48,6 +49,13 @@ export const useAiStore = defineStore('ai', () => {
   const activeRunId = ref<string | null>(null)
   const running = ref(false)
   const pendingApprovals = ref<ToolApprovalRequest[]>([])
+  /**
+   * 会话内出现过的全部审批（含仍在等待的）。
+   *
+   * pendingApprovals 只服务于「还需要用户点一下」的判断；一旦判定就被移出，
+   * 于是会话里再也看不到「当时问了什么」。这份记录是给人看的，会随会话落盘。
+   */
+  const approvalHistory = ref<ConversationApprovalRecord[]>([])
   const conversations = ref<ConversationMeta[]>([])
   const activeConversationId = ref<string | null>(null)
   const storageRoot = ref<string | null>(null)
@@ -75,6 +83,8 @@ export const useAiStore = defineStore('ai', () => {
     promise: Promise<void> | null
   }
   const approvalResolutions = new Map<string, ApprovalResolutionState>()
+  /** 审批 → 承载它的助手消息 id（ToolApprovalRequest 由主进程构造，不含此信息） */
+  const approvalMessageIds = new Map<string, string>()
 
   function nextId(prefix: string): string {
     idCounter += 1
@@ -130,17 +140,67 @@ export const useAiStore = defineStore('ai', () => {
     lastToolCallContentLength = -1
   }
 
+  function toApprovalRecord(
+    request: ToolApprovalRequest,
+    messageId?: string
+  ): ConversationApprovalRecord {
+    return {
+      id: request.id,
+      runId: request.runId,
+      toolCallId: request.toolCallId,
+      toolName: request.toolName,
+      title: request.title,
+      description: request.description,
+      reason: request.reason,
+      effect: request.effect,
+      riskLevel: request.riskLevel,
+      preview: JSON.parse(JSON.stringify(request.preview)),
+      createdAt: request.createdAt,
+      messageId
+    }
+  }
+
+  /**
+   * 写入一次审批的判定结果。
+   *
+   * 审批解析带重试与去重，这里必须幂等：同一 id 重复调用只覆盖判定，不再插入一条。
+   */
+  function settleApprovalRecord(
+    request: ToolApprovalRequest,
+    decision: ApprovalDecision,
+    outcome?: ToolExecutionResult['status']
+  ): void {
+    const index = approvalHistory.value.findIndex((record) => record.id === request.id)
+    const base = index === -1
+      ? toApprovalRecord(request, approvalMessageIds.get(request.id))
+      : approvalHistory.value[index]
+    const next: ConversationApprovalRecord = {
+      ...base,
+      decision: { ...decision },
+      decidedAt: Date.now()
+    }
+    if (outcome) next.outcome = outcome
+    if (index === -1) approvalHistory.value.push(next)
+    else approvalHistory.value[index] = next
+    approvalMessageIds.delete(request.id)
+  }
+
   function discardApprovalsForRun(runId: string): void {
-    const discardedIds = pendingApprovals.value
-      .filter((approval) => approval.runId === runId)
-      .map((approval) => approval.id)
+    const discarded = pendingApprovals.value.filter((approval) => approval.runId === runId)
     pendingApprovals.value = pendingApprovals.value.filter((approval) => approval.runId !== runId)
-    for (const id of discardedIds) approvalResolutions.delete(id)
+    for (const approval of discarded) {
+      approvalResolutions.delete(approval.id)
+      // 运行已经结束，这些审批不会再有结果；但会话里要留下「曾请求过、被取消」
+      settleApprovalRecord(approval, { status: 'cancelled' })
+    }
   }
 
   function discardAllApprovals(): void {
     pendingApprovals.value = []
     approvalResolutions.clear()
+    // 换会话或撤回消息导致的丢弃：这些审批不是「有结论」，不该留在会话里
+    approvalHistory.value = approvalHistory.value.filter((record) => record.decision !== undefined)
+    approvalMessageIds.clear()
   }
 
   // ===== 标签页生命周期 =====
@@ -227,7 +287,8 @@ export const useAiStore = defineStore('ai', () => {
         toolName: c.toolName,
         status: c.status,
         messageId: c.messageId
-      }))
+      })),
+      approvals: JSON.parse(JSON.stringify(approvalHistory.value))
     }
   }
 
@@ -268,6 +329,7 @@ export const useAiStore = defineStore('ai', () => {
     titleSource.value = 'truncated'
     messages.value = []
     toolCalls.value = []
+    approvalHistory.value = []
     discardAllApprovals()
     idCounter = 0
   }
@@ -305,6 +367,13 @@ export const useAiStore = defineStore('ai', () => {
         }
       })
       discardAllApprovals()
+      // 早期版本没能记下审批归属的消息（那时审批比 tool-call 先到，反查不到），
+      // 靠 toolCallId 从工具调用摘要里补回来，否则这些卡片会掉到会话末尾。
+      approvalHistory.value = (record.approvals ?? []).map((approval) => {
+        if (approval.messageId) return { ...approval }
+        const owner = toolCalls.value.find((call) => call.toolCallId === approval.toolCallId)
+        return { ...approval, messageId: owner?.messageId }
+      })
       useFileStore().persistSession()
     } catch (err) {
       error.value = err instanceof Error ? err.message : '加载会话失败'
@@ -451,9 +520,18 @@ export const useAiStore = defineStore('ai', () => {
         }
         break
       }
-      case 'approval-required':
+      case 'approval-required': {
+        // 不能靠工具调用反查归属消息：主进程是先执行工具、后上报 tool-call，
+        // 审批事件比 tool-call-started 先到（见 electron/ai/__tests__/e2e.test.ts E4）。
+        // 审批一定属于当前正在流式输出的这条助手消息，直接挂上去。
+        const message = ensureStreamingAssistantMessage()
+        approvalMessageIds.set(event.approval.id, message.id)
         pendingApprovals.value.push(event.approval)
+        // 立刻写进会话记录，卡片从「等待批准」就地变成「已允许/已拒绝」
+        approvalHistory.value.push(toApprovalRecord(event.approval, message.id))
+        persistConversation()
         break
+      }
       case 'run-completed':
         if (startRequestPending) terminalRunsDuringStart.add(event.runId)
         running.value = false
@@ -581,6 +659,9 @@ export const useAiStore = defineStore('ai', () => {
     const removedIds = new Set(messages.value.slice(index).map((m) => m.id))
     messages.value = messages.value.slice(0, index)
     toolCalls.value = toolCalls.value.filter((c) => !c.messageId || !removedIds.has(c.messageId))
+    approvalHistory.value = approvalHistory.value.filter(
+      (record) => !record.messageId || !removedIds.has(record.messageId)
+    )
     discardAllApprovals()
     syncIdCounterFromMessages()
     persistConversation()
@@ -605,6 +686,8 @@ export const useAiStore = defineStore('ai', () => {
           return
         }
         pendingApprovals.value = pendingApprovals.value.filter((item) => item.id !== approvalId)
+        settleApprovalRecord(approval, { status: 'expired' })
+        persistConversation()
       } catch (err) {
         error.value = err instanceof Error ? err.message : '提交审批结果失败'
       }
@@ -662,6 +745,8 @@ export const useAiStore = defineStore('ai', () => {
       if (approvalResolutions.get(approvalId) !== resolutionState) return
       approvalResolutions.delete(approvalId)
       pendingApprovals.value = pendingApprovals.value.filter((item) => item.id !== approvalId)
+      settleApprovalRecord(approval, resolutionState.decision, resolutionState.result?.status)
+      persistConversation()
     }
 
     resolutionState.promise = resolution().finally(() => {
@@ -679,6 +764,7 @@ export const useAiStore = defineStore('ai', () => {
     activeRunId,
     running,
     pendingApprovals,
+    approvalHistory,
     conversations,
     activeConversationId,
     storageRoot,

@@ -16,7 +16,6 @@ import PdfBatchProgressDialog from './components/export/PdfBatchProgressDialog.v
 import UpdateDialog from './components/update/UpdateDialog.vue'
 import FileDropOverlay from './components/common/FileDropOverlay.vue'
 import AiSettingsDialog from './components/ai/AiSettingsDialog.vue'
-import AiApprovalDialog from './components/ai/AiApprovalDialog.vue'
 
 const themeStore = useThemeStore()
 const fileStore = useFileStore()
@@ -137,7 +136,6 @@ onUnmounted(() => {
       @close="aiSettingsOpen = false"
       @readiness="aiReady = $event"
     />
-    <AiApprovalDialog />
   </div>
 </template>
 

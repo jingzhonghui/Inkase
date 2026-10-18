@@ -50,7 +50,7 @@ describe('App AI ownership', () => {
     const dispose = vi.spyOn(aiStore, 'dispose')
     const wrapper = mount(App, { global: { stubs: {
       AppHeader: true, SideBar: true, StatusBar: true, ConfirmDialog: true,
-      PdfExportView: true, PdfBatchProgressDialog: true, AiApprovalDialog: true,
+      PdfExportView: true, PdfBatchProgressDialog: true,
       EditorPanel: { props: ['aiReady'], template: '<div data-testid="editor-panel" :data-ready="aiReady" />' },
       AiSettingsDialog: {
         props: ['open'], emits: ['close', 'readiness'],
@@ -71,7 +71,7 @@ describe('App AI ownership', () => {
     vi.spyOn(useFileStore(), 'init').mockResolvedValue()
     const wrapper = mount(App, { global: { stubs: {
       AppHeader: true, SideBar: true, StatusBar: true, ConfirmDialog: true,
-      PdfExportView: true, PdfBatchProgressDialog: true, AiApprovalDialog: true,
+      PdfExportView: true, PdfBatchProgressDialog: true,
       EditorPanel: { props: ['aiReady'], template: '<div data-testid="editor-panel" :data-ready="aiReady" />' },
       AiSettingsDialog: true
     } } })
@@ -96,7 +96,7 @@ describe('App AI ownership', () => {
     vi.spyOn(useFileStore(), 'init').mockResolvedValue()
     const wrapper = mount(App, { global: { stubs: {
       AppHeader: true, SideBar: true, StatusBar: true, ConfirmDialog: true,
-      PdfExportView: true, PdfBatchProgressDialog: true, AiApprovalDialog: true,
+      PdfExportView: true, PdfBatchProgressDialog: true,
       teleport: true,
       EditorPanel: {
         props: ['aiReady'], emits: ['openAiSettings'],

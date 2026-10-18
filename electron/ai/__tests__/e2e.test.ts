@@ -1,4 +1,4 @@
-﻿import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { randomUUID } from 'crypto'
 import { MockOpenAiServer } from './mock-openai-server'
 import { VercelAiSdkProvider } from '../provider'
@@ -244,6 +244,18 @@ describe('AI 主进程端到端链路（真实 HTTP + 真实 Provider + Runtime 
       after: '# New content'
     })
     expect(approval.execution).toMatchObject({ location: 'renderer' })
+
+    // 顺序有点反直觉，但是真的：工具是先执行、后上报 tool-call，
+    // 所以 approval-required 比 tool-call-started 先到。
+    // 渲染进程因此不能靠「反查工具调用」来确定审批属于哪条消息——它查不到。
+    const startedIndex = events.findIndex(
+      (e) => e.type === 'tool-call-started' && e.toolCallId === approval.toolCallId
+    )
+    const approvalIndex = events.findIndex(
+      (e) => e.type === 'approval-required' && e.approval.id === approval.id
+    )
+    expect(approvalIndex).toBeGreaterThanOrEqual(0)
+    expect(approvalIndex).toBeLessThan(startedIndex)
 
     runtime.claimApproval(approval.id)
     runtime.resolveApproval(

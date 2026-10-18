@@ -1,0 +1,261 @@
+/* ══════════════════════════════════════════════════════════════════════
+   panels.css — 三块常驻面板：PDF 与图片 / AI 助手 / Git 同步
+   三块共用同一套"面板外壳"（顶栏 + 主体 + 脚注），内部各自还原真实界面
+   ══════════════════════════════════════════════════════════════════════ */
+
+.pdf, .ai, .sync {
+  margin-top: 30px;
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+  background: var(--surface-1);
+  overflow: hidden;
+}
+
+/* ── 共用顶栏 ───────────────────────────────────────────────────────── */
+.pdf__bar, .ai__bar, .sync__bar {
+  display: flex; align-items: center; gap: 10px;
+  min-height: var(--h-tool);
+  padding: 0 12px;
+  border-bottom: 1px solid var(--edge);
+  background: var(--surface-3);
+  font-size: 12.5px;
+  color: var(--ink-bar);
+}
+.pdf__spring, .ai__spring, .sync__spring { flex: 1 1 auto; }
+.pdf__name, .ai__title, .sync__title {
+  display: flex; align-items: center; gap: 7px;
+  color: var(--ink); font-weight: 500;
+}
+.pdf__name svg, .ai__title svg, .sync__title svg { width: 15px; height: 15px; flex-shrink: 0; }
+
+/* ── PDF 与图片 ─────────────────────────────────────────────────────── */
+.pdf__tool {
+  width: 18px; text-align: center;
+  color: var(--ink-bar); font-size: 14px; user-select: none;
+}
+.pdf__zoom, .pdf__count { font-family: var(--font-mono); font-size: 11.5px; }
+.pdf__count b { color: var(--ink); font-weight: 600; }
+.pdf__invert {
+  display: flex; align-items: center; gap: 5px;
+  margin-left: 4px; padding: 3px 9px;
+  border: 1px solid var(--edge-hi); border-radius: 5px;
+  color: var(--ink-bar); font-size: 11.5px;
+  transition: color .18s, border-color .18s;
+}
+.pdf__invert svg { width: 13px; height: 13px; }
+.pdf__invert[aria-pressed="true"] { color: var(--signal-hi); border-color: var(--signal-hi); }
+
+.pdf__stage {
+  display: flex; justify-content: center;
+  padding: 24px;
+  background: var(--surface-2);
+}
+.pdf__sheet {
+  width: 100%; max-width: 440px;
+  padding: 30px 34px;
+  background: #f8f7f4;
+  border-radius: 3px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, .45);
+  color: #1b1a18;
+  transition: filter .28s var(--ease);
+}
+/* 深色模式反色：这正是应用里的真实做法 */
+.pdf.is-inverted .pdf__sheet { filter: invert(.9) hue-rotate(180deg); }
+.pdf__h {
+  margin: 0 0 13px;
+  font-family: var(--font-doc); font-size: 17px; font-weight: 700;
+}
+.pdf__t {
+  margin: 0 0 11px;
+  font-family: var(--font-doc); font-size: 13px; line-height: 1.85;
+  color: #35322e;
+}
+.pdf__fig {
+  display: block; height: 74px; margin: 15px 0;
+  border-radius: 3px; background: #dedbd3;
+}
+.pdf__note {
+  padding: 11px 14px;
+  border-top: 1px solid var(--edge);
+  font-size: 12px; color: var(--ink-3);
+}
+.pdf__note code { font-family: var(--font-mono); color: var(--ink-2); }
+
+/* ── AI 助手 ────────────────────────────────────────────────────────── */
+.ai__model { font-family: var(--font-mono); font-size: 11px; color: var(--ink-bar); }
+.ai__log {
+  display: flex; flex-direction: column; gap: 11px;
+  padding: 18px;
+}
+.msg {
+  max-width: 86%;
+  padding: 9px 13px;
+  border-radius: 9px;
+  font-size: 13px; line-height: 1.72;
+}
+.msg p { margin: 0; }
+.msg--me {
+  align-self: flex-end;
+  background: var(--signal-deep); color: var(--on-deep);
+  border-bottom-right-radius: 3px;
+}
+.msg--ai {
+  align-self: flex-start;
+  border: 1px solid var(--edge);
+  background: var(--surface-2); color: var(--ink);
+  border-bottom-left-radius: 3px;
+}
+
+/* 工具调用卡片——AI 的每一次动手都要先过这一关 */
+.tool {
+  margin-top: 10px; padding: 11px 13px;
+  border: 1px solid var(--edge-hi); border-radius: 7px;
+  background: var(--surface-1);
+  transition: opacity .2s, border-color .2s;
+}
+.tool__head { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--ink); }
+.tool__head svg { width: 14px; height: 14px; flex-shrink: 0; color: var(--signal); }
+.tool__head code { font-family: var(--font-mono); font-size: 11.5px; color: var(--ink-2); }
+.tool__meta { margin: 5px 0 10px; font-size: 11px; color: var(--ink-3); }
+.tool__acts { display: flex; align-items: center; gap: 7px; }
+.tool__btn {
+  padding: 3px 11px;
+  border: 1px solid var(--edge-hi); border-radius: 5px;
+  color: var(--ink-2); font-size: 11.5px;
+  transition: color .16s, border-color .16s, background .16s;
+}
+.tool__btn--ok { color: var(--source); border-color: rgba(52, 211, 153, .5); }
+.tool__state { margin-left: auto; font-size: 11px; color: var(--ink-3); }
+.tool.is-allowed .tool__state { color: var(--source); }
+.tool.is-denied .tool__state { color: var(--warning); }
+.tool.is-denied { opacity: .7; }
+
+.ai__input {
+  display: flex; align-items: center; justify-content: space-between;
+  margin: 0 18px; padding: 9px 13px;
+  border: 1px solid var(--edge-hi); border-radius: 8px;
+  font-size: 12.5px; color: var(--ink-3);
+}
+.ai__input b { color: var(--signal); font-weight: 500; }
+.ai__note { padding: 12px 18px 16px; font-size: 11.5px; color: var(--ink-3); }
+
+/* ── 同步（Git / WebDAV 双后端）───────────────────────────────────────── */
+.sync__prov {
+  display: flex; gap: 2px;
+  padding: 2px;
+  border-radius: 6px;
+  background: var(--surface-2);
+}
+.sync__ptab {
+  display: flex; align-items: center; gap: 5px;
+  padding: 3px 10px;
+  border-radius: 4px;
+  font-size: 11.5px;
+  color: var(--ink-bar);
+  transition: background .16s, color .16s;
+}
+.sync__ptab svg { width: 12px; height: 12px; }
+.sync__ptab.is-active { background: var(--surface-1); color: var(--ink); }
+
+.sync__pane { display: block; }
+.sync__repo { font-family: var(--font-mono); font-size: 11.5px; color: var(--ink); }
+.sync__k { width: 58px; flex-shrink: 0; color: var(--ink-3); }
+.sync__v {
+  font-family: var(--font-mono); font-size: 11.5px;
+  color: var(--ink-2); overflow-wrap: anywhere;
+}
+.sync__v--pw { letter-spacing: 1.5px; }
+.sync__eye {
+  margin-left: auto; padding: 2px 9px;
+  border: 1px solid var(--edge-hi); border-radius: 4px;
+  font-size: 11px; color: var(--ink-bar);
+  transition: color .16s, border-color .16s;
+}
+.sync__eye[aria-pressed="true"] { color: var(--signal-hi); border-color: var(--signal-hi); }
+
+.sync__row {
+  display: flex; align-items: center; gap: 9px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--edge);
+  font-size: 12.5px;
+}
+.sync__branch {
+  padding: 2px 8px; border-radius: 4px;
+  background: var(--surface-2); color: var(--ink-2);
+  font-family: var(--font-mono); font-size: 11.5px;
+}
+.sync__dot { width: 6px; height: 6px; border-radius: 50%; background: var(--success); flex-shrink: 0; }
+.sync__state { color: var(--ink); }
+.sync__ago { margin-left: auto; font-size: 11.5px; color: var(--ink-3); }
+.sync__acts { display: flex; align-items: center; gap: 8px; padding: 14px 16px; }
+.sync__btn {
+  padding: 6px 14px;
+  border: 1px solid var(--edge-hi); border-radius: 6px;
+  color: var(--ink-2); font-size: 12.5px;
+  transition: color .16s, border-color .16s;
+}
+.sync__btn--main { color: var(--ink); border-color: var(--signal); }
+.sync__auto {
+  display: flex; align-items: center; gap: 6px;
+  margin-left: auto; font-size: 12px; color: var(--ink-2);
+}
+.sync__box {
+  position: relative; width: 13px; height: 13px; flex-shrink: 0;
+  border: 1px solid var(--edge-hi); border-radius: 3px;
+}
+.sync__box::after {
+  content: ''; position: absolute; inset: 2px;
+  border-radius: 1px; background: var(--signal);
+}
+
+.conflict {
+  margin: 0 16px 6px; padding: 12px 14px;
+  border: 1px solid rgba(245, 158, 11, .42); border-radius: 8px;
+  background: rgba(245, 158, 11, .07);
+  transition: border-color .2s, background .2s;
+}
+.conflict.is-resolved { border-color: var(--edge-hi); background: var(--surface-2); }
+.conflict__head { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--ink); }
+.conflict__head svg { width: 14px; height: 14px; flex-shrink: 0; color: var(--warning); }
+.conflict__head span {
+  margin-left: auto; padding: 1px 7px; border-radius: 4px;
+  background: rgba(245, 158, 11, .16); color: var(--warning);
+  font-size: 10.5px;
+}
+.conflict__meta { margin: 6px 0 10px; font-size: 11.5px; color: var(--ink-3); }
+.conflict__acts { display: flex; flex-wrap: wrap; gap: 7px; }
+.conflict__state { display: block; margin-top: 9px; font-size: 11.5px; color: var(--source); }
+.conflict__state:empty { display: none; }
+
+.sync__note {
+  margin-top: 14px; padding: 11px 16px;
+  border-top: 1px solid var(--edge);
+  font-size: 11.5px; line-height: 1.75; color: var(--ink-3);
+}
+.sync__note code { font-family: var(--font-mono); color: var(--ink-2); }
+
+/* 「v0.3.5 新增 WebDAV」标记 */
+.tag-new {
+  display: inline-block;
+  margin-left: 12px;
+  padding: 3px 11px;
+  border: 1px solid rgba(52, 211, 153, .45);
+  border-radius: 999px;
+  background: rgba(52, 211, 153, .12);
+  color: var(--tag-ink);
+  font-family: var(--font-ui);
+  font-size: 12px; font-weight: 500; letter-spacing: 0;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+/* ── 窄屏 ───────────────────────────────────────────────────────────── */
+@media (max-width: 620px) {
+  .pdf__tool, .pdf__zoom { display: none; }
+  .pdf__invert span { display: none; }
+  .pdf__stage { padding: 14px; }
+  .pdf__sheet { padding: 22px 20px; }
+  .msg { max-width: 100%; }
+  .sync__acts { flex-wrap: wrap; }
+  .tag-new { display: block; margin: 10px 0 0; width: fit-content; }
+}

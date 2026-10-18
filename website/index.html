@@ -1,346 +1,684 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="dark">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Inkase — 免费 Markdown 编辑器 | .mdx 单文件文档工作台</title>
-  <meta name="description" content="Inkase 是一款免费开源的 Markdown 编辑器，支持所见即所得、源码与分屏三种编辑模式。创新 .mdx 格式将 Markdown 内容与图片、附件打包为单一文件，跨平台支持 Windows、macOS、Linux。">
-  <meta name="keywords" content="Markdown 编辑器, MD 编辑器, Markdown 笔记, 所见即所得 Markdown, 单文件文档, mdx 格式, 免费 Markdown 编辑器, 开源笔记软件">
-  <link rel="canonical" href="https://jingzhonghui.github.io/Inkase/">
-  <link rel="alternate" hreflang="zh-CN" href="https://jingzhonghui.github.io/Inkase/">
-  <link rel="alternate" hreflang="en" href="https://jingzhonghui.github.io/Inkase/en/">
-  <link rel="alternate" hreflang="x-default" href="https://jingzhonghui.github.io/Inkase/">
-  <meta property="og:type" content="website">
-  <meta property="og:site_name" content="Inkase">
-  <meta property="og:title" content="Inkase — 免费 Markdown 编辑器 | .mdx 单文件文档工作台">
-  <meta property="og:description" content="Inkase 是一款免费开源的 Markdown 编辑器，支持所见即所得、源码与分屏三种编辑模式。创新 .mdx 格式将 Markdown 内容与图片、附件打包为单一文件。">
-  <meta property="og:url" content="https://jingzhonghui.github.io/Inkase/">
-  <meta property="og:image" content="https://jingzhonghui.github.io/Inkase/assets/icon.png">
-  <meta property="og:locale" content="zh_CN">
-  <meta property="og:locale:alternate" content="en_US">
-  <meta name="twitter:card" content="summary">
-  <meta name="twitter:title" content="Inkase — 免费 Markdown 编辑器 | .mdx 单文件文档工作台">
-  <meta name="twitter:description" content="Inkase 是一款免费开源的 Markdown 编辑器，支持所见即所得、源码与分屏三种编辑模式。创新 .mdx 格式将 Markdown 内容与图片、附件打包为单一文件。">
-  <meta name="twitter:image" content="https://jingzhonghui.github.io/Inkase/assets/icon.png">
-  <script type="application/ld+json">
-  {
-    "@context": "https://schema.org",
-    "@type": "SoftwareApplication",
-    "name": "Inkase",
-    "applicationCategory": "BusinessApplication",
-    "operatingSystem": "Windows, macOS, Linux",
-    "description": "Inkase 是一款免费开源的 Markdown 编辑器，支持所见即所得、源码与分屏三种编辑模式。创新 .mdx 格式将 Markdown 内容与图片、附件打包为单一文件。",
-    "keywords": "Markdown 编辑器, MD 编辑器, Markdown 笔记, 所见即所得, 单文件文档, mdx 格式",
-    "url": "https://jingzhonghui.github.io/Inkase/",
-    "image": "https://jingzhonghui.github.io/Inkase/assets/icon.png",
-    "offers": {
-      "@type": "Offer",
-      "price": "0",
-      "priceCurrency": "USD"
-    }
-  }
-  </script>
-  <link rel="icon" type="image/png" href="./assets/icon.png">
-  <link rel="stylesheet" href="./assets/style.css">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Inkase — 一篇文档，就是一个文件 | 自包含 .mdx 文档工作台</title>
+<meta name="description" content="Inkase 是一款免费开源的 Markdown 编辑器与文档工作台，把正文、图片和附件打包进单个 .mdx 文件。支持即时渲染、源码编辑、分屏预览三种模式，可只读查看 PDF 与图片、批量导出，内置每次调用都可审批的 AI 助手，并支持 Git 与 WebDAV 同步。">
+<meta name="keywords" content="Markdown 编辑器, MD 编辑器, 单文件文档, mdx 格式, 所见即所得 Markdown, PDF 阅读器, AI 助手, WebDAV 同步, Git 同步, 免费开源笔记软件, Electron 文档工作台">
+<meta name="theme-color" id="themeColor" content="#08090c">
+<link rel="canonical" href="https://jingzhonghui.github.io/Inkase/">
+<link rel="alternate" hreflang="zh-CN" href="https://jingzhonghui.github.io/Inkase/">
+<link rel="alternate" hreflang="en" href="https://jingzhonghui.github.io/Inkase/en/">
+<link rel="alternate" hreflang="x-default" href="https://jingzhonghui.github.io/Inkase/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Inkase">
+<meta property="og:title" content="Inkase — 一篇文档，就是一个文件">
+<meta property="og:description" content="把正文、图片和附件打包进单个 .mdx 文件。拷走一个文件，就是带走整篇文档。">
+<meta property="og:url" content="https://jingzhonghui.github.io/Inkase/">
+<meta property="og:image" content="https://jingzhonghui.github.io/Inkase/assets/icon.png">
+<meta property="og:locale" content="zh_CN">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="Inkase — 一篇文档，就是一个文件">
+<meta name="twitter:description" content="把正文、图片和附件打包进单个 .mdx 文件。拷走一个文件，就是带走整篇文档。">
+<meta name="twitter:image" content="https://jingzhonghui.github.io/Inkase/assets/icon.png">
+<script type="application/ld+json" id="ldjson">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "Inkase",
+  "applicationCategory": "BusinessApplication",
+  "operatingSystem": "Windows, Linux",
+  "softwareVersion": "0.3.5",
+  "license": "https://www.apache.org/licenses/LICENSE-2.0",
+  "description": "Inkase 是一款免费开源的 Markdown 编辑器与文档工作台，把正文、图片和附件打包进单个 .mdx 文件。",
+  "url": "https://jingzhonghui.github.io/Inkase/",
+  "image": "https://jingzhonghui.github.io/Inkase/assets/icon.png",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "CNY" }
+}
+</script>
+<link rel="icon" type="image/png" href="./assets/icon.png">
+<link rel="stylesheet" href="./assets/style.css">
+<link rel="stylesheet" href="./assets/demo.css">
+<link rel="stylesheet" href="./assets/panels.css">
+<script>
+/* 主题必须在首次绘制前定好，否则会闪一下深色再跳浅色。
+   默认深色——不跟随系统偏好；只有访客自己切过，才按 localStorage 里的选择来。 */
+(function () {
+  var d = document.documentElement;
+  d.classList.add('js');
+  var saved = null;
+  try { saved = localStorage.getItem('inkase-theme'); } catch (e) {}
+  if (saved !== 'light' && saved !== 'dark') saved = 'dark';
+  d.setAttribute('data-theme', saved);
+})();
+</script>
 </head>
 <body>
-  <header class="nav">
-    <div class="container nav-inner">
-      <a class="nav-brand" href="./index.html">
-        <img src="./assets/icon.png" alt="Inkase 图标">Inkase
-      </a>
-      <nav class="nav-links">
-        <a href="#format">格式</a>
-        <a href="#modes">编辑模式</a>
-        <a href="#features">特性</a>
-        <a href="#download">下载</a>
-        <a class="lang-switch" href="./en/index.html" lang="en" hreflang="en">EN</a>
-        <a href="https://github.com/jingzhonghui/Inkase" target="_blank" rel="noopener">GitHub</a>
-      </nav>
-    </div>
+
+<a class="skip-link" href="#doc">跳到正文</a>
+
+<!-- 图标精灵 -->
+<svg class="sprite" aria-hidden="true" focusable="false"><defs>
+  <symbol id="i-drop" viewBox="0 0 24 24"><path d="M12 2.6S6.4 9.9 6.4 14a5.6 5.6 0 0 0 11.2 0C17.6 9.9 12 2.6 12 2.6Z" fill="currentColor"/></symbol>
+  <symbol id="i-sync" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M13.4 8a5.4 5.4 0 0 1-9.2 3.8M2.6 8a5.4 5.4 0 0 1 9.2-3.8"/><path d="M11.8 1.6v2.8H9M4.2 14.4v-2.8H7"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M13.6 7.6c0 2.7-2.5 4.8-5.6 4.8-.7 0-1.4-.1-2-.3l-3.6 1.5 1-2.6C2.6 10 2 8.9 2 7.6 2 4.9 4.5 2.8 7.6 2.8s6 2.1 6 4.8Z"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M13.4 9.6A5.8 5.8 0 0 1 6.4 2.6a5.8 5.8 0 1 0 7 7Z"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><circle cx="8" cy="8" r="3.1"/><path d="M8 1.3v1.7M8 13v1.7M1.3 8h1.7M13 8h1.7M3.3 3.3l1.2 1.2M11.5 11.5l1.2 1.2M12.7 3.3l-1.2 1.2M4.5 11.5l-1.2 1.2"/></symbol>
+  <symbol id="i-min" viewBox="0 0 12 12"><path d="M2 6h8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></symbol>
+  <symbol id="i-max" viewBox="0 0 12 12"><rect x="2.6" y="2.6" width="6.8" height="6.8" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.2"/></symbol>
+  <symbol id="i-close" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M3 3l6 6M9 3l-6 6"/></symbol>
+  <symbol id="i-h" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4 3.5v9M12 3.5v9M4 8h8"/></symbol>
+  <symbol id="i-list" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M6 4.5h7M6 8h7M6 11.5h7"/><circle cx="3.2" cy="4.5" r=".9" fill="currentColor" stroke="none"/><circle cx="3.2" cy="8" r=".9" fill="currentColor" stroke="none"/><circle cx="3.2" cy="11.5" r=".9" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-quote" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 3.5v9"/><path d="M6.5 5.5h6.5M6.5 8h6.5M6.5 10.5h4"/></symbol>
+  <symbol id="i-code" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5.8 4.2 2.5 8l3.3 3.8M10.2 4.2 13.5 8l-3.3 3.8"/></symbol>
+  <symbol id="i-link" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M6.6 9.4a2.9 2.9 0 0 0 4.1 0l2-2a2.9 2.9 0 0 0-4.1-4.1l-.9.9"/><path d="M9.4 6.6a2.9 2.9 0 0 0-4.1 0l-2 2a2.9 2.9 0 0 0 4.1 4.1l.9-.9"/></symbol>
+  <symbol id="i-image" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><rect x="2.2" y="3.2" width="11.6" height="9.6" rx="1.6"/><circle cx="6" cy="6.6" r="1.1"/><path d="m3.2 11.4 3.4-3 2.6 2.3 1.8-1.6 2.2 2"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M2.2 4.4a1.4 1.4 0 0 1 1.4-1.4h2.3l1.4 1.7h5.1a1.4 1.4 0 0 1 1.4 1.4v5.5a1.4 1.4 0 0 1-1.4 1.4H3.6a1.4 1.4 0 0 1-1.4-1.4Z"/></symbol>
+  <symbol id="i-file" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M9 2.2H4.6a1.4 1.4 0 0 0-1.4 1.4v8.8a1.4 1.4 0 0 0 1.4 1.4h6.8a1.4 1.4 0 0 0 1.4-1.4V5.8Z"/><path d="M9 2.2v3.6h3.8"/></symbol>
+  <symbol id="i-pkg" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M8 1.8 14 5v6L8 14.2 2 11V5Z"/><path d="M2 5l6 3.2L14 5M8 8.2v6"/></symbol>
+  <symbol id="i-outline" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2.5 3.5h11M2.5 8h7.5M2.5 12.5h9.5"/></symbol>
+</defs></svg>
+
+<!-- ══════════ 应用窗口 ══════════ -->
+<div class="shell">
+
+  <!-- 标题栏 -->
+  <header class="titlebar">
+    <span class="titlebar__logo" aria-hidden="true"><svg><use href="#i-drop"/></svg></span>
+    <nav class="titlebar__menu" aria-hidden="true">
+      <span class="is-open">文件</span><span>编辑</span><span>视图</span><span>插入</span><span>帮助</span>
+    </nav>
+    <span class="titlebar__spring"></span>
+    <span class="titlebar__tools" aria-hidden="true">
+      <span class="icon-btn"><svg><use href="#i-sync"/></svg></span>
+      <span class="icon-btn"><svg><use href="#i-chat"/></svg></span>
+    </span>
+    <button class="theme-btn" id="themeBtn" type="button" aria-pressed="false">
+      <svg class="theme-btn__sun" aria-hidden="true"><use href="#i-sun"/></svg>
+      <svg class="theme-btn__moon" aria-hidden="true"><use href="#i-moon"/></svg>
+      <span class="sr-only" id="themeLabel">切换到浅色主题</span>
+    </button>
+    <span class="titlebar__win" aria-hidden="true">
+      <span class="win-btn"><svg><use href="#i-min"/></svg></span>
+      <span class="win-btn"><svg><use href="#i-max"/></svg></span>
+      <span class="win-btn win-btn--close"><svg><use href="#i-close"/></svg></span>
+    </span>
   </header>
 
-  <main>
-    <section class="hero">
-      <div class="container">
-        <h1>让每篇文档<span class="accent">自成一体</span>的 Markdown 编辑器</h1>
-        <p class="tagline">
-          Inkase 是一款轻量级 Markdown 编辑器与文档工作台，支持所见即所得、源码、分屏三种编辑模式。
-          创新的 .mdx 格式将 Markdown 内容与图片、附件打包为单一 ZIP 文件——拷走一个文件，就是带走整篇文档。
-        </p>
-        <div class="hero-actions">
-          <a class="btn btn-primary" href="https://github.com/jingzhonghui/Inkase/releases/latest" target="_blank" rel="noopener">免费下载</a>
-          <a class="btn btn-ghost" href="https://github.com/jingzhonghui/Inkase" target="_blank" rel="noopener">GitHub 源码</a>
-        </div>
+  <div class="workspace">
+
+    <!-- 侧栏：大纲 -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar__head">
+        <span>大纲</span>
+        <span class="sidebar__hint">项目规划.mdx</span>
+      </div>
+      <nav class="outline" id="outline" aria-label="文档大纲">
+        <a class="outline__item outline__item--h1" href="#sec-open">
+          <span class="outline__mark">#</span><span class="outline__text">一篇文档，就是一个文件</span>
+        </a>
+        <a class="outline__item outline__item--h2" href="#sec-format">
+          <span class="outline__mark">##</span><span class="outline__text">.mdx 是什么</span>
+        </a>
+        <a class="outline__item outline__item--h2" href="#sec-modes">
+          <span class="outline__mark">##</span><span class="outline__text">三种编辑模式</span>
+        </a>
+        <a class="outline__item outline__item--h2" href="#sec-view">
+          <span class="outline__mark">##</span><span class="outline__text">PDF 与图片</span>
+        </a>
+        <a class="outline__item outline__item--h2" href="#sec-ai">
+          <span class="outline__mark">##</span><span class="outline__text">AI 助手</span>
+        </a>
+        <a class="outline__item outline__item--h2" href="#sec-sync">
+          <span class="outline__mark">##</span><span class="outline__text">同步</span>
+        </a>
+        <a class="outline__item outline__item--h2" href="#sec-more">
+          <span class="outline__mark">##</span><span class="outline__text">还能做什么</span>
+        </a>
+        <a class="outline__item outline__item--h2" href="#sec-save">
+          <span class="outline__mark">##</span><span class="outline__text">另存为</span>
+        </a>
+      </nav>
+      <div class="sidebar__foot">
+        <a href="https://github.com/jingzhonghui/Inkase" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://jingzhonghui.github.io/Inkase/en/" hreflang="en" lang="en">English</a>
+      </div>
+    </aside>
+    <button class="sidebar-scrim" id="scrim" type="button" aria-label="关闭大纲" tabindex="-1"></button>
+
+    <!-- 文档列 -->
+    <div class="doc-col">
+
+      <!-- 标签栏 -->
+      <div class="tabbar" aria-hidden="true">
+        <div class="tab tab--active"><svg class="tab__ico"><use href="#i-file"/></svg>项目规划.mdx<span class="tab__x"><svg><use href="#i-close"/></svg></span></div>
+        <div class="tab"><svg class="tab__ico"><use href="#i-file"/></svg>设计文档.mdx<span class="tab__x"><svg><use href="#i-close"/></svg></span></div>
+        <button class="tabbar__outline-btn" id="outlineBtn" type="button" aria-label="打开大纲" aria-controls="sidebar" aria-expanded="false"><svg><use href="#i-outline"/></svg></button>
       </div>
 
-      <!-- 应用窗口模拟图：复刻真实软件主界面（分屏模式 · 深色主题） -->
-      <div class="hero-mock-wrap">
-        <div class="app-mock" aria-hidden="true">
-          <!-- 标题栏：logo + 菜单 + 图标 + 窗口控制 -->
-          <div class="mock-header">
-            <img class="mock-logo" src="./assets/logo.svg" alt="">
-            <div class="mock-menu">
-              <span class="active">文件</span><span>编辑</span><span>视图</span><span>插入</span><span>帮助</span>
-            </div>
-            <div class="mock-header-spring"></div>
-            <div class="mock-header-icons">
-              <span class="mock-hicon">⟳</span>
-              <span class="mock-hicon">💬</span>
-              <span class="mock-hicon">☾</span>
-            </div>
-            <div class="mock-winctrl">
-              <span>─</span><span>▢</span><span class="win-close">✕</span>
-            </div>
+      <!-- 工具栏：实际软件没有这一条，故不还原 -->
+
+      <!-- ══════════ 正文 ══════════ -->
+      <main class="doc" id="doc">
+
+        <!-- ── §1 开篇 ── -->
+        <section class="sec sec--open" id="sec-open">
+          <p class="eyebrow" data-reveal>Inkase · 自包含文档工作台 · <span class="js-ver">v0.3.5</span></p>
+          <h1 class="h1" data-reveal><span class="gm">#</span>一篇文档，就是一个文件</h1>
+          <p class="lede" data-reveal>Inkase 是一款 Markdown 编辑器。它把正文、图片和附件一起打包进单个 <code>.mdx</code> 文件——拷走它，整篇文档就完整地带走了，不会出现「图丢了」。</p>
+
+          <div class="actions" data-reveal>
+            <a class="btn btn--primary" href="#sec-save">免费下载</a>
+            <a class="btn btn--ghost" href="https://github.com/jingzhonghui/Inkase" target="_blank" rel="noopener">查看源码</a>
           </div>
 
-          <div class="mock-main">
-            <!-- 侧栏：资源管理器 -->
-            <div class="mock-sidebar">
-              <div class="mock-explorer-title"><span>资源管理器</span><span>«</span></div>
-              <div class="mock-tree">
-                <div class="mock-tree-row"><span class="tw">▾</span><span class="fi">📁</span>我的笔记</div>
-                <div class="mock-tree-row indent active"><span class="fi">📄</span>项目规划.mdx</div>
-                <div class="mock-tree-row indent"><span class="fi">📄</span>设计文档.mdx</div>
-                <div class="mock-tree-row indent"><span class="fi">📄</span>会议记录.mdx</div>
-                <div class="mock-tree-row"><span class="tw">▸</span><span class="fi">📁</span>图片</div>
-                <div class="mock-tree-row"><span class="fi">📄</span>todo.md</div>
-              </div>
+          <figure class="unpack" data-reveal>
+            <div class="unpack__card">
+              <span class="unpack__mark"><svg><use href="#i-drop"/></svg></span>
+              <span class="unpack__name">项目规划.mdx</span>
+              <span class="unpack__meta">1 个文件 · 4.5 KB</span>
+            </div>
+            <div class="unpack__stem" aria-hidden="true"></div>
+            <div class="unpack__link" aria-hidden="true"><i style="--i:1"></i><i style="--i:2"></i><i style="--i:3"></i></div>
+            <ul class="unpack__parts">
+              <li class="part" style="--i:1"><span class="part__n">mdx.json</span><span class="part__d">文档元数据</span></li>
+              <li class="part" style="--i:2"><span class="part__n">content.md</span><span class="part__d">Markdown 正文</span></li>
+              <li class="part" style="--i:3"><span class="part__n">assets/images/</span><span class="part__d">内嵌图片</span></li>
+            </ul>
+            <figcaption>一个 .mdx，解开就是标准 ZIP。三样东西，各归其位。</figcaption>
+          </figure>
+        </section>
+
+        <hr class="rule">
+
+        <!-- ── §2 .mdx 是什么 ── -->
+        <section class="sec" id="sec-format">
+          <h2 class="h2" data-reveal><span class="gm">##</span>.mdx 是什么</h2>
+          <p class="lede" data-reveal>它是标准 ZIP 压缩包，不是私有格式。里面只有三样东西：一份元数据、一份纯文本 Markdown，和一个资源目录。十年后换任何工具，它们依然打得开。</p>
+
+          <div class="anatomy" data-reveal>
+            <div class="anatomy__tree" role="tablist" aria-label=".mdx 内部结构">
+              <button class="tree-row is-active" role="tab" id="tab-json" aria-controls="pane-json" aria-selected="true">
+                <svg class="tree-row__ico"><use href="#i-code"/></svg>
+                <span class="tree-row__name">mdx.json</span>
+                <span class="tree-row__note">元数据</span>
+              </button>
+              <button class="tree-row" role="tab" id="tab-md" aria-controls="pane-md" aria-selected="false" tabindex="-1">
+                <svg class="tree-row__ico"><use href="#i-file"/></svg>
+                <span class="tree-row__name">content.md</span>
+                <span class="tree-row__note">正文</span>
+              </button>
+              <button class="tree-row" role="tab" id="tab-assets" aria-controls="pane-assets" aria-selected="false" tabindex="-1">
+                <svg class="tree-row__ico"><use href="#i-folder"/></svg>
+                <span class="tree-row__name">assets/</span>
+                <span class="tree-row__note">资源</span>
+              </button>
             </div>
 
-            <!-- 右侧：标签栏 + 工具栏 + 分屏 -->
-            <div class="mock-editor-col">
-              <div class="mock-tabs">
-                <div class="mock-tab active">📄 项目规划.mdx <span class="x">✕</span></div>
-                <div class="mock-tab">📄 设计文档.mdx <span class="x">✕</span></div>
+            <div class="anatomy__viewer">
+              <div class="pane" role="tabpanel" id="pane-json" aria-labelledby="tab-json" tabindex="0">
+                <pre class="code"><code>{
+  <span class="k">"version"</span>: <span class="s">"1.0"</span>,
+  <span class="k">"created_at"</span>: <span class="s">"2026-03-14T09:12:04.000Z"</span>,
+  <span class="k">"modified_at"</span>: <span class="s">"2026-04-02T16:38:51.000Z"</span>,
+  <span class="k">"title"</span>: <span class="s">"项目规划"</span>,
+  <span class="k">"encoding"</span>: <span class="s">"UTF-8"</span>,
+  <span class="k">"content_file"</span>: <span class="s">"content.md"</span>,
+  <span class="k">"assets"</span>: {
+    <span class="k">"images"</span>: [
+      {
+        <span class="k">"id"</span>: <span class="s">"img_7f3a91"</span>,
+        <span class="k">"filename"</span>: <span class="s">"架构图.png"</span>,
+        <span class="k">"path"</span>: <span class="s">"assets/images/架构图.png"</span>,
+        <span class="k">"mime_type"</span>: <span class="s">"image/png"</span>,
+        <span class="k">"size"</span>: <span class="n">184320</span>,
+        <span class="k">"checksum"</span>: <span class="s">"sha256:9c1f…"</span>,
+        <span class="k">"width"</span>: <span class="n">1280</span>,
+        <span class="k">"height"</span>: <span class="n">720</span>
+      }
+    ],
+    <span class="k">"attachments"</span>: []
+  },
+  <span class="k">"settings"</span>: {
+    <span class="k">"editor_theme"</span>: <span class="s">"default"</span>,
+    <span class="k">"preview_style"</span>: <span class="s">"github"</span>
+  }
+}</code></pre>
+                <p class="pane__note">文档的身份证：标题、创建与修改时间、编码，以及每张图片的大小与校验和。</p>
               </div>
-              <div class="mock-toolbar">
-                <span class="mock-tbtn strong">B</span>
-                <span class="mock-tbtn italic">I</span>
-                <span class="mock-tbtn strike">S</span>
-                <span class="mock-tbtn under">U</span>
-                <span class="mock-tdiv"></span>
-                <span class="mock-tbtn with-caret">H ▾</span>
-                <span class="mock-tbtn">• —</span>
-                <span class="mock-tbtn">❝</span>
-                <span class="mock-tbtn">&lt;/&gt;</span>
-                <span class="mock-tdiv"></span>
-                <span class="mock-tbtn">🔗</span>
-                <span class="mock-tbtn">🖼</span>
-              </div>
-              <div class="mock-ir">
-                <div class="ir-h1"><span class="md-mark">#</span>项目规划</div>
-                <div class="ir-li"><span class="md-mark">-</span>自包含 .mdx 格式</div>
-                <div class="ir-li"><span class="md-mark">-</span>图片自动打包</div>
-                <div><strong>三种编辑模式</strong></div>
-                <div class="ir-quote"><span class="md-mark">&gt;</span>随时导出 PDF</div>
-                <div>&nbsp;</div>
-                <div class="ir-h2"><span class="md-mark">##</span>下一步计划</div>
-                <div class="ir-task"><span class="md-mark">- [x]</span><span class="done">完成核心编辑器</span></div>
-                <div class="ir-task"><span class="md-mark">- [ ]</span>发布 v0.3.0</div>
-              </div>
-            </div>
-          </div>
 
-          <!-- 状态栏 -->
-          <div class="mock-statusbar">
-            <div class="mock-status-l">
-              <span>字数: 1,024</span><span class="mock-status-sep">|</span>
-              <span>文件大小: 4.5 KB</span><span class="mock-status-sep">|</span>
-              <span>行 12, 列 8</span>
-            </div>
-            <div class="mock-status-r">
-              <span class="mock-mode-btn">即时渲染</span>
-              <span class="mock-status-sep">|</span>
-              <span class="mock-status-saved">已保存</span>
-              <span class="mock-status-sep">|</span>
-              <span>Inkase v0.2.5</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
+              <div class="pane" role="tabpanel" id="pane-md" aria-labelledby="tab-md" tabindex="0" hidden>
+                <pre class="code"><code><span class="md-mark"># </span>项目规划
 
-    <!-- .mdx 格式 -->
-    <section id="format" class="block">
-      <div class="container">
-        <h2 class="section-title">.mdx 文件格式</h2>
-        <p class="section-sub">
-          每个 .mdx 文件都是一个标准 ZIP 压缩包——用任何解压工具都能打开。
-          简单、透明、无锁定，你的文档只属于你。
-        </p>
-        <div class="format-layout">
-          <div class="format-tree">
-            <div><span class="ft-root">📄 项目规划.mdx</span></div>
-            <div>├─ <span class="ft-name">mdx.json</span><span class="ft-comment">      # 文档元数据</span></div>
-            <div>├─ <span class="ft-name">content.md</span><span class="ft-comment">     # Markdown 正文</span></div>
-            <div>└─ <span class="ft-name">assets/</span></div>
-            <div>&nbsp;&nbsp;&nbsp;└─ <span class="ft-name">images/</span><span class="ft-comment">      # 内嵌图片</span></div>
-          </div>
-          <div class="format-points">
-            <div class="format-point">
-              <span class="check">✓</span>
-              <div>
-                <h3>单文件分享</h3>
-                <p>正文、图片、附件全部在一个文件里，微信、邮件、U 盘随手传，永远不会「图丢了」。</p>
+把整篇文档打包成<span class="md-mark">**</span>一个文件<span class="md-mark">**</span>，分享时不再丢图。
+
+<span class="md-mark">- </span>自包含 .mdx 格式
+<span class="md-mark">- </span>图片自动收入文档
+<span class="md-mark">- </span>三种编辑模式
+
+<span class="md-mark">&gt; </span>拷走一个文件，就是带走整篇文档。
+
+<span class="md-mark">## </span>下一步
+
+<span class="md-mark">- [x] </span>完成核心编辑器
+<span class="md-mark">- [ ] </span>发布 v0.3.0
+
+<span class="md-mark">![]</span>(assets/images/架构图.png)</code></pre>
+                <p class="pane__note">正文本身，纯 Markdown。图片用相对路径引用，指向同一个包内的 <code>assets/</code>。</p>
               </div>
-            </div>
-            <div class="format-point">
-              <span class="check">✓</span>
-              <div>
-                <h3>开放透明</h3>
-                <p>标准 ZIP + 纯文本 Markdown，没有任何私有黑盒，十年后依然打得开。</p>
-              </div>
-            </div>
-            <div class="format-point">
-              <span class="check">✓</span>
-              <div>
-                <h3>随存随取</h3>
-                <p>放进 Git、网盘、移动硬盘都友好，改个后缀就能看包内结构。</p>
+
+              <div class="pane" role="tabpanel" id="pane-assets" aria-labelledby="tab-assets" tabindex="0" hidden>
+                <div class="assets-grid">
+                  <span class="asset-chip"><svg><use href="#i-image"/></svg>架构图.png<span>180 KB</span></span>
+                  <span class="asset-chip"><svg><use href="#i-image"/></svg>界面截图.png<span>96 KB</span></span>
+                  <span class="asset-chip"><svg><use href="#i-image"/></svg>流程图.svg<span>12 KB</span></span>
+                  <span class="asset-chip"><svg><use href="#i-pkg"/></svg>需求说明.docx<span>42 KB</span></span>
+                </div>
+                <p class="pane__note">粘贴或拖入的图片与附件都收在这里。原图按内容校验和存放，重复的图不会存两遍。</p>
               </div>
             </div>
           </div>
-        </div>
-      </div>
-    </section>
 
-    <!-- 三种编辑模式 -->
-    <section id="modes" class="block" style="padding-top: 0;">
-      <div class="container">
-        <h2 class="section-title">三种编辑模式</h2>
-        <p class="section-sub">一键切换（Ctrl+/），按心情选择写作方式</p>
-        <div class="mode-grid">
-          <div class="mode-card">
-            <div class="mode-visual">
-              <div><span class="md-mark"># </span>项目规划</div>
-              <div><span class="md-mark">- </span>自包含格式</div>
-              <div><span class="md-mark">** </span>重点<span class="md-mark"> **</span>内容</div>
+          <ul class="points">
+            <li class="point" data-reveal>
+              <span class="point__mark">✓</span>
+              <div><h3>单文件分享</h3><p>正文、图片、附件在一个文件里。微信、邮件、U 盘随手传，不会再「图丢了」。</p></div>
+            </li>
+            <li class="point" data-reveal>
+              <span class="point__mark">✓</span>
+              <div><h3>开放透明</h3><p>标准 ZIP + 纯文本 Markdown，没有私有黑盒，任何解压工具都能打开。</p></div>
+            </li>
+            <li class="point" data-reveal>
+              <span class="point__mark">✓</span>
+              <div><h3>随存随取</h3><p>放进 Git、网盘、移动硬盘都友好。改个后缀，就能直接看包内结构。</p></div>
+            </li>
+          </ul>
+        </section>
+
+        <hr class="rule">
+
+        <!-- ── §3 三种编辑模式 ── -->
+        <section class="sec" id="sec-modes">
+          <h2 class="h2" data-reveal><span class="gm">##</span>三种编辑模式</h2>
+          <p class="lede" data-reveal>同一份内容，三种写法。<kbd>Ctrl</kbd>+<kbd>/</kbd> 循环切换，也可以点下面的标签自己试。</p>
+
+          <div class="editor" data-reveal data-mode="ir">
+            <div class="editor__bar" role="tablist" aria-label="编辑模式">
+              <button class="mtab mtab--ir is-active" role="tab" id="mtab-ir" aria-controls="mpane-ir" aria-selected="true" data-mode="ir">
+                <svg><use href="#i-file"/></svg>即时渲染
+              </button>
+              <button class="mtab mtab--source" role="tab" id="mtab-source" aria-controls="mpane-source" aria-selected="false" tabindex="-1" data-mode="source">
+                <svg><use href="#i-code"/></svg>源码编辑
+              </button>
+              <button class="mtab mtab--split" role="tab" id="mtab-split" aria-controls="mpane-split" aria-selected="false" tabindex="-1" data-mode="split">
+                <svg><use href="#i-outline"/></svg>分屏预览
+              </button>
+              <span class="editor__hint"><kbd>Ctrl</kbd>+<kbd>/</kbd></span>
             </div>
-            <div class="mode-card-body">
-              <span class="mode-tag">默认推荐</span>
-              <h3>即时渲染</h3>
-              <p>段落首显示 #、-、> 等 Markdown 标记，选中文字时展开 ** 等行内符号——结构一目了然，又是真正的所见即所得。</p>
-            </div>
-          </div>
-          <div class="mode-card">
-            <div class="mode-visual">
-              <div><span style="color: var(--warning)">1</span>  <span class="md-mark">#</span> 项目规划</div>
-              <div><span style="color: var(--warning)">2</span>  <span class="md-mark">-</span> 自包含格式</div>
-              <div><span style="color: var(--warning)">3</span>  <span class="md-mark">**</span>重点<span class="md-mark">**</span>内容</div>
-            </div>
-            <div class="mode-card-body">
-              <span class="mode-tag">极客之选</span>
-              <h3>源码编辑</h3>
-              <p>基于 CodeMirror 的纯源码体验：语法高亮、行号、查找替换、自动补全，手感对标主流代码编辑器。</p>
-            </div>
-          </div>
-          <div class="mode-card">
-            <div class="mode-visual">
-              <div class="v-split">
-                <div class="v-pane"><span class="md-mark"># </span>项目规划</div>
-                <div class="v-pane" style="color: var(--text)"><b>项目规划</b></div>
+
+            <div class="editor__body">
+              <div class="mpane" role="tabpanel" id="mpane-ir" aria-labelledby="mtab-ir" tabindex="0">
+                <div class="ir-view" id="ir-view"></div>
+              </div>
+
+              <div class="mpane" role="tabpanel" id="mpane-source" aria-labelledby="mtab-source" tabindex="0" hidden>
+                <div class="src-view" id="src-view"></div>
+              </div>
+
+              <div class="mpane" role="tabpanel" id="mpane-split" aria-labelledby="mtab-split" tabindex="0" hidden>
+                <div class="split-view">
+                  <div class="split-view__pane src-view" id="split-src"></div>
+                  <div class="split-view__pane prev-view" id="split-prev"></div>
+                </div>
               </div>
             </div>
-            <div class="mode-card-body">
-              <span class="mode-tag">边写边看</span>
-              <h3>分屏预览</h3>
-              <p>左侧书写 Markdown 源码，右侧实时渲染最终效果，滚动同步，拖拽可调分栏比例。</p>
+
+            <p class="editor__caption" id="mode-caption"></p>
+          </div>
+        </section>
+
+        <hr class="rule">
+
+        <!-- ── §4 PDF 与图片 ── -->
+        <section class="sec" id="sec-view">
+          <h2 class="h2" data-reveal><span class="gm">##</span>PDF 与图片</h2>
+          <p class="lede" data-reveal>PDF、图片直接在标签页里只读打开，不转换格式、不改动原文件。深色模式下整页反色，夜里翻长文档不刺眼。</p>
+
+          <div class="pdf" data-reveal>
+            <div class="pdf__bar">
+              <span class="pdf__name"><svg aria-hidden="true"><use href="#i-file"/></svg>产品手册.pdf</span>
+              <span class="pdf__spring"></span>
+              <span class="pdf__tool" aria-hidden="true">−</span>
+              <span class="pdf__zoom">100%</span>
+              <span class="pdf__tool" aria-hidden="true">+</span>
+              <span class="pdf__count"><b>3</b> / 24</span>
+              <button class="pdf__invert" id="pdf-invert" type="button" aria-pressed="false">
+                <svg aria-hidden="true"><use href="#i-moon"/></svg><span>深色反色</span>
+              </button>
+            </div>
+            <div class="pdf__stage">
+              <div class="pdf__sheet">
+                <p class="pdf__h">第三章　部署</p>
+                <p class="pdf__t">把 .mdx 放进工作区目录，Inkase 会在启动时扫描并建立索引，不需要额外的资源服务器。</p>
+                <p class="pdf__t">图片与附件都收在包内，路径相对于 content.md，因此不会有断链的图。</p>
+                <span class="pdf__fig" aria-hidden="true"></span>
+                <p class="pdf__t">导出 PDF 时走的是与预览一致的渲染管线，字体、代码高亮、数学公式都会保留下来。</p>
+              </div>
+            </div>
+            <p class="pdf__note">反色由 <code>invert(.9) hue-rotate(180deg)</code> 完成——白纸黑字变成深灰底浅字，嵌入图片的色相几乎不动。点右上角试试。</p>
+          </div>
+
+          <ul class="points">
+            <li class="point" data-reveal>
+              <span class="point__mark">✓</span>
+              <div><h3>只读打开，不落地</h3><p>PDF 与图片在独立标签页里渲染，不转格式、不写临时文件。关掉标签，原文件一个字节都没变。</p></div>
+            </li>
+            <li class="point" data-reveal>
+              <span class="point__mark">✓</span>
+              <div><h3>批量导出 PDF</h3><p>整个文件夹一次导出，进度逐条可见，中途可以取消。单篇导出和批量导出共用同一套渲染管线。</p></div>
+            </li>
+            <li class="point" data-reveal>
+              <span class="point__mark">✓</span>
+              <div><h3>图片与附件同处一室</h3><p>拖进来就自动收入文档的 <code>assets/</code>，按内容校验和去重；查看器直接读包内资源，不走网络。</p></div>
+            </li>
+          </ul>
+        </section>
+
+        <hr class="rule">
+
+        <!-- ── §5 AI 助手 ── -->
+        <section class="sec" id="sec-ai">
+          <h2 class="h2" data-reveal><span class="gm">##</span>AI 助手</h2>
+          <p class="lede" data-reveal>接一个 OpenAI 兼容的接口，它就能读写你的文档、检索整个工作区。每一次动手之前，都先把要做的事摊开给你看。</p>
+
+          <div class="ai" data-reveal>
+            <div class="ai__bar">
+              <span class="ai__title"><svg aria-hidden="true"><use href="#i-chat"/></svg>AI 助手</span>
+              <span class="ai__spring"></span>
+              <span class="ai__model">OpenAI 兼容接口</span>
+            </div>
+            <div class="ai__log">
+              <div class="msg msg--me"><p>把这篇文档里的待办整理成清单。</p></div>
+              <div class="msg msg--ai">
+                <p>我先读一下当前文档。</p>
+                <div class="tool" id="ai-tool">
+                  <div class="tool__head">
+                    <svg aria-hidden="true"><use href="#i-file"/></svg>
+                    <b>读取文件</b><code>content.md</code>
+                  </div>
+                  <div class="tool__meta">42 行 · 1.8 KB · 只读，不修改</div>
+                  <div class="tool__acts">
+                    <button class="tool__btn tool__btn--ok" type="button" data-verdict="allow">允许</button>
+                    <button class="tool__btn" type="button" data-verdict="deny">拒绝</button>
+                    <span class="tool__state" id="ai-tool-state">等待批准</span>
+                  </div>
+                </div>
+              </div>
+              <div class="msg msg--ai"><p>整理好了，一共 3 项待办，已经写回文末的清单。</p></div>
+            </div>
+            <div class="ai__input"><span>继续提问…</span><b>发送</b></div>
+            <p class="ai__note">工具、审批与权限策略都在本地判断；密钥只存在你自己的配置里，会话存在工作区的 <code>.inkase/conversations/</code>。</p>
+          </div>
+
+          <ul class="points">
+            <li class="point" data-reveal>
+              <span class="point__mark">✓</span>
+              <div><h3>每次工具调用都可审批</h3><p>读文件、搜索工作区、写入内容都会先弹出卡片，写清楚要动哪个文件、动多少。点允许才执行，点拒绝就停下。</p></div>
+            </li>
+            <li class="point" data-reveal>
+              <span class="point__mark">✓</span>
+              <div><h3>权限有边界</h3><p>工作区之外的路径需要单独授权，只读和可写分开。策略引擎在本地判定，不依赖服务端。</p></div>
+            </li>
+            <li class="point" data-reveal>
+              <span class="point__mark">✓</span>
+              <div><h3>接谁的模型你说了算</h3><p>只要兼容 OpenAI 接口，Base URL、模型名、密钥都自己填。对话存在本地，随时可以清掉。</p></div>
+            </li>
+          </ul>
+        </section>
+
+        <hr class="rule">
+
+        <!-- ── §6 同步 ── -->
+        <section class="sec" id="sec-sync">
+          <h2 class="h2" data-reveal><span class="gm">##</span>同步<span class="tag-new">v0.3.5 新增 WebDAV</span></h2>
+          <p class="lede" data-reveal>两种后端任选其一：绑一个 Git 仓库，或者连一个 WebDAV 网盘。拉取、推送、冲突处理都在面板里完成，不用碰命令行。</p>
+
+          <div class="sync" data-reveal>
+            <div class="sync__bar">
+              <span class="sync__title"><svg aria-hidden="true"><use href="#i-sync"/></svg>同步</span>
+              <span class="sync__spring"></span>
+              <div class="sync__prov" role="tablist" aria-label="同步方式">
+                <button class="sync__ptab is-active" role="tab" id="ptab-git" aria-controls="ppane-git" aria-selected="true" data-prov="git">
+                  <svg aria-hidden="true"><use href="#i-pkg"/></svg>Git 仓库
+                </button>
+                <button class="sync__ptab" role="tab" id="ptab-webdav" aria-controls="ppane-webdav" aria-selected="false" tabindex="-1" data-prov="webdav">
+                  <svg aria-hidden="true"><use href="#i-sync"/></svg>WebDAV
+                </button>
+              </div>
+            </div>
+
+            <div class="sync__pane" role="tabpanel" id="ppane-git" aria-labelledby="ptab-git" tabindex="0">
+              <div class="sync__row">
+                <span class="sync__k">仓库</span>
+                <span class="sync__repo">jingzhonghui/notes</span>
+                <span class="sync__ago">3 分钟前</span>
+              </div>
+              <div class="sync__row">
+                <span class="sync__branch">main</span>
+                <span class="sync__dot" aria-hidden="true"></span>
+                <span class="sync__state">已同步</span>
+                <span class="sync__ago">本地 2 处改动</span>
+              </div>
+              <div class="sync__acts">
+                <button class="sync__btn" type="button">↓ 拉取</button>
+                <button class="sync__btn sync__btn--main" type="button">↑ 推送</button>
+                <span class="sync__auto"><span class="sync__box" aria-hidden="true"></span>自动推送</span>
+              </div>
+              <div class="conflict" id="conflict">
+                <div class="conflict__head">
+                  <svg aria-hidden="true"><use href="#i-pkg"/></svg>
+                  <b>项目规划.mdx</b>
+                  <span>冲突</span>
+                </div>
+                <div class="conflict__meta">本地 12 行改动 · 远程 8 行改动 · 两边都动过同一段</div>
+                <div class="conflict__acts">
+                  <button class="tool__btn" type="button" data-resolve="local">保留本地</button>
+                  <button class="tool__btn" type="button" data-resolve="remote">保留远程</button>
+                  <button class="tool__btn" type="button" data-resolve="merge">逐行处理</button>
+                </div>
+                <span class="conflict__state" id="conflict-state"></span>
+              </div>
+              <p class="sync__note"><code>.inkase/</code> 是本机私有配置，会自动写进 <code>.gitignore</code>；如果它已经被跟踪，Inkase 会先把它从索引里摘掉再提交。老版本的 <code>.markdownPlus</code> 目录也会在绑定时自动迁移。</p>
+            </div>
+
+            <div class="sync__pane" role="tabpanel" id="ppane-webdav" aria-labelledby="ptab-webdav" tabindex="0" hidden>
+              <div class="sync__row">
+                <span class="sync__k">服务地址</span>
+                <span class="sync__v">https://dav.example.com/remote.php/dav/files/me</span>
+              </div>
+              <div class="sync__row">
+                <span class="sync__k">用户名</span>
+                <span class="sync__v">me</span>
+              </div>
+              <div class="sync__row">
+                <span class="sync__k">口令</span>
+                <span class="sync__v sync__v--pw" id="dav-pw">••••••••••</span>
+                <button class="sync__eye" id="dav-eye" type="button" aria-pressed="false">显示</button>
+              </div>
+              <div class="sync__row">
+                <span class="sync__k">远端目录</span>
+                <span class="sync__v">/inkase/notes</span>
+              </div>
+              <div class="sync__row">
+                <span class="sync__branch">webdav</span>
+                <span class="sync__dot" aria-hidden="true"></span>
+                <span class="sync__state">已同步</span>
+                <span class="sync__ago">刚刚</span>
+              </div>
+              <div class="sync__acts">
+                <button class="sync__btn" type="button">↓ 拉取</button>
+                <button class="sync__btn sync__btn--main" type="button">↑ 推送</button>
+                <span class="sync__auto"><span class="sync__box" aria-hidden="true"></span>自动推送</span>
+              </div>
+              <p class="sync__note">口令经系统凭据加密后单独存放，绝不写进 <code>.inkase/sync.json</code>。WebDAV 没有「提交」这一层，改动直接推送；每个文件按 ETag 比对，远端被别人改过就报冲突，而不是默默覆盖。启用时不执行任何 git 命令。</p>
             </div>
           </div>
-        </div>
-      </div>
-    </section>
 
-    <!-- 特性 -->
-    <section id="features" class="features">
-      <div class="container">
-        <h2 class="section-title">更多特性</h2>
-        <p class="section-sub">为长期写作打造的完整工具链</p>
-        <div class="feature-grid">
-          <div class="feature-card">
-            <div class="feature-icon">🖼️</div>
-            <h3>图片自动打包</h3>
-            <p>粘贴或拖入图片，自动收入文档内部并转为相对引用，不再担心外链失效或路径丢失。</p>
-          </div>
-          <div class="feature-card">
-            <div class="feature-icon">🔄</div>
-            <h3>多格式互通</h3>
-            <p>导入 DOCX / Markdown 文件与整个文件夹，导出 Markdown / PDF，支持批量导出。</p>
-          </div>
-          <div class="feature-card">
-            <div class="feature-icon">📁</div>
-            <h3>文件夹工作区</h3>
-            <p>像资源管理器一样浏览、新建、重命名、拖拽移动文件，配合多标签页同时处理多篇文档。</p>
-          </div>
-          <div class="feature-card">
-            <div class="feature-icon">🤖</div>
-            <h3>内置 AI 助手</h3>
-            <p>兼容 OpenAI 接口配置。读写文档、检索资料、执行操作，每一步工具调用都可审批、可预览。</p>
-          </div>
-          <div class="feature-card">
-            <div class="feature-icon">🔍</div>
-            <h3>工作区全文搜索</h3>
-            <p>基于 ripgrep 的极速全文检索，跨文件查找内容、快速打开（Ctrl+P）毫秒级响应。</p>
-          </div>
-          <div class="feature-card">
-            <div class="feature-icon">🛟</div>
-            <h3>自动保存与恢复</h3>
-            <p>编辑内容实时快照，异常退出后自动恢复现场；外部修改文件自动监听刷新。</p>
-          </div>
-          <div class="feature-card">
-            <div class="feature-icon">🌓</div>
-            <h3>深浅主题与排版自定义</h3>
-            <p>深色 / 浅色 / 跟随系统三种模式；正文字体、代码字体、行高自由调节，编辑器内 Ctrl+滚轮 即时缩放字号，长时间写作不累眼。</p>
-          </div>
-          <div class="feature-card">
-            <div class="feature-icon">🔀</div>
-            <h3>Git 同步</h3>
-            <p>绑定 Git 仓库即可一键拉取 / 推送文档，冲突可视化处理，多设备协作省心。</p>
-          </div>
-          <div class="feature-card">
-            <div class="feature-icon">💻</div>
-            <h3>跨平台</h3>
-            <p>提供 Windows 与 Linux 安装包（NSIS / zip / AppImage / deb），macOS 支持筹备中。</p>
-          </div>
-        </div>
-      </div>
-    </section>
+          <ul class="points">
+            <li class="point" data-reveal>
+              <span class="point__mark">✓</span>
+              <div><h3>两种后端，一个面板</h3><p>Git 走版本库，WebDAV 连你自己的网盘。切换后端只是换一个提供者，拉取、推送、自动同步的操作方式完全一致。</p></div>
+            </li>
+            <li class="point" data-reveal>
+              <span class="point__mark">✓</span>
+              <div><h3>冲突看得见，不会静默覆盖</h3><p>Git 下哪一篇、哪几行、两边各改了什么，都摆在面板里；WebDAV 靠 ETag 比对，远端被动过就停下来问你。</p></div>
+            </li>
+            <li class="point" data-reveal>
+              <span class="point__mark">✓</span>
+              <div><h3>一键拉取与推送</h3><p>绑好就有按钮，也可以打开自动推送，改完即传。远程有新提交会主动察觉，推之前告诉你动了哪些文件。</p></div>
+            </li>
+          </ul>
+        </section>
 
-    <!-- 下载 -->
-    <section id="download" class="download">
-      <div class="container">
-        <h2 class="section-title">下载</h2>
-        <p class="section-sub">免费、开源（Apache-2.0），即刻开始</p>
-        <div class="download-cards">
-          <div class="download-card">
-            <div class="os">🪟</div>
-            <h3>Windows</h3>
-            <div class="fmt">exe / zip</div>
-            <a class="btn btn-primary" href="https://github.com/jingzhonghui/Inkase/releases/latest" target="_blank" rel="noopener">下载</a>
-          </div>
-          <div class="download-card">
-            <div class="os">🐧</div>
-            <h3>Linux</h3>
-            <div class="fmt">AppImage / deb</div>
-            <a class="btn btn-primary" href="https://github.com/jingzhonghui/Inkase/releases/latest" target="_blank" rel="noopener">下载</a>
-          </div>
-          <div class="download-card">
-            <div class="os">🍎</div>
-            <h3>macOS</h3>
-            <div class="fmt">dmg</div>
-            <span class="btn-disabled">即将推出</span>
-          </div>
-        </div>
-      </div>
-    </section>
-  </main>
+        <hr class="rule">
 
-  <footer class="footer">
-    <div class="container footer-inner">
-      <span>© 2026 Inkase Team</span>
-      <span><a href="https://github.com/jingzhonghui/Inkase/blob/main/LICENSE" target="_blank" rel="noopener">Apache-2.0 License</a></span>
-      <a href="https://github.com/jingzhonghui/Inkase" target="_blank" rel="noopener">GitHub</a>
+        <!-- ── §7 还能做什么 ── -->
+        <section class="sec" id="sec-more">
+          <h2 class="h2" data-reveal><span class="gm">##</span>还能做什么</h2>
+          <p class="lede" data-reveal>编辑器之外，Inkase 也是一套完整的文档工作台。</p>
+
+          <div class="spec">
+            <div class="spec__group" data-reveal>
+              <h3 class="spec__label">写作</h3>
+              <dl class="spec__list">
+                <div class="spec__row"><dt>排版自定义</dt><dd>正文字体、代码字体、行高都能调；编辑器内 <kbd>Ctrl</kbd>+滚轮 即时缩放字号。</dd></div>
+                <div class="spec__row"><dt>三种主题</dt><dd>浅色、深色、跟随系统。</dd></div>
+                <div class="spec__row"><dt>自动保存与恢复</dt><dd>编辑内容实时快照，异常退出后自动恢复现场。</dd></div>
+              </dl>
+            </div>
+
+            <div class="spec__group" data-reveal>
+              <h3 class="spec__label">管理</h3>
+              <dl class="spec__list">
+                <div class="spec__row"><dt>文件夹工作区</dt><dd>像资源管理器一样浏览、新建、重命名、拖拽移动。</dd></div>
+                <div class="spec__row"><dt>多标签页</dt><dd>同时打开多篇文档，标签之间随意切换。</dd></div>
+                <div class="spec__row"><dt>全文搜索</dt><dd>基于 ripgrep 跨文件查找内容；<kbd>Ctrl</kbd>+<kbd>P</kbd> 毫秒级快速打开。</dd></div>
+              </dl>
+            </div>
+
+            <div class="spec__group" data-reveal>
+              <h3 class="spec__label">互通</h3>
+              <dl class="spec__list">
+                <div class="spec__row"><dt>导入</dt><dd>DOCX、Markdown 文件，以及整个文件夹。</dd></div>
+                <div class="spec__row"><dt>导出</dt><dd>Markdown 与 PDF，支持批量导出。</dd></div>
+                <div class="spec__row"><dt>外部修改监听</dt><dd>文件在 Inkase 之外被改动时自动察觉，提示重载而不是默默覆盖。</dd></div>
+              </dl>
+            </div>
+          </div>
+        </section>
+
+        <hr class="rule">
+
+        <!-- ── §5 另存为 ── -->
+        <section class="sec" id="sec-save">
+          <h2 class="h2" data-reveal><span class="gm">##</span>另存为</h2>
+          <p class="lede" data-reveal>免费、开源，Apache-2.0 许可。选一个适合你的包。</p>
+
+          <div class="saveas" data-reveal>
+            <div class="saveas__bar" aria-hidden="true">
+              <span class="saveas__title">另存为</span>
+              <span class="saveas__x"><svg><use href="#i-close"/></svg></span>
+            </div>
+
+            <div class="saveas__path">
+              <span class="saveas__path-label">保存到</span>
+              <span class="saveas__crumbs">此电脑 <i>›</i> 下载 <i>›</i> Inkase</span>
+            </div>
+
+            <div class="saveas__list" role="radiogroup" aria-label="选择要下载的安装包">
+              <button class="pkg is-selected" role="radio" aria-checked="true" data-file="Inkase-x64-0.3.5-Setup.exe" data-type="Windows 安装程序 (*.exe)">
+                <svg class="pkg__ico"><use href="#i-pkg"/></svg>
+                <span class="pkg__body"><span class="pkg__name">Inkase-x64-0.3.5-Setup.exe</span><span class="pkg__desc">Windows · 安装程序 · 64 位</span></span>
+              </button>
+              <button class="pkg" role="radio" aria-checked="false" data-file="Inkase-x64-0.3.5.zip" data-type="ZIP 压缩包 (*.zip)">
+                <svg class="pkg__ico"><use href="#i-pkg"/></svg>
+                <span class="pkg__body"><span class="pkg__name">Inkase-x64-0.3.5.zip</span><span class="pkg__desc">Windows · 免安装便携版 · 64 位</span></span>
+              </button>
+              <button class="pkg" role="radio" aria-checked="false" data-file="Inkase-linux-0.3.5.AppImage" data-type="AppImage (*.AppImage)">
+                <svg class="pkg__ico"><use href="#i-pkg"/></svg>
+                <span class="pkg__body"><span class="pkg__name">Inkase-linux-0.3.5.AppImage</span><span class="pkg__desc">Linux · 免安装，赋予执行权限即可运行</span></span>
+              </button>
+              <button class="pkg" role="radio" aria-checked="false" data-file="Inkase-linux-0.3.5.deb" data-type="Debian 软件包 (*.deb)">
+                <svg class="pkg__ico"><use href="#i-pkg"/></svg>
+                <span class="pkg__body"><span class="pkg__name">Inkase-linux-0.3.5.deb</span><span class="pkg__desc">Linux · Debian / Ubuntu</span></span>
+              </button>
+              <div class="pkg pkg--soon" aria-disabled="true">
+                <svg class="pkg__ico"><use href="#i-pkg"/></svg>
+                <span class="pkg__body"><span class="pkg__name">Inkase-0.3.5.dmg</span><span class="pkg__desc">macOS · 筹备中</span></span>
+                <span class="pkg__badge">即将推出</span>
+              </div>
+            </div>
+
+            <div class="saveas__fields">
+              <label class="field">
+                <span class="field__label">文件名</span>
+                <input class="field__input" id="saveName" type="text" readonly value="Inkase-x64-0.3.5-Setup.exe">
+              </label>
+              <label class="field">
+                <span class="field__label">文件类型</span>
+                <input class="field__input" id="saveType" type="text" readonly value="Windows 安装程序 (*.exe)">
+              </label>
+            </div>
+
+            <p class="saveas__ver" id="verNote" aria-live="polite"></p>
+
+            <div class="saveas__actions">
+              <a class="btn btn--ghost btn--sm" href="https://github.com/jingzhonghui/Inkase/releases" target="_blank" rel="noopener">查看全部版本</a>
+              <a class="btn btn--primary btn--sm" id="saveBtn" href="https://github.com/jingzhonghui/Inkase/releases/latest" target="_blank" rel="noopener">保存</a>
+            </div>
+          </div>
+        </section>
+
+        <!-- ── 版本记录 ── -->
+        <footer class="colophon">
+          <div class="colophon__brand">
+            <span class="colophon__mark"><svg><use href="#i-drop"/></svg></span>
+            <span>Inkase — 自包含文档工作台</span>
+          </div>
+          <div class="colophon__meta">
+            <span>© 2026 Inkase Team</span>
+            <a href="https://github.com/jingzhonghui/Inkase/blob/main/LICENSE" target="_blank" rel="noopener">Apache-2.0</a>
+            <a href="https://github.com/jingzhonghui/Inkase" target="_blank" rel="noopener">GitHub</a>
+            <a href="https://github.com/jingzhonghui/Inkase/issues" target="_blank" rel="noopener">问题反馈</a>
+            <a href="https://jingzhonghui.github.io/Inkase/en/" hreflang="en" lang="en">English</a>
+          </div>
+        </footer>
+
+      </main>
     </div>
-  </footer>
+  </div>
+
+  <!-- 状态栏 -->
+  <div class="statusbar" aria-hidden="true">
+    <div class="statusbar__side">
+      <span>字数: <b id="stat-words">—</b></span>
+      <span class="sep">|</span>
+      <span>文件大小: <b id="stat-size">—</b></span>
+      <span class="sep">|</span>
+      <span>行 <b id="stat-line">1</b>, 列 1</span>
+    </div>
+    <div class="statusbar__side">
+      <span class="mode-pill" id="stat-mode" data-mode="ir">即时渲染</span>
+      <span class="sep">|</span>
+      <span class="saved">已保存</span>
+      <span class="sep">|</span>
+      <span>Inkase <span class="js-ver">v0.3.5</span></span>
+    </div>
+  </div>
+</div>
+
+<script src="./assets/markdown.js"></script>
+<script src="./assets/app.js"></script>
 </body>
 </html>
