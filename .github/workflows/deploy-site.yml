@@ -1,0 +1,83 @@
+name: Deploy site
+
+# 可复用工作流：官网部署前先把版本号写死进静态文件。
+#
+# 为什么版本号要在 CI 里处理，而不是让访客的浏览器去 api.github.com 取？
+#   1. 匿名 API 配额只有 60 次/小时/每个 IP，共享出口 IP 很容易被打满（403）；
+#   2. api.github.com 在部分网络下不可达，而原来的失败分支是静默的，
+#      页面会继续显示 HTML 里写死的旧版本号，看起来还挺"权威"；
+#   3. 每次访问都要打一次第三方接口，纯属把可靠性押在别人身上。
+# 放到 CI 里则用 GITHUB_TOKEN 调 API（5000 次/小时）且走 GitHub 内网，
+# 生成出来的页面零第三方运行时依赖：断网、被墙、禁用 JS 都显示正确版本。
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Deploy to GitHub Pages
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.14.1
+
+      - name: Resolve latest release version
+        id: version
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName 2>/dev/null || true)"
+          if [ -n "$tag" ]; then
+            version="${tag#v}"
+            source="latest release ${tag}"
+          else
+            # 仓库还没有任何 release 时退回 package.json，避免首次部署直接失败
+            version="$(node -p "require('./package.json').version")"
+            source="package.json (no release found)"
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "source=${source}" >> "$GITHUB_OUTPUT"
+          echo "Resolved version: ${version} (${source})"
+
+      - name: Stamp version into the site
+        run: node scripts/stamp-site-version.mjs "${{ steps.version.outputs.version }}"
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: website
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Summary
+        run: |
+          {
+            echo '## Website deployed'
+            echo ''
+            echo "- Version stamped: \`${{ steps.version.outputs.version }}\`"
+            echo "- Version source: ${{ steps.version.outputs.source }}"
+            echo "- URL: ${{ steps.deployment.outputs.page_url }}"
+          } >> "$GITHUB_STEP_SUMMARY"

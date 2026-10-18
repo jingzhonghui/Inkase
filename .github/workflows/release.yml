@@ -156,3 +156,14 @@ jobs:
             echo "Tag: ${{ github.ref_name }}"
             echo 'Assets uploaded from the `dist/` directory.'
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # 发版之后把官网的版本号也刷新掉，省得每次发版还要手动改一遍静态页。
+  # 直接调用可复用工作流（job 调用），而不是等 release 事件 —— 见 website.yml 顶部说明。
+  deploy-site:
+    name: Update website
+    needs: publish
+    uses: ./.github/workflows/deploy-site.yml
+    permissions:
+      contents: read
+      pages: write
+      id-token: write

@@ -23,12 +23,7 @@
 
   var T = {
     zh: {
-      checking:    '正在检查最新版本…',
       isLatest:    '已是最新版本 ',
-      updatedTo:   '已更新到 ',
-      updatedMid:  ' · ',
-      updatedTail: ' 个产物已指向新版本',
-      newest:      '最新版本 ',
       toDark:      '切换到深色主题',
       toLight:     '切换到浅色主题',
       saveDownload:'保存并下载 ',
@@ -46,12 +41,7 @@
       }
     },
     en: {
-      checking:    'Checking for the latest release…',
       isLatest:    'Up to date · ',
-      updatedTo:   'Updated to ',
-      updatedMid:  ' · ',
-      updatedTail: ' packages now point to the new release',
-      newest:      'Latest release ',
       toDark:      'Switch to dark theme',
       toLight:     'Switch to light theme',
       saveDownload:'Save and download ',
@@ -182,7 +172,7 @@
   var REPO = 'jingzhonghui/Inkase';
   var RELEASES = 'https://github.com/' + REPO + '/releases';
   // 页面内置的版本。它只是"没有网络时也能读"的兜底，真实版本由 initVersion 从 GitHub 取。
-  var VERSION = '0.3.5';
+  var VERSION = '0.3.6';
 
   function initSaveAs() {
     var pkgs = $$('.pkg:not(.pkg--soon)');
@@ -198,8 +188,9 @@
       nameInput.value = file;
       typeInput.value = selected.getAttribute('data-type');
       saveBtn.setAttribute('aria-label', T.saveDownload + file);
-      // 拿到真实产物的直链就直连它，否则退回 releases/latest
-      saveBtn.href = selected.getAttribute('data-url') || RELEASES + '/latest';
+      // 一律走 releases/latest：GitHub 会重定向到最新 release，
+      // 所以即使站点部署之后又发了新版本，这个链接也不会指向旧产物。
+      saveBtn.href = RELEASES + '/latest';
     }
 
     function pick(target) {
@@ -226,100 +217,17 @@
     });
 
     apply();
-    // 版本信息是异步来的，拿到之后要按当前选中项重算一次
-    return { sync: apply, select: pick, packages: pkgs };
   }
 
-  /* ── 版本号：从 GitHub 取最新 release ───────────────────────────────── */
-  function initVersion(onUpdate) {
+  /* ── 版本提示 ────────────────────────────────────────────────────────── */
+  // 版本号由 scripts/stamp-site-version.mjs 在部署前写死进静态文件，这里只负责显示。
+  // 以前这里会去 api.github.com 取最新 release 再改写页面上的产物名，但匿名配额只有
+  // 60 次/小时/每个 IP、部分网络下还连不上，而且失败是静默的 —— 结果是页面长期显示
+  // 写死的旧版本号，看起来还挺"权威"。现在这件事挪到部署前的 CI 里做，访客侧不再
+  // 依赖任何第三方接口。
+  function initVersionNote() {
     var note = $('#verNote');
-    if (!window.fetch || !window.JSON) return;
-
-    function say(html) { if (note) note.innerHTML = html; }
-    say(T.checking);
-
-    // 超时保护：请求挂住时不能把"正在检查…"永远留在页面上
-    var ctrl = typeof window.AbortController === 'function' ? new window.AbortController() : null;
-    var timer = window.setTimeout(function () { if (ctrl) ctrl.abort(); }, 6000);
-
-    fetch('https://api.github.com/repos/' + REPO + '/releases/latest', {
-      headers: { Accept: 'application/vnd.github+json' },
-      signal: ctrl ? ctrl.signal : undefined
-    })
-      .then(function (res) {
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        return res.json();
-      })
-      .then(function (rel) {
-        window.clearTimeout(timer);
-        var tag = String(rel.tag_name || '').replace(/^v/, '');
-        if (!/^\d+\.\d+\.\d+$/.test(tag)) throw new Error('unexpected tag');
-
-        if (tag === VERSION) {
-          say(T.isLatest + '<b>v' + tag + '</b>');
-          return;
-        }
-
-        // 按产物形状匹配，而不是写死文件名
-        var KINDS = [
-          { here: /-Setup\.exe$/i,      there: /-Setup\.exe$/i },
-          { here: /-x64-[\d.]+\.zip$/i, there: /-x64-.*\.zip$/i },
-          { here: /\.AppImage$/i,       there: /\.AppImage$/i },
-          { here: /\.deb$/i,            there: /\.deb$/i }
-        ];
-        var assets = (rel.assets || []).filter(function (a) { return a && a.name; });
-        var changed = 0;
-
-        $$('.pkg[data-file]').forEach(function (pkg) {
-          var current = pkg.getAttribute('data-file');
-          var kind = null;
-          for (var i = 0; i < KINDS.length; i++) {
-            if (KINDS[i].here.test(current)) { kind = KINDS[i]; break; }
-          }
-          if (!kind) return;
-
-          var asset = null;
-          for (var j = 0; j < assets.length; j++) {
-            if (kind.there.test(assets[j].name)) { asset = assets[j]; break; }
-          }
-          if (!asset || asset.name === current) return;
-
-          pkg.setAttribute('data-file', asset.name);
-          pkg.setAttribute('data-url', asset.browser_download_url);
-          var nameEl = pkg.querySelector('.pkg__name');
-          if (nameEl) nameEl.textContent = asset.name;
-          changed++;
-        });
-
-        // 兜底：仍带旧版本号的产物名（例如筹备中的 dmg）只替换版本段
-        $$('.pkg__name').forEach(function (el) {
-          if (el.textContent.indexOf(VERSION) >= 0) {
-            el.textContent = el.textContent.split(VERSION).join(tag);
-          }
-        });
-
-        $$('.js-ver').forEach(function (el) { el.textContent = 'v' + tag; });
-
-        var ld = $('#ldjson');
-        if (ld) {
-          ld.textContent = ld.textContent.replace(
-            /"softwareVersion":\s*"[^"]*"/, '"softwareVersion": "' + tag + '"');
-        }
-
-        if (onUpdate) onUpdate();
-        say(changed
-          ? T.updatedTo + '<b>v' + tag + '</b>' + T.updatedMid + changed + T.updatedTail
-          : T.newest + '<b>v' + tag + '</b>');
-      })
-      .catch(function (err) {
-        window.clearTimeout(timer);
-        // 断网、被墙、触到 API 速率上限都会走到这里。让访客看到一个他自己无法处理的
-        // 网络错误没有意义，所以页面上直接退回内置版本，只在控制台给维护者留条线索。
-        say('');
-        if (window.console && window.console.warn) {
-          window.console.warn('[Inkase] 未能从 GitHub 取到最新版本，页面显示内置版本 v' + VERSION, err);
-        }
-      });
+    if (note) note.innerHTML = T.isLatest + '<b>v' + VERSION + '</b>';
   }
 
   /* ── 主题：深色 / 浅色 ──────────────────────────────────────────────── */
@@ -535,8 +443,8 @@
     initTheme();
     initAnatomy();
     initDemo();
-    var saveAs = initSaveAs();
-    initVersion(saveAs && saveAs.sync);
+    initSaveAs();
+    initVersionNote();
     initPanels();
     initDrawer();
     initTracking();

@@ -1,12 +1,18 @@
 name: Website
 
+# 只在 website/ 或其部署链路变化时重新部署。
+# 发版触发的部署走 release.yml → deploy-site.yml，不依赖 release 事件链：
+# 用仓库默认 GITHUB_TOKEN 造成的 release 事件不会触发新的工作流运行
+# （GitHub 的防递归规则），而可复用工作流是 job 调用，不受该限制影响。
 on:
   push:
     branches:
-      - main
+      - master
     paths:
       - 'website/**'
+      - 'scripts/stamp-site-version.mjs'
       - '.github/workflows/website.yml'
+      - '.github/workflows/deploy-site.yml'
   workflow_dispatch:
 
 permissions:
@@ -14,29 +20,11 @@ permissions:
   pages: write
   id-token: write
 
-concurrency:
-  group: pages
-  cancel-in-progress: true
-
 jobs:
   deploy:
-    name: Deploy to GitHub Pages
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Pages
-        uses: actions/configure-pages@v5
-
-      - name: Upload pages artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: website
-
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+    name: Deploy website
+    uses: ./.github/workflows/deploy-site.yml
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
