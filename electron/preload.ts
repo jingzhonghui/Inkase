@@ -15,7 +15,7 @@ import type {
   ToolExecutionResult
 } from '../shared/ai/types'
 import type { ConflictChoice, EnableSyncOptions, SyncConfig, SyncResult, SyncStatusView } from './sync/types'
-import type { BacklinkItem, IndexProgress, IndexStatus, LinkRef } from '../shared/knowledge/types'
+import type { BacklinkItem, IndexProgress, IndexStatus, LinkRef, ReferenceRewriteResult } from '../shared/knowledge/types'
 
 export type { UpdateInfoPayload }
 
@@ -137,8 +137,8 @@ export interface ElectronAPI {
   searchFiles: (dirPath: string, limit?: number) => Promise<{ success: boolean; data?: Array<{ name: string; path: string }>; error?: string }>
   createFile: (dirPath: string, name: string) => Promise<{ success: boolean; data?: { path: string }; error?: string }>
   createFolder: (parentPath: string, name: string) => Promise<{ success: boolean; data?: { path: string }; error?: string }>
-  renameFile: (oldPath: string, newName: string) => Promise<{ success: boolean; data?: { path: string }; error?: string }>
-  moveFile: (sourcePath: string, targetDir: string) => Promise<{ success: boolean; data?: { path: string }; error?: string }>
+  renameFile: (oldPath: string, newName: string) => Promise<{ success: boolean; data?: { path: string; references?: ReferenceRewriteResult | null }; error?: string }>
+  moveFile: (sourcePath: string, targetDir: string) => Promise<{ success: boolean; data?: { path: string; references?: ReferenceRewriteResult | null }; error?: string }>
   deleteFile: (targetPath: string) => Promise<{ success: boolean; error?: string }>
   importFilesIntoFolder: (targetDir: string, sourcePaths?: string[], conflictAction?: 'skip' | 'overwrite' | 'keep') => Promise<{ success: boolean; data?: FolderImportResult; error?: string }>
   importDirectoryIntoFolder: (targetDir: string, sourcePath?: string, conflictAction?: 'skip' | 'overwrite' | 'keep') => Promise<{ success: boolean; data?: FolderImportResult; error?: string }>

@@ -12,6 +12,8 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import * as mammoth from 'mammoth'
 import type { NodeKind } from '../../shared/knowledge/types'
+import { cleanupTempDir, openMdx } from '../mdx/reader'
+import { prepareAssetsData, saveMdx } from '../mdx/writer'
 import { DEFAULT_MDX_SEARCH_LIMITS, extractMdxContentText } from '../workspace/mdx-content-search'
 
 /** `.mdx`：安全解包并取出 `content.md` 文本 */
@@ -33,4 +35,48 @@ export async function extractVaultText(absPath: string, kind: NodeKind): Promise
   if (kind === 'mdx') return extractMdxText(absPath)
   if (kind === 'office') return extractOfficeText(absPath)
   return ''
+}
+
+/**
+ * 引用重写用：读取可改写的正文
+ *
+ * `.md` 直接读；`.mdx` 复用安全解包（只读 `content.md`，不落盘）；
+ * 其余类型返回 null（不参与改写）。
+ */
+export async function readVaultText(absPath: string, relPath: string): Promise<string | null> {
+  const ext = path.extname(relPath).toLowerCase()
+  if (ext === '.md') return fs.promises.readFile(absPath, 'utf-8')
+  if (ext === '.mdx') return extractMdxText(absPath)
+  return null
+}
+
+/**
+ * 引用重写用：写回正文
+ *
+ * `.mdx` 走 `openMdx` → 改 `document.content` → `saveMdx`，**资源原样保留**。
+ */
+export async function writeVaultText(absPath: string, relPath: string, text: string): Promise<void> {
+  const ext = path.extname(relPath).toLowerCase()
+
+  if (ext === '.md') {
+    await fs.promises.writeFile(absPath, text, 'utf-8')
+    return
+  }
+  if (ext !== '.mdx') {
+    throw new Error(`不支持改写 ${relPath}`)
+  }
+
+  const opened = openMdx(absPath)
+  if (!opened.success || !opened.data) {
+    throw new Error(opened.error ?? 'MDX 打开失败')
+  }
+
+  const { document, tempDir } = opened.data
+  try {
+    document.content = text
+    const saved = await saveMdx(absPath, document, prepareAssetsData(tempDir, document))
+    if (!saved.success) throw new Error(saved.error ?? 'MDX 保存失败')
+  } finally {
+    cleanupTempDir(tempDir)
+  }
 }

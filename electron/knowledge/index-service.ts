@@ -29,7 +29,7 @@ import {
   type NodeKind
 } from '../../shared/knowledge/types'
 import { parseFrontmatter, readList } from './frontmatter'
-import { emptyIndex, isIndexStale, loadIndex, saveIndex, writeTextCache } from './index-store'
+import { emptyIndex, isIndexStale, loadIndex, removeIndex, saveIndex, writeTextCache } from './index-store'
 import { parseLinks, parseMarkdownLinkSpans, parseWikiLinks } from './link-parser'
 import { buildLinkIndex, normalizeName, resolveLink } from './link-resolver'
 import { isInsideRanges, lineOf, scanVisibleLines, visibleSegments } from './text-scan'
@@ -164,6 +164,7 @@ export class KnowledgeIndexService {
   private readonly root: string
   private readonly deps: IndexServiceDeps
   private index: KnowledgeIndex | null = null
+  private inFlight: Promise<KnowledgeIndex> | null = null
   private state: IndexStatus['state'] = 'idle'
   private progress: IndexProgress = { phase: 'idle', done: 0, total: 0 }
 
@@ -200,8 +201,20 @@ export class KnowledgeIndexService {
     return loaded
   }
 
-  /** 增量构建索引 */
+  /**
+   * 增量构建索引
+   *
+   * 并发调用共享同一次构建：两次构建交错会写坏内存状态与磁盘索引。
+   */
   async build(): Promise<KnowledgeIndex> {
+    if (this.inFlight !== null) return this.inFlight
+    this.inFlight = this.runBuild().finally(() => {
+      this.inFlight = null
+    })
+    return this.inFlight
+  }
+
+  private async runBuild(): Promise<KnowledgeIndex> {
     this.state = 'building'
 
     const previous = loadIndex(this.root)
@@ -355,9 +368,21 @@ export class KnowledgeIndexService {
     return index
   }
 
-  /** 全量重建（先删除索引目录） */
+  /**
+   * 强制全量重建
+   *
+   * 先等掉进行中的构建，再删除索引目录——否则 `runBuild` 仍会从磁盘上的旧索引复用条目。
+   */
   async rebuild(): Promise<KnowledgeIndex> {
+    if (this.inFlight !== null) {
+      try {
+        await this.inFlight
+      } catch {
+        /* 忽略：接下来会重新构建 */
+      }
+    }
     this.index = null
+    removeIndex(this.root)
     return this.build()
   }
 

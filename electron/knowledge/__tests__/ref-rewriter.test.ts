@@ -2,7 +2,8 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { planRewrite, rewriteVault } from '../ref-rewriter'
+import type { LinkRef } from '../../../shared/knowledge/types'
+import { buildPathMap, buildRenameMap, planRewrite, rewriteVault } from '../ref-rewriter'
 
 const map = new Map([['old', 'new']])
 
@@ -206,5 +207,118 @@ describe('rewriteVault', () => {
 
     expect(plan.changes).toEqual([])
     expect(plan.errors).toHaveLength(1)
+  })
+})
+
+describe('buildRenameMap', () => {
+  function ref(target: string, to: string): LinkRef {
+    return {
+      from: 'a.md',
+      raw: `[[${target}]]`,
+      target,
+      to,
+      kind: 'link',
+      line: 1,
+      column: 1,
+      status: 'resolved'
+    }
+  }
+
+  const from = 'dir/note-b.md'
+  const to = 'dir/note-c.md'
+
+  it('maps every written form of the renamed file', () => {
+    const outgoing = {
+      'a.md': [ref('note-b', from), ref('dir/note-b', from), ref('dir/note-b.md', from)]
+    }
+    const result = buildRenameMap(from, to, outgoing)
+
+    expect(result.get('note-b')).toBe('note-c')
+    expect(result.get('dir/note-b')).toBe('dir/note-c')
+    expect(result.get('dir/note-b.md')).toBe('dir/note-c.md')
+  })
+
+  it('ignores references that resolve to another file', () => {
+    const outgoing = { 'a.md': [ref('other', 'other.md')] }
+
+    expect(buildRenameMap(from, to, outgoing).size).toBe(0)
+  })
+
+  it('ignores unresolved references', () => {
+    const outgoing = { 'a.md': [{ ...ref('note-b', from), status: 'ambiguous' as const }] }
+
+    expect(buildRenameMap(from, to, outgoing).size).toBe(0)
+  })
+
+  it('does not rewrite alias references', () => {
+    const outgoing = { 'a.md': [ref('简称', from)] }
+
+    expect(buildRenameMap(from, to, outgoing).size).toBe(0)
+  })
+
+  it('updates the directory part when the file moves', () => {
+    const outgoing = { 'a.md': [ref('old/note-b', 'old/note-b.md')] }
+
+    expect(buildRenameMap('old/note-b.md', 'new/note-b.md', outgoing).get('old/note-b')).toBe('new/note-b')
+  })
+
+  it('follows an extension change', () => {
+    const outgoing = { 'a.md': [ref('note-b.md', from)] }
+
+    expect(buildRenameMap(from, 'dir/note-c.mdx', outgoing).get('note-b.md')).toBe('note-c.mdx')
+  })
+})
+
+describe('planRewrite with markdown relative links', () => {
+  const emptyMap = new Map<string, string>()
+  const pathMap = buildPathMap([{ from: 'old/note.md', to: 'new/note.md' }])
+
+  it('recomputes a link relative to the referencing file', () => {
+    expect(planRewrite('[文本](old/note.md)\n', emptyMap, { from: 'a.md', pathMap })).toEqual({
+      text: '[文本](new/note.md)\n',
+      changes: 1
+    })
+  })
+
+  it('recomputes a link from a subdirectory', () => {
+    const out = planRewrite('[文本](../old/note.md)\n', emptyMap, { from: 'sub/x.md', pathMap })
+
+    expect(out.text).toBe('[文本](../new/note.md)\n')
+  })
+
+  it('keeps the anchor', () => {
+    const out = planRewrite('[x](old/note.md#标题)', emptyMap, { from: 'a.md', pathMap })
+
+    expect(out.text).toBe('[x](new/note.md#标题)')
+  })
+
+  it('keeps the link title', () => {
+    const out = planRewrite('[x](old/note.md "标题")', emptyMap, { from: 'a.md', pathMap })
+
+    expect(out.text).toBe('[x](new/note.md "标题")')
+  })
+
+  it('ignores links that point elsewhere', () => {
+    expect(planRewrite('[x](other.md)', emptyMap, { from: 'a.md', pathMap }).changes).toBe(0)
+  })
+
+  it('does nothing without knowing the referencing file', () => {
+    expect(planRewrite('[x](old/note.md)', emptyMap, { pathMap }).changes).toBe(0)
+  })
+
+  it('rewrites both link kinds in one pass', () => {
+    const out = planRewrite('[[old]] 与 [x](old/note.md)\n', map, { from: 'a.md', pathMap })
+
+    expect(out.text).toBe('[[new]] 与 [x](new/note.md)\n')
+    expect(out.changes).toBe(2)
+  })
+
+  it('rewrites a file that only has a relative link', async () => {
+    writeFile('a.md', '[文本](old/note.md)\n')
+
+    const plan = await rewriteVault(root, emptyMap, { pathMap })
+
+    expect(plan.changes).toEqual([{ path: 'a.md', count: 1 }])
+    expect(readFile('a.md')).toBe('[文本](new/note.md)\n')
   })
 })

@@ -10,9 +10,58 @@ import * as path from 'path'
 import { IPC_CHANNELS } from './channels'
 import { readClipboardFilePaths, writeClipboardFilePaths, type ClipboardMode } from '../clipboard/file-clipboard'
 import { dedupeTopLevelPaths } from '../../shared/fs/dedupe'
+import type { IndexError, ReferenceRewriteResult } from '../../shared/knowledge/types'
+import { buildPathMap, buildRenameMap, rewriteVault } from '../knowledge/ref-rewriter'
+import { planRenames } from '../knowledge/rename-plan'
+import { getKnowledgeService } from '../knowledge/service-registry'
+import { readVaultText, writeVaultText } from '../knowledge/vault-text'
+import { getAuthorizedWorkspaceRoot } from '../workspace/workspace-authorization'
 
 /** 最近文件列表上限 */
 const MAX_RECENT_FILES = 20
+
+/**
+ * 重命名 / 移动后重写库内引用
+ *
+ * 索引缺失时先载入、再构建（重命名是用户显式操作，宁可多等一次也不能漏改引用）。
+ * 改写完成后异步刷新索引，不阻塞重命名结果返回。
+ */
+async function rewriteReferencesAfterMove(
+  root: string,
+  renames: Array<{ from: string; to: string }>
+): Promise<ReferenceRewriteResult> {
+  const service = getKnowledgeService(root)
+  if (service.getIndex() === null && service.load() === null) {
+    await service.build()
+  }
+
+  const index = service.getIndex()
+  const map = new Map<string, string>()
+  if (index !== null) {
+    for (const rename of renames) {
+      for (const [written, replacement] of buildRenameMap(rename.from, rename.to, index.outgoing)) {
+        map.set(written, replacement)
+      }
+    }
+  }
+
+  const plan = await rewriteVault(root, map, {
+    pathMap: buildPathMap(renames),
+    readText: readVaultText,
+    writeText: writeVaultText
+  })
+
+  const errors: IndexError[] = plan.errors.map((item) => ({ path: item.path, message: item.message }))
+
+  // 引用与文件路径都已变化，异步刷新索引
+  void service.build().catch(() => {})
+
+  return {
+    changed: plan.changes.reduce((sum, item) => sum + item.count, 0),
+    files: plan.changes.length,
+    errors
+  }
+}
 
 /** 最近文件列表项类型 */
 export type RecentItemType = 'file' | 'folder'
@@ -455,33 +504,41 @@ export function registerFileHandlers(): void {
     }
   })
 
-  // 重命名文件/文件夹
-  ipcMain.handle(IPC_CHANNELS.FILE.RENAME, async (_, { oldPath, newName }: { oldPath: string; newName: string }) => {
+  // 重命名文件/文件夹（库内文件会自动重写引用）
+  ipcMain.handle(IPC_CHANNELS.FILE.RENAME, async (event, { oldPath, newName }: { oldPath: string; newName: string }) => {
     try {
       const dir = path.dirname(oldPath)
       const newPath = path.join(dir, newName)
+      const isDirectory = fs.existsSync(oldPath) && fs.statSync(oldPath).isDirectory()
+
       if (fs.existsSync(newPath)) {
         // Windows NTFS 不区分大小写：新旧路径仅大小写不同时指向同一路径，允许仅大小写重命名
-        if (process.platform === 'win32' && fs.existsSync(oldPath)) {
-          const oldReal = path.normalize(fs.realpathSync(oldPath))
-          const newReal = path.normalize(fs.realpathSync(newPath))
-          if (oldReal.toLowerCase() === newReal.toLowerCase()) {
-            fs.renameSync(oldPath, newPath)
-            return { success: true, data: { path: newPath } }
-          }
+        const caseOnlyRename =
+          process.platform === 'win32' &&
+          fs.existsSync(oldPath) &&
+          path.normalize(fs.realpathSync(oldPath)).toLowerCase() ===
+            path.normalize(fs.realpathSync(newPath)).toLowerCase()
+        if (!caseOnlyRename) {
+          return { success: false, error: '目标已存在' }
         }
-        return { success: false, error: '目标已存在' }
       }
+
+      // 磁盘操作前先算好受影响路径
+      const root = getAuthorizedWorkspaceRoot(event.sender.id)
+      const renames = root === null ? null : planRenames(root, oldPath, newPath, isDirectory)
+
       fs.renameSync(oldPath, newPath)
-      return { success: true, data: { path: newPath } }
+
+      const references = root === null || renames === null ? null : await rewriteReferencesAfterMove(root, renames)
+      return { success: true, data: { path: newPath, references } }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '未知错误'
       return { success: false, error: errorMessage }
     }
   })
 
-  // 移动文件/文件夹到其他目录
-  ipcMain.handle(IPC_CHANNELS.FILE.MOVE, async (_, { sourcePath, targetDir }: { sourcePath: string; targetDir: string }) => {
+  // 移动文件/文件夹到其他目录（库内文件会自动重写引用）
+  ipcMain.handle(IPC_CHANNELS.FILE.MOVE, async (event, { sourcePath, targetDir }: { sourcePath: string; targetDir: string }) => {
     try {
       const sourceStat = fs.statSync(sourcePath)
       const targetDirStat = fs.statSync(targetDir)
@@ -500,6 +557,10 @@ export function registerFileHandlers(): void {
           return { success: false, error: '不能移动到自身或其子目录' }
         }
       }
+      // 磁盘操作前先算好受影响路径
+      const moveRoot = getAuthorizedWorkspaceRoot(event.sender.id)
+      const moveRenames =
+        moveRoot === null ? null : planRenames(moveRoot, sourcePath, targetPath, sourceStat.isDirectory())
       try {
         fs.renameSync(sourcePath, targetPath)
       } catch (renameError) {
@@ -512,7 +573,9 @@ export function registerFileHandlers(): void {
           fs.unlinkSync(sourcePath)
         }
       }
-      return { success: true, data: { path: targetPath } }
+      const references =
+        moveRoot === null || moveRenames === null ? null : await rewriteReferencesAfterMove(moveRoot, moveRenames)
+      return { success: true, data: { path: targetPath, references } }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '未知错误'
       return { success: false, error: errorMessage }
