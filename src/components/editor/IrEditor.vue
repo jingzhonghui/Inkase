@@ -50,7 +50,8 @@ import { wrapInList } from 'prosemirror-schema-list'
 import type { Node as ProseMirrorNode } from 'prosemirror-model'
 import { useLinkDecorations } from '../../composables/useLinkDecorations'
 import { collectLinkDecorations } from '../../utils/prosemirror/link-decorations'
-import type { LinkResolution } from '../../../shared/knowledge/types'
+import LinkAutocomplete from '../knowledge/LinkAutocomplete.vue'
+import type { LinkResolution, NoteEntry } from '../../../shared/knowledge/types'
 import katex from 'katex'
 import type { NodeView, ViewMutationRecord } from 'prosemirror-view'
 import { getHighlighter, type Highlighter } from '../../utils/shiki'
@@ -407,8 +408,111 @@ function createLinkPlugin(): ProseMirrorPlugin {
   })
 }
 
-function createCodeHighlightPlugin(): ProseMirrorPlugin {
-  return new ProseMirrorPlugin<DecorationSet>({
+/**
+ * `[[` 补全的查询状态
+ *
+ * `from` 为 `[[` 之后的文档位置（补全要替换的起点）；`null` 表示当前不该提示。
+ * 高亮项索引只存在 Vue 侧，避免同一份状态两处维护。
+ */
+interface LinkSuggestQuery {
+  from: number | null
+  query: string
+}
+
+const linkSuggestKey = new PluginKey<LinkSuggestQuery>('ir-wiki-suggest')
+
+/** 当前候选（按 query 过滤） */
+const linkSuggestItems = ref<NoteEntry[]>([])
+/** 弹层可见性、高亮项与定位 */
+const linkSuggestActive = ref(0)
+const linkSuggestPosition = ref<{ x: number; y: number } | null>(null)
+const linkSuggestQuery = ref('')
+
+/** 从光标前的文本推断 `[[` 查询上下文 */
+function computeLinkSuggest(state: EditorState): { from: number | null; query: string } {
+  const { $from } = state.selection
+  if (!$from.parent.isTextblock) return { from: null, query: '' }
+
+  const textBefore = $from.parent.textBetween(0, $from.parentOffset, undefined, '\ufffc')
+  const open = textBefore.lastIndexOf('[[')
+  if (open === -1) return { from: null, query: '' }
+
+  const query = textBefore.slice(open + 2)
+  // 已闭合或已进入别名/锚点部分则不再提示
+  if (query.includes(']]') || query.includes('|') || query.includes('#')) {
+    return { from: null, query: '' }
+  }
+  return { from: $from.start() + open + 2, query }
+}
+
+function createLinkSuggestPlugin(): ProseMirrorPlugin<LinkSuggestQuery> {
+  return new ProseMirrorPlugin<LinkSuggestQuery>({
+    key: linkSuggestKey,
+    state: {
+      init: (_, state) => computeLinkSuggest(state),
+      apply(_tr, previous, _oldState, newState) {
+        const next = computeLinkSuggest(newState)
+        if (next.from === previous.from && next.query === previous.query) return previous
+        return next
+      }
+    },
+    view() {
+      return {
+        // 文档或选区变化后同步候选与弹层位置
+        update: () => syncLinkSuggest()
+      }
+    },
+    props: {
+      handleKeyDown(view, event) {
+        const current = linkSuggestKey.getState(view.state)
+        if (current === undefined || current.from === null) return false
+        const items = linkSuggestItems.value
+        if (items.length === 0) return false
+
+        if (event.key === 'ArrowDown') {
+          linkSuggestActive.value = (linkSuggestActive.value + 1) % items.length
+          return true
+        }
+        if (event.key === 'ArrowUp') {
+          linkSuggestActive.value = (linkSuggestActive.value - 1 + items.length) % items.length
+          return true
+        }
+        if (event.key === 'Enter' || event.key === 'Tab') {
+          applyLinkSuggestion(linkSuggestActive.value)
+          return true
+        }
+        if (event.key === 'Escape') {
+          // 只收起弹层，不改动文本
+          linkSuggestItems.value = []
+          linkSuggestPosition.value = null
+          return true
+        }
+        return false
+      }
+    }
+  })
+}
+
+/** 用第 index 个候选替换 `[[` 之后的输入 */
+function applyLinkSuggestion(index: number): void {
+  const view = viewRef.value
+  if (!view) return
+  const current = linkSuggestKey.getState(view.state)
+  if (current === undefined || current.from === null) return
+
+  const item = linkSuggestItems.value[index]
+  if (item === undefined) return
+
+  const name = item.path.replace(/^.*\//, '').replace(/\.[^./]+$/, '')
+  view.dispatch(
+    view.state.tr.insertText(`${name}]]`, current.from, view.state.selection.from)
+  )
+  linkSuggestItems.value = []
+  linkSuggestPosition.value = null
+  view.focus()
+}
+
+function createCodeHighlightPlugin(): ProseMirrorPlugin {  return new ProseMirrorPlugin<DecorationSet>({
     key: codeHighlightKey,
     state: {
       init: () => DecorationSet.empty,
@@ -1205,6 +1309,7 @@ function createEditorState(content: string): EditorState {
     createIRPlugin(),
     createCodeHighlightPlugin(),
     createLinkPlugin(),
+    createLinkSuggestPlugin(),
     createContextMenuPlugin(),
     createListClipboardPlugin(),
     irSearchPlugin,
@@ -1592,6 +1697,58 @@ watch(linkDecorations.resolutionCache, () => {
     )
   )
 })
+
+/**
+ * `[[` 补全的候选与定位
+ *
+ * 由补全插件的 `view().update` 驱动：查询状态在 ProseMirror 里，
+ * 这里把它同步成 Vue 响应式数据，并用 coordsAtPos 换算容器内坐标。
+ */
+function syncLinkSuggest(): void {
+  const view = viewRef.value
+  const current = view ? linkSuggestKey.getState(view.state) : undefined
+  const from = current?.from ?? null
+
+  if (!view || from === null) {
+    linkSuggestQuery.value = ''
+    linkSuggestItems.value = []
+    linkSuggestPosition.value = null
+    return
+  }
+
+  linkSuggestQuery.value = current?.query ?? ''
+  const needle = linkSuggestQuery.value.trim().toLowerCase()
+
+  const items = linkDecorations.candidates.value.filter((note) => {
+    if (needle === '') return true
+    const name = note.path.replace(/^.*\//, '').replace(/\.[^./]+$/, '')
+    return (
+      name.toLowerCase().includes(needle) ||
+      note.path.toLowerCase().includes(needle) ||
+      note.aliases.some((alias) => alias.toLowerCase().includes(needle))
+    )
+  })
+  linkSuggestItems.value = items.slice(0, 50)
+
+  // 候选变化后把高亮项夹回有效范围
+  const max = Math.max(0, linkSuggestItems.value.length - 1)
+  if (linkSuggestActive.value > max) linkSuggestActive.value = 0
+
+  const container = containerRef.value
+  if (!container || linkSuggestItems.value.length === 0) {
+    linkSuggestPosition.value = null
+    return
+  }
+
+  try {
+    const caret = view.coordsAtPos(from)
+    const box = container.getBoundingClientRect()
+    linkSuggestPosition.value = { x: caret.left - box.left, y: caret.bottom - box.top + 4 }
+  } catch {
+    // 视图尚未布局时 coordsAtPos 可能失败，静默跳过本轮定位
+    linkSuggestPosition.value = null
+  }
+}
 
 /**
  * 消费定位请求
@@ -1987,6 +2144,14 @@ defineExpose({
       class="ir-container"
       :class="{ dragging: isDragging, 'ir-ctrl-pressed': ctrlPressed }"
     >
+      <LinkAutocomplete
+        :items="linkSuggestItems"
+        :active-index="linkSuggestActive"
+        :position="linkSuggestPosition"
+        :query="linkSuggestQuery"
+        @select="applyLinkSuggestion"
+        @hover="(index) => (linkSuggestActive = index)"
+      />
       <div
         v-if="tableToolbar.visible"
         ref="tableToolbarRef"
