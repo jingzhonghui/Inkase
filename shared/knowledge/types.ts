@@ -11,8 +11,9 @@
  * 索引解析器版本
  *
  * 解析逻辑发生不兼容变化时递增，用于让既有索引整体失效并全量重建。
+ * 2：标签开始记录来源（行内 `#标签` / frontmatter `tags`）。
  */
-export const KNOWLEDGE_PARSER_VERSION = 1
+export const KNOWLEDGE_PARSER_VERSION = 2
 
 /** 库内节点类型（决定如何抽取正文） */
 export type NodeKind = 'md' | 'mdx' | 'office' | 'pdf' | 'image' | 'other'
@@ -63,6 +64,12 @@ export interface FileEntry {
   kind: NodeKind
   /** frontmatter `aliases`，参与链接解析与未链接提及匹配 */
   aliases?: string[]
+  /**
+   * frontmatter 标量字段（供结构化查询按属性等值筛选）
+   *
+   * 数组字段以 `,` 连接；仅收短值，避免索引膨胀。
+   */
+  props?: Record<string, string>
 }
 
 /** 未链接提及：正文里出现了其它笔记的标题/别名，但没有建立链接 */
@@ -76,6 +83,39 @@ export interface MentionItem {
 export interface IndexError {
   path: string
   message: string
+}
+
+/**
+ * 标签来源
+ *
+ * `inline` = 正文里的 `#标签`；`frontmatter` = 头部 `tags:` 列表。
+ * 同一标签可能两种来源都有（同一文件内），面板需分别标注。
+ */
+export type TagSource = 'inline' | 'frontmatter'
+
+/** 一次标签使用（文件 → 标签 + 来源） */
+export interface TagUse {
+  tag: string
+  source: TagSource
+}
+
+/** 标签总览项（面板列表用） */
+export interface TagSummary {
+  tag: string
+  /** 使用该标签的文件数 */
+  count: number
+  /** 来自行内 `#标签` 的文件数 */
+  inline: number
+  /** 来自 frontmatter `tags` 的文件数 */
+  frontmatter: number
+}
+
+/** 某标签下的一个文件及其来源 */
+export interface TagNote {
+  /** 库内相对路径 */
+  path: string
+  /** 该文件使用此标签的来源（可能两种都有） */
+  sources: TagSource[]
 }
 
 /**
@@ -112,6 +152,8 @@ export interface KnowledgeIndex {
   unresolved: LinkRef[]
   /** 标签 → 笔记路径列表（倒排；含行内 #标签 与 frontmatter tags） */
   tags: Record<string, string[]>
+  /** 库内相对路径 → 该文件的标签及来源（`tags` 倒排表由此派生） */
+  tagUses: Record<string, TagUse[]>
   /** 库内相对路径 → 未链接提及 */
   mentions: Record<string, MentionItem[]>
   errors: IndexError[]
@@ -133,6 +175,43 @@ export interface IndexProgress {
   phase: 'idle' | 'scan' | 'parse' | 'write'
   done: number
   total: number
+}
+
+/**
+ * 结构化查询
+ *
+ * 语义全部在主进程解释（渲染层只负责组装），避免渲染层接触 fs：
+ * - `text` / `regex` 走 ripgrep（`.mdx` 由主进程解包后搜索）；
+ * - `tags` / `props` / `paths` 走索引，并与文本结果取交集。
+ */
+export interface KnowledgeQuery {
+  /** 全文关键词（字面量） */
+  text?: string
+  /** 全部命中（AND） */
+  tags?: string[]
+  /** 路径包含任一（大小写不敏感） */
+  paths?: string[]
+  /** frontmatter 属性等值匹配（AND） */
+  props?: Record<string, string>
+  /** 正则（与 `text` 互斥，优先 `regex`） */
+  regex?: string
+  caseSensitive?: boolean
+  /** 结果上限，默认 200 */
+  limit?: number
+}
+
+/** 一条搜索结果 */
+export interface SearchHit {
+  /** 库内相对路径 */
+  path: string
+  /** 1-based 行号 */
+  line: number
+  /** 1-based 列号 */
+  column: number
+  /** 命中行预览；索引命中时为空串 */
+  text: string
+  /** rg = ripgrep 正文命中；index = 仅由索引筛选命中 */
+  source: 'rg' | 'index'
 }
 
 /**

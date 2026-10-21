@@ -95,6 +95,7 @@ export function emptyIndex(root: string): KnowledgeIndex {
     outgoing: {},
     unresolved: [],
     tags: {},
+    tagUses: {},
     mentions: {},
     errors: []
   }
@@ -129,6 +130,7 @@ export function loadIndex(root: string): KnowledgeIndex | null {
       outgoing: raw.outgoing,
       unresolved: Array.isArray(raw.unresolved) ? raw.unresolved : [],
       tags: raw.tags && typeof raw.tags === 'object' ? raw.tags : {},
+      tagUses: raw.tagUses && typeof raw.tagUses === 'object' ? raw.tagUses : {},
       mentions: raw.mentions && typeof raw.mentions === 'object' ? raw.mentions : {},
       errors: Array.isArray(raw.errors) ? raw.errors : []
     }

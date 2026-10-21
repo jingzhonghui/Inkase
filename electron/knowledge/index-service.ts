@@ -26,9 +26,13 @@ import {
   type KnowledgeIndex,
   type LinkRef,
   type MentionItem,
-  type NodeKind
+  type NodeKind,
+  type TagNote,
+  type TagSource,
+  type TagSummary,
+  type TagUse
 } from '../../shared/knowledge/types'
-import { parseFrontmatter, readList } from './frontmatter'
+import { parseFrontmatter, readList, type Frontmatter } from './frontmatter'
 import { emptyIndex, isIndexStale, loadIndex, removeIndex, saveIndex, writeTextCache } from './index-store'
 import { parseLinks, parseMarkdownLinkSpans, parseWikiLinks } from './link-parser'
 import { buildLinkIndex, normalizeName, resolveLink } from './link-resolver'
@@ -110,7 +114,8 @@ interface ParsedFile {
   entry: FileEntry
   /** 目标已填、解析状态待补 */
   outgoing: LinkRef[]
-  tags: string[]
+  /** 该文件的标签及来源 */
+  tagUses: TagUse[]
   /** 供第二阶段（提及扫描）使用的正文；超限为 null */
   mentionText: string | null
   /** 正文中已有链接的字符区间（相对 mentionText） */
@@ -146,17 +151,25 @@ function stripExtension(name: string): string {
   return name.replace(/\.[^./\\]+$/, '')
 }
 
-/** 由「标签 → 文件」倒推「文件 → 标签」，供增量复用时还原单文件标签 */
-function invertTags(tags: Record<string, string[]>): Map<string, string[]> {
-  const byFile = new Map<string, string[]>()
-  for (const [tag, files] of Object.entries(tags)) {
-    for (const file of files) {
-      const list = byFile.get(file)
-      if (list) list.push(tag)
-      else byFile.set(file, [tag])
-    }
+/** frontmatter 属性收录上限：单值字符数与字段数，避免索引膨胀 */
+const PROP_VALUE_MAX = 200
+const PROP_COUNT_MAX = 32
+
+/**
+ * 收集 frontmatter 中的标量属性，供结构化查询按属性筛选
+ *
+ * 数组以 `,` 连接；超长值与非字符串值一律丢弃（宁缺勿错）。
+ */
+function collectProps(fm: Frontmatter | null): Record<string, string> | null {
+  if (fm === null) return null
+  const props: Record<string, string> = {}
+  for (const [key, value] of Object.entries(fm.data)) {
+    if (Object.keys(props).length >= PROP_COUNT_MAX) break
+    const text = Array.isArray(value) ? value.join(',') : value
+    if (typeof text !== 'string' || text === '' || text.length > PROP_VALUE_MAX) continue
+    props[key] = text
   }
-  return byFile
+  return Object.keys(props).length > 0 ? props : null
 }
 
 /** 知识索引服务 */
@@ -219,7 +232,7 @@ export class KnowledgeIndexService {
 
     const previous = loadIndex(this.root)
     const reusable = isIndexStale(previous, KNOWLEDGE_PARSER_VERSION) ? null : previous
-    const prevTagsByFile = reusable ? invertTags(reusable.tags) : new Map<string, string[]>()
+    const prevTagUses = reusable?.tagUses ?? {}
 
     let scanned: ScannedFile[]
     try {
@@ -254,7 +267,7 @@ export class KnowledgeIndexService {
           rel: file.rel,
           entry: prevEntry,
           outgoing: reusable?.outgoing[file.rel] ?? [],
-          tags: prevTagsByFile.get(file.rel) ?? [],
+          tagUses: prevTagUses[file.rel] ?? [],
           mentionText: null,
           linkSpans: [],
           bodyLineOffset: 0
@@ -322,10 +335,12 @@ export class KnowledgeIndexService {
       mentions[item.rel] = mentionPattern ? collectMentions(item, linkIndex, mentionPattern) : []
     }
 
-    // 反转标签索引
+    // 反转标签索引：倒排表供按标签取笔记，tagUses 保留每个文件的来源
     const tags: Record<string, string[]> = {}
+    const tagUses: Record<string, TagUse[]> = {}
     for (const item of parsed.values()) {
-      for (const tag of new Set(item.tags)) {
+      tagUses[item.rel] = item.tagUses
+      for (const tag of new Set(item.tagUses.map((use) => use.tag))) {
         if (tag === '') continue
         const list = tags[tag]
         if (list) list.push(item.rel)
@@ -349,6 +364,7 @@ export class KnowledgeIndexService {
       outgoing,
       unresolved,
       tags,
+      tagUses,
       mentions,
       errors
     }
@@ -413,19 +429,46 @@ export class KnowledgeIndexService {
     return items
   }
 
-  /** 全部标签及计数，按出现次数降序 */
-  queryTags(): Array<{ tag: string; count: number }> {
+  /**
+   * 全部标签及计数，按出现次数降序
+   *
+   * `inline` / `frontmatter` 分别统计来源文件数；同一文件两种来源都有时各计一次。
+   */
+  queryTags(): TagSummary[] {
     const index = this.index
     if (index === null) return []
 
-    return Object.entries(index.tags)
-      .map(([tag, files]) => ({ tag, count: files.length }))
-      .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag))
+    const summaries = new Map<string, TagSummary>()
+    for (const [tag, files] of Object.entries(index.tags)) {
+      summaries.set(tag, { tag, count: files.length, inline: 0, frontmatter: 0 })
+    }
+    for (const uses of Object.values(index.tagUses)) {
+      for (const source of new Set(uses.map((use) => `${use.tag}\u0000${use.source}`))) {
+        const [tag, kind] = source.split('\u0000')
+        const summary = summaries.get(tag)
+        if (summary === undefined) continue
+        if (kind === 'inline') summary.inline += 1
+        else summary.frontmatter += 1
+      }
+    }
+
+    return [...summaries.values()].sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag))
   }
 
-  /** 某标签下的文件 */
-  queryNotesByTag(tag: string): string[] {
-    return this.index?.tags[tag] ?? []
+  /** 某标签下的文件及其来源 */
+  queryNotesByTag(tag: string): TagNote[] {
+    const index = this.index
+    if (index === null) return []
+    const files = index.tags[tag]
+    if (files === undefined) return []
+
+    return files.map((file) => {
+      const sources: TagSource[] = []
+      for (const use of index.tagUses[file] ?? []) {
+        if (use.tag === tag && !sources.includes(use.source)) sources.push(use.source)
+      }
+      return { path: file, sources }
+    })
   }
 
   /** 设置进度并向外广播 */
@@ -458,6 +501,7 @@ export class KnowledgeIndexService {
 
     const fm = parseFrontmatter(text)
     const aliases = fm ? readList(fm, 'aliases') : []
+    const props = collectProps(fm)
     const body = fm ? text.slice(fm.bodyOffset) : text
     const bodyLineOffset = fm ? lineOf(text, fm.bodyOffset) - 1 : 0
 
@@ -470,7 +514,10 @@ export class KnowledgeIndexService {
     }
 
     const inlineTags = parseInlineTags(body)
-    const tags = [...(fm ? readList(fm, 'tags') : []), ...inlineTags.map((item) => item.tag)]
+    const tagUses: TagUse[] = [
+      ...(fm ? readList(fm, 'tags').map((tag) => ({ tag, source: 'frontmatter' as const })) : []),
+      ...inlineTags.map((item) => ({ tag: item.tag, source: 'inline' as const }))
+    ]
 
     const hash =
       file.kind === 'md'
@@ -488,6 +535,7 @@ export class KnowledgeIndexService {
     }
 
     const entry: FileEntry = { mtime: file.mtime, size: file.size, hash, kind: file.kind, aliases }
+    if (props !== null) entry.props = props
 
     const linkSpans: Array<[number, number]> = []
     if (body.length <= MENTION_TEXT_LIMIT) {
@@ -499,7 +547,7 @@ export class KnowledgeIndexService {
       rel: file.rel,
       entry,
       outgoing,
-      tags,
+      tagUses,
       mentionText: body.length <= MENTION_TEXT_LIMIT ? body : null,
       linkSpans,
       bodyLineOffset

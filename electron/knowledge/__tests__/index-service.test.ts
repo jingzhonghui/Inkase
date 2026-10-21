@@ -242,9 +242,41 @@ describe('KnowledgeIndexService', () => {
     const service = new KnowledgeIndexService(root)
     await service.build()
 
-    expect(service.queryTags()).toEqual([{ tag: 'x', count: 2 }])
-    expect(service.queryNotesByTag('x')).toEqual(['a.md', 'b.md'])
+    expect(service.queryTags()).toEqual([{ tag: 'x', count: 2, inline: 0, frontmatter: 2 }])
+    expect(service.queryNotesByTag('x')).toEqual([
+      { path: 'a.md', sources: ['frontmatter'] },
+      { path: 'b.md', sources: ['frontmatter'] }
+    ])
     expect(service.queryNotesByTag('nope')).toEqual([])
+  })
+
+  it('records whether a tag came from frontmatter or the body', async () => {
+    writeFile('a.md', '---\ntags: [shared]\n---\n\n#shared 正文\n')
+    writeFile('b.md', '# 只有行内 #shared\n')
+
+    const service = new KnowledgeIndexService(root)
+    await service.build()
+
+    const summary = service.queryTags().find((item) => item.tag === 'shared')
+    expect(summary).toEqual({ tag: 'shared', count: 2, inline: 2, frontmatter: 1 })
+
+    // a.md 两种来源都有，b.md 只有行内
+    expect(service.queryNotesByTag('shared')).toEqual([
+      { path: 'a.md', sources: ['frontmatter', 'inline'] },
+      { path: 'b.md', sources: ['inline'] }
+    ])
+  })
+
+  it('exposes per-file tag sources on the index', async () => {
+    writeFile('a.md', '---\ntags: [fm]\n---\n\n#body\n')
+
+    const service = new KnowledgeIndexService(root)
+    const index = await service.build()
+
+    expect(index.tagUses['a.md']).toEqual([
+      { tag: 'fm', source: 'frontmatter' },
+      { tag: 'body', source: 'inline' }
+    ])
   })
 
   it('loads a persisted index without rebuilding', async () => {

@@ -9,8 +9,16 @@
  */
 
 import { ipcMain, type BrowserWindow, type WebContents } from 'electron'
-import type { BacklinkItem, IndexStatus, LinkRef } from '../../shared/knowledge/types'
+import type {
+  BacklinkItem,
+  IndexStatus,
+  KnowledgeQuery,
+  LinkRef,
+  SearchHit,
+  TagNote
+} from '../../shared/knowledge/types'
 import { resolveRelPath } from '../knowledge/rel-path'
+import { searchKnowledge } from '../knowledge/search-service'
 import {
   getKnowledgeService,
   peekKnowledgeService,
@@ -58,6 +66,7 @@ export function registerKnowledgeHandlers(_getWindow: () => BrowserWindow | null
     KNOWLEDGE.BACKLINKS,
     KNOWLEDGE.TAGS,
     KNOWLEDGE.NOTES_BY_TAG,
+    KNOWLEDGE.SEARCH,
     KNOWLEDGE.UNRESOLVED
   ]
 
@@ -148,7 +157,21 @@ export function registerKnowledgeHandlers(_getWindow: () => BrowserWindow | null
       const root = requireRoot(event.sender.id)
       if (typeof tag !== 'string' || tag.trim() === '') throw new Error('标签不能为空')
       const service = peekKnowledgeService(root)
-      return toResult<string[]>(service?.queryNotesByTag(tag) ?? [])
+      return toResult<TagNote[]>(service?.queryNotesByTag(tag) ?? [])
+    } catch (error) {
+      return fail(error)
+    }
+  })
+
+  ipcMain.handle(KNOWLEDGE.SEARCH, async (event, query: KnowledgeQuery) => {
+    try {
+      const root = requireRoot(event.sender.id)
+      if (query === null || typeof query !== 'object') throw new Error('查询参数无效')
+      const service = peekKnowledgeService(root)
+      // 查询语义全部在主进程解释，渲染层只组装 KnowledgeQuery
+      return toResult<SearchHit[]>(
+        await searchKnowledge(root, query, service?.getIndex() ?? null, new AbortController().signal)
+      )
     } catch (error) {
       return fail(error)
     }

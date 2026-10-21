@@ -26,6 +26,7 @@ describe('knowledge shared types', () => {
       outgoing: {},
       unresolved: [],
       tags: {},
+      tagUses: {},
       mentions: {},
       errors: []
     }

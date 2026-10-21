@@ -124,6 +124,8 @@ export const IPC_CHANNELS = {
     NOTES_BY_TAG: 'knowledge:notesByTag',
     /** 断链清单 */
     UNRESOLVED: 'knowledge:unresolved',
+    /** 结构化查询（文本 + 标签 / 属性 / 路径） */
+    SEARCH: 'knowledge:search',
     /** 构建进度事件 */
     PROGRESS: 'knowledge:progress'
   },

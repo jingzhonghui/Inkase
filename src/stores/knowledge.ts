@@ -1,14 +1,19 @@
 import { computed, ref, watch } from 'vue'
 import { defineStore } from 'pinia'
-import type { BacklinkItem, IndexStatus, LinkRef } from '../../shared/knowledge/types'
+import type {
+  BacklinkItem,
+  IndexStatus,
+  KnowledgeQuery,
+  LinkRef,
+  SearchHit,
+  TagNote,
+  TagSummary
+} from '../../shared/knowledge/types'
 import { toAbsolutePath, toVaultRelativePath } from '../utils/knowledge-path'
 import { useFileStore } from './file'
 
-/** 标签及使用计数 */
-export interface TagCount {
-  tag: string
-  count: number
-}
+/** 标签及使用计数（含来源细分），供面板直接渲染 */
+export type TagCount = TagSummary
 
 /** 空闲状态常量（避免多处字面量漂移） */
 function idleStatus(): IndexStatus {
@@ -143,12 +148,29 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
     unresolved.value = res.success && res.data ? res.data : []
   }
 
-  /** 某个标签下的笔记（库内相对路径） */
-  async function loadNotesByTag(tag: string): Promise<string[]> {
+  /** 某个标签下的笔记（含各自来源） */
+  async function loadNotesByTag(tag: string): Promise<TagNote[]> {
     const bridge = api()
     if (bridge === null) return []
     const res = await bridge.getNotesByTag(tag)
     return res.success && res.data ? res.data : []
+  }
+
+  /**
+   * 结构化查询
+   *
+   * 查询语义在主进程解释；渲染层只组装条件。索引未就绪时文本搜索仍可用。
+   */
+  async function search(query: KnowledgeQuery): Promise<SearchHit[]> {
+    const bridge = api()
+    if (bridge === null) return []
+    const res = await bridge.searchKnowledge(query)
+    if (!res.success) {
+      error.value = res.error ?? '搜索失败'
+      return []
+    }
+    error.value = null
+    return res.data ?? []
   }
 
   /** 库内容发生变化（重命名/移动/外部修改）后刷新全部派生数据 */
@@ -238,6 +260,7 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
     loadTags,
     loadUnresolved,
     loadNotesByTag,
+    search,
     refreshAll,
     clear,
     init,

@@ -15,7 +15,17 @@ import type {
   ToolExecutionResult
 } from '../shared/ai/types'
 import type { ConflictChoice, EnableSyncOptions, SyncConfig, SyncResult, SyncStatusView } from './sync/types'
-import type { BacklinkItem, IndexProgress, IndexStatus, LinkRef, ReferenceRewriteResult } from '../shared/knowledge/types'
+import type {
+  BacklinkItem,
+  IndexProgress,
+  IndexStatus,
+  KnowledgeQuery,
+  LinkRef,
+  ReferenceRewriteResult,
+  SearchHit,
+  TagNote,
+  TagSummary
+} from '../shared/knowledge/types'
 
 export type { UpdateInfoPayload }
 
@@ -250,9 +260,10 @@ export interface ElectronAPI {
   ensureKnowledgeIndex: () => Promise<{ success: boolean; data?: IndexStatus; error?: string }>
   rebuildKnowledgeIndex: () => Promise<{ success: boolean; data?: IndexStatus; error?: string }>
   getBacklinks: (relPath: string) => Promise<{ success: boolean; data?: BacklinkItem[]; error?: string }>
-  getKnowledgeTags: () => Promise<{ success: boolean; data?: Array<{ tag: string; count: number }>; error?: string }>
-  getNotesByTag: (tag: string) => Promise<{ success: boolean; data?: string[]; error?: string }>
+  getKnowledgeTags: () => Promise<{ success: boolean; data?: TagSummary[]; error?: string }>
+  getNotesByTag: (tag: string) => Promise<{ success: boolean; data?: TagNote[]; error?: string }>
   getUnresolvedLinks: () => Promise<{ success: boolean; data?: LinkRef[]; error?: string }>
+  searchKnowledge: (query: KnowledgeQuery) => Promise<{ success: boolean; data?: SearchHit[]; error?: string }>
   onKnowledgeProgress: (callback: (progress: IndexProgress) => void) => () => void
 }
 
@@ -444,6 +455,7 @@ const api: ElectronAPI = {
   getKnowledgeTags: () => ipcRenderer.invoke(IPC_CHANNELS.KNOWLEDGE.TAGS),
   getNotesByTag: (tag) => ipcRenderer.invoke(IPC_CHANNELS.KNOWLEDGE.NOTES_BY_TAG, tag),
   getUnresolvedLinks: () => ipcRenderer.invoke(IPC_CHANNELS.KNOWLEDGE.UNRESOLVED),
+  searchKnowledge: (query) => ipcRenderer.invoke(IPC_CHANNELS.KNOWLEDGE.SEARCH, query),
   onKnowledgeProgress: (callback) => {
     const handler = (_event: unknown, progress: IndexProgress): void => callback(progress)
     ipcRenderer.on(IPC_CHANNELS.KNOWLEDGE.PROGRESS, handler)
