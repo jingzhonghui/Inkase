@@ -27,6 +27,7 @@ import {
   type LinkRef,
   type LinkResolution,
   type MentionItem,
+  type NoteEntry,
   type NodeKind,
   type TagNote,
   type TagSource,
@@ -470,6 +471,20 @@ export class KnowledgeIndexService {
       }
       return { path: file, sources }
     })
+  }
+
+  /**
+   * 列出库内全部笔记
+   *
+   * 供 `[[` 自动补全取候选：按路径排序，别名一并返回以便提示。
+   */
+  listNotes(): NoteEntry[] {
+    const index = this.index
+    if (index === null) return []
+
+    return Object.entries(index.files)
+      .map(([path, entry]) => ({ path, aliases: entry.aliases ?? [] }))
+      .sort((a, b) => a.path.localeCompare(b.path))
   }
 
   /**

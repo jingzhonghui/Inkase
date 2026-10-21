@@ -128,6 +128,8 @@ export const IPC_CHANNELS = {
     SEARCH: 'knowledge:search',
     /** 批量解析链接目标（供 `[[ ]]` 装饰上色） */
     RESOLVE: 'knowledge:resolve',
+    /** 库内笔记清单（供 `[[` 自动补全） */
+    NOTES: 'knowledge:notes',
     /** 构建进度事件 */
     PROGRESS: 'knowledge:progress'
   },

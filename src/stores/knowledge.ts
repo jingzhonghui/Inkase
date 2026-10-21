@@ -6,6 +6,7 @@ import type {
   KnowledgeQuery,
   LinkRef,
   LinkResolution,
+  NoteEntry,
   SearchHit,
   TagNote,
   TagSummary
@@ -174,6 +175,17 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
     return res.data ?? []
   }
 
+  /** 库内笔记清单（`[[` 自动补全的候选） */
+  const notes = ref<NoteEntry[]>([])
+
+  /** 拉取笔记清单 */
+  async function loadNotes(): Promise<void> {
+    const bridge = api()
+    if (bridge === null) return
+    const res = await bridge.listKnowledgeNotes()
+    notes.value = res.success && res.data ? res.data : []
+  }
+
   /** 批量解析链接目标（供 `[[ ]]` 装饰上色） */
   async function resolveTargets(
     targets: string[],
@@ -189,7 +201,7 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
   /** 库内容发生变化（重命名/移动/外部修改）后刷新全部派生数据 */
   async function refreshAll(): Promise<void> {
     await refreshStatus()
-    await Promise.all([loadTags(), loadUnresolved()])
+    await Promise.all([loadTags(), loadUnresolved(), loadNotes()])
     if (backlinksPath.value !== null) await loadBacklinks(backlinksPath.value)
   }
 
@@ -199,6 +211,7 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
     backlinksPath.value = null
     tags.value = []
     unresolved.value = []
+    notes.value = []
     error.value = null
   }
 
@@ -217,7 +230,7 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
           return
         }
         await ensureIndex()
-        await Promise.all([loadTags(), loadUnresolved()])
+        await Promise.all([loadTags(), loadUnresolved(), loadNotes()])
       },
       { immediate: true }
     )
@@ -275,6 +288,8 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
     loadNotesByTag,
     search,
     resolveTargets,
+    notes,
+    loadNotes,
     refreshAll,
     clear,
     init,

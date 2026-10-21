@@ -18,6 +18,8 @@ import { findCodeLanguage } from '../../utils/editor-language'
 import { formatCode, isFormattable } from '../../utils/formatters'
 import { requestDialog } from '../../utils/dialog'
 import { useEditorFontZoom } from '../../composables/useEditorFontZoom'
+import { useLinkDecorations } from '../../composables/useLinkDecorations'
+import type { LinkDecoration } from '../../utils/prosemirror/link-decorations'
 import EditorContextMenu from '../common/EditorContextMenu.vue'
 import FindReplacePanel from './FindReplacePanel.vue'
 import type { EditorContextMenuItem } from '../../types/editor-context-menu'
@@ -42,6 +44,10 @@ const emit = defineEmits<{
 const fileStore = useFileStore()
 const themeStore = useThemeStore()
 const outlineStore = useOutlineStore()
+
+// `[[链接]]` 装饰与跳转（纯文本文件不参与）
+const linkText = ref('')
+const linkDecorations = useLinkDecorations(linkText)
 
 // ====== 大纲：发布到 store + 响应跳转 ======
 /** 最近一次发布的标题（含行号），供跳转与高亮定位 */
@@ -198,6 +204,97 @@ function computeConflictDecos(state: EditorState): DecorationSet {
 // 是否正在同步内容（防止循环更新）
 let isSyncing = false
 
+// `[[链接]]` 装饰（解析状态由主进程给出，见 useLinkDecorations）
+const linkDecoEffect = StateEffect.define<DecorationSet>()
+const linkDecoField = StateField.define<DecorationSet>({
+  create: () => Decoration.none,
+  update: (deco, tr) => {
+    let next = deco.map(tr.changes)
+    for (const effect of tr.effects) {
+      if (effect.is(linkDecoEffect)) next = effect.value
+    }
+    return next
+  },
+  provide: (field) => EditorView.decorations.from(field)
+})
+
+/** 把链接区间翻译成 CodeMirror 装饰 */
+function toLinkDecoSet(decorations: LinkDecoration[], docLength: number): DecorationSet {
+  const ranges = decorations
+    .filter((deco) => deco.from >= 0 && deco.to <= docLength && deco.from < deco.to)
+    .map((deco) =>
+      Decoration.mark({ class: `cm-wiki-link cm-wiki-link-${deco.kind}` }).range(deco.from, deco.to)
+    )
+  return Decoration.set(ranges, true)
+}
+
+/** 命中测试：坐标落在哪个链接区间上 */
+function linkAt(view: EditorView, clientX: number, clientY: number): LinkDecoration | null {
+  const position = view.posAtCoords({ x: clientX, y: clientY })
+  if (position === null) return null
+  return linkDecorations.decorations.value.find((deco) => position >= deco.from && position <= deco.to) ?? null
+}
+
+/**
+ * 当前 `[[` 查询上下文
+ *
+ * 只在光标位于未闭合的 `[[` 之后时返回，供补全使用。
+ */
+function wikiLinkQuery(
+  state: EditorState,
+  pos: number
+): { from: number; query: string } | null {
+  const line = state.doc.lineAt(pos)
+  const before = line.text.slice(0, pos - line.from)
+  const open = before.lastIndexOf('[[')
+  if (open === -1) return null
+  const query = before.slice(open + 2)
+  // 已闭合或已进入别名/锚点部分则不再提示
+  if (query.includes(']]') || query.includes('|') || query.includes('#')) return null
+  return { from: line.from + open + 2, query }
+}
+
+/**
+ * `[[` 笔记补全
+ *
+ * 插入不带扩展名的笔记名（解析按 basename 命中）；过滤已在此处按
+ * 名称/路径/别名完成，故返回 `filter: false` 交给 CodeMirror 原样展示。
+ */
+function wikiLinkCompletions(context: {
+  state: EditorState
+  pos: number
+  explicit: boolean
+}): { from: number; options: Completion[]; filter: boolean } | null {
+  const current = wikiLinkQuery(context.state, context.pos)
+  if (current === null) return null
+
+  const needle = current.query.trim().toLowerCase()
+  const options: Completion[] = linkDecorations.candidates.value
+    .map((note) => ({
+      note,
+      name: note.path.replace(/^.*\//, '').replace(/\.[^./]+$/, '')
+    }))
+    .filter(({ note, name }) => {
+      if (needle === '') return true
+      return (
+        name.toLowerCase().includes(needle) ||
+        note.path.toLowerCase().includes(needle) ||
+        note.aliases.some((alias) => alias.toLowerCase().includes(needle))
+      )
+    })
+    .slice(0, 50)
+    .map(({ note, name }) => ({
+      label: name,
+      type: 'text',
+      detail: note.path,
+      info: note.aliases.length > 0 ? `别名：${note.aliases.join('、')}` : undefined,
+      apply: `${name}]]`
+    }))
+
+  if (options.length === 0) return null
+  return { from: current.from, options, filter: false }
+}
+
 /**
  * 创建 CodeMirror 扩展配置
  */
@@ -243,9 +340,9 @@ function createExtensions(): Extension[] {
                  'bash', 'powershell', 'ruby', 'php', 'swift', 'kotlin', 'markdown'].includes(d.name)
             )
           }),
-          // 自动补全
+          // 自动补全（Markdown 语法 + `[[` 笔记链接）
           autocompletion({
-            override: [markdownCompletions],
+            override: [wikiLinkCompletions, markdownCompletions],
             closeOnBlur: true
           })
         ]),
@@ -267,7 +364,7 @@ function createExtensions(): Extension[] {
     searchDecoField,
 
     // Markdown 模式高亮 Git 冲突标记；纯文本必须原样显示
-    ...(props.plainText ? [] : [conflictDecoField]),
+    ...(props.plainText ? [] : [conflictDecoField, linkDecoField]),
 
     // 主题（使用 compartment）
     themeCompartment.of(getThemeExtension()),
@@ -281,8 +378,7 @@ function createExtensions(): Extension[] {
         const content = update.state.doc.toString()
         fileStore.updateContent(content)
         emit('update:content', content)
-      }
-      if (update.selectionSet || update.docChanged) {
+      }      if (update.selectionSet || update.docChanged) {
         updateCursorPosition(update.state)
         updateEditorSelectionSnapshot(update.state)
       }
@@ -295,6 +391,15 @@ function createExtensions(): Extension[] {
         if (from !== to) return false
         event.clipboardData?.setData('text/plain', view.state.doc.lineAt(from).text)
         event.preventDefault()
+        return true
+      },
+      // 链接跳转：普通点击即跳（编辑器内点击不应打断写作），Alt+点击新窗口打开
+      mousedown(event: MouseEvent, view: EditorView) {
+        if (props.plainText || event.button !== 0) return false
+        const hit = linkAt(view, event.clientX, event.clientY)
+        if (hit === null) return false
+        event.preventDefault()
+        void linkDecorations.openLink(hit.target)
         return true
       }
     })
@@ -1354,6 +1459,7 @@ function insertTable(view: EditorView): void {
 onMounted(() => {
   initEditor()
   publishOutline()
+  applyLinkDecorations()
 
   // 添加拖放和粘贴事件监听
   const editorEl = editorRef.value
@@ -1452,6 +1558,26 @@ watch(() => [fileStore.activeTabId, fileStore.fileContent] as const, ([newTabId,
   updateEditorSelectionSnapshot(view.state)
   applyRevealRequest()
 })
+
+// 链接装饰的文本来源：用户输入与程序化同步最终都会经过 fileContent
+watch(
+  () => fileStore.fileContent,
+  (content) => {
+    linkText.value = content
+  },
+  { immediate: true }
+)
+
+/** 把当前链接装饰推给视图 */
+function applyLinkDecorations(): void {
+  const view = editorView.value
+  if (!view || props.plainText) return
+  view.dispatch({
+    effects: linkDecoEffect.of(toLinkDecoSet(linkDecorations.decorations.value, view.state.doc.length))
+  })
+}
+
+watch(linkDecorations.decorations, applyLinkDecorations)
 
 /**
  * 消费定位请求：滚动到目标行并选中
@@ -1683,6 +1809,33 @@ defineExpose({
 
 [data-theme='dark'] .codemirror-wrapper :deep(.cm-line.cm-conflict-marker) {
   background-color: rgba(239, 68, 68, 0.25);
+}
+
+/* `[[链接]]` 装饰：正常为链接色，歧义/断链用警示色（断链必须看得见） */
+.codemirror-wrapper :deep(.cm-wiki-link) {
+  color: var(--color-primary);
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.codemirror-wrapper :deep(.cm-wiki-link-ambiguous) {
+  color: #d97706;
+  text-decoration-style: dashed;
+}
+
+.codemirror-wrapper :deep(.cm-wiki-link-missing) {
+  color: #dc2626;
+  text-decoration-style: wavy;
+}
+
+[data-theme='dark'] .codemirror-wrapper :deep(.cm-wiki-link-ambiguous) {
+  color: #fbbf24;
+}
+
+[data-theme='dark'] .codemirror-wrapper :deep(.cm-wiki-link-missing) {
+  color: #f87171;
 }
 
 /* 选区样式 - 确保选中效果更明显 */

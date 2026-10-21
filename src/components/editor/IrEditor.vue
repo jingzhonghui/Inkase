@@ -48,6 +48,9 @@ import { wrapIn, setBlockType } from 'prosemirror-commands'
 import { undo, redo } from 'prosemirror-history'
 import { wrapInList } from 'prosemirror-schema-list'
 import type { Node as ProseMirrorNode } from 'prosemirror-model'
+import { useLinkDecorations } from '../../composables/useLinkDecorations'
+import { collectLinkDecorations } from '../../utils/prosemirror/link-decorations'
+import type { LinkResolution } from '../../../shared/knowledge/types'
 import katex from 'katex'
 import type { NodeView, ViewMutationRecord } from 'prosemirror-view'
 import { getHighlighter, type Highlighter } from '../../utils/shiki'
@@ -131,6 +134,9 @@ class MathBlockView implements NodeView {
 
 const fileStore = useFileStore()
 const themeStore = useThemeStore()
+// `[[链接]]` 装饰与跳转（解析结果由主进程给出）
+const linkText = ref('')
+const linkDecorations = useLinkDecorations(linkText)
 const ctrlPressed = ref(false)
 const clearCtrlPressedOnBlur = (): void => { ctrlPressed.value = false }
 const { fileContent, activeTabId } = storeToRefs(fileStore)
@@ -331,6 +337,75 @@ class CodeBlockView implements NodeView {
 }
 
 const codeHighlightKey = new PluginKey<DecorationSet>('ir-code-highlight')
+
+/**
+ * `[[链接]]` 装饰
+ *
+ * IR 的 doc 里 `[[x]]` 就是普通文本，但源码偏移与 doc 位置不能一一对应，
+ * 因此**按文本节点**复用同一个纯函数 `collectLinkDecorations`，再把结果
+ * 平移到该节点的 doc 位置。跨节点的 `[[x]]`（中间夹了行内标记）不会命中，
+ * 这是可接受的取舍。
+ */
+const linkPluginKey = new PluginKey<DecorationSet>('ir-wiki-link')
+
+/** IR 中必须跳过链接识别的节点（代码与公式原样呈现） */
+const LINK_SKIP_NODES = new Set(['code_block', 'math_block'])
+
+function buildLinkDecorations(
+  doc: ProseMirrorNode,
+  resolve: (target: string) => LinkResolution
+): DecorationSet {
+  const decorations: Decoration[] = []
+
+  doc.descendants((node, pos) => {
+    if (LINK_SKIP_NODES.has(node.type.name)) return false
+    if (!node.isText || node.text === undefined) return true
+
+    for (const deco of collectLinkDecorations(node.text, resolve)) {
+      decorations.push(
+        Decoration.inline(pos + deco.from, pos + deco.to, {
+          class: `wiki-link wiki-link-${deco.kind}`,
+          'data-wiki-target': deco.target
+        })
+      )
+    }
+    return true
+  })
+
+  return DecorationSet.create(doc, decorations)
+}
+
+function createLinkPlugin(): ProseMirrorPlugin {
+  return new ProseMirrorPlugin<DecorationSet>({
+    key: linkPluginKey,
+    state: {
+      init: (_, state) => buildLinkDecorations(state.doc, (target) => linkDecorations.resolve(target)),
+      apply(tr, decorations, _oldState, newState) {
+        const meta = tr.getMeta(linkPluginKey)
+        if (meta instanceof DecorationSet) return meta
+        if (tr.docChanged) {
+          return buildLinkDecorations(newState.doc, (target) => linkDecorations.resolve(target))
+        }
+        return decorations
+      }
+    },
+    props: {
+      decorations(state) {
+        return linkPluginKey.getState(state) || DecorationSet.empty
+      },
+      // 链接跳转：点击落在链接区间上即跳转（歧义/断链由 openLink 给出提示）
+      handleClick(_view, pos, event) {
+        const found = linkPluginKey.getState(_view.state)?.find(pos, pos) ?? []
+        const hit = found.find((deco) => typeof deco.spec['data-wiki-target'] === 'string')
+        const target = hit?.spec['data-wiki-target']
+        if (typeof target !== 'string') return false
+        event.preventDefault()
+        void linkDecorations.openLink(target)
+        return true
+      }
+    }
+  })
+}
 
 function createCodeHighlightPlugin(): ProseMirrorPlugin {
   return new ProseMirrorPlugin<DecorationSet>({
@@ -1129,6 +1204,7 @@ function createEditorState(content: string): EditorState {
     }),
     createIRPlugin(),
     createCodeHighlightPlugin(),
+    createLinkPlugin(),
     createContextMenuPlugin(),
     createListClipboardPlugin(),
     irSearchPlugin,
@@ -1494,6 +1570,27 @@ watch([activeTabId, fileContent], ([newTabId, newContent], [oldTabId]) => {
   if (tabChanged) publishSelectionFromProseMirror()
   nextTick(() => loadEditorImages())
   applyRevealRequest()
+})
+
+// 链接装饰的文本来源：让 useLinkDecorations 知道当前文档里有哪些目标要解析
+watch(
+  () => fileStore.fileContent,
+  (content) => {
+    linkText.value = content
+  },
+  { immediate: true }
+)
+
+// 解析结果异步到达（或索引重建）后，按 doc 位置重建装饰
+watch(linkDecorations.resolutionCache, () => {
+  const view = viewRef.value
+  if (!view) return
+  view.dispatch(
+    view.state.tr.setMeta(
+      linkPluginKey,
+      buildLinkDecorations(view.state.doc, (target) => linkDecorations.resolve(target))
+    )
+  )
 })
 
 /**
@@ -1978,6 +2075,29 @@ defineExpose({
 </template>
 
 <style scoped>
+/* `[[链接]]`：正常为链接色，歧义/断链用警示色（断链必须看得见） */
+.ir-container :deep(.wiki-link) {
+  color: var(--color-primary);
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.ir-container :deep(.wiki-link-ambiguous) {
+  color: #d97706;
+  text-decoration-style: dashed;
+}
+.ir-container :deep(.wiki-link-missing) {
+  color: #dc2626;
+  text-decoration-style: wavy;
+}
+[data-theme='dark'] .ir-container :deep(.wiki-link-ambiguous) {
+  color: #fbbf24;
+}
+[data-theme='dark'] .ir-container :deep(.wiki-link-missing) {
+  color: #f87171;
+}
+
 .ir-outer {
   position: relative;
   flex: 1;

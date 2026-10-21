@@ -22,6 +22,7 @@ import type {
   KnowledgeQuery,
   LinkRef,
   LinkResolution,
+  NoteEntry,
   ReferenceRewriteResult,
   SearchHit,
   TagNote,
@@ -265,6 +266,7 @@ export interface ElectronAPI {
   getNotesByTag: (tag: string) => Promise<{ success: boolean; data?: TagNote[]; error?: string }>
   getUnresolvedLinks: () => Promise<{ success: boolean; data?: LinkRef[]; error?: string }>
   searchKnowledge: (query: KnowledgeQuery) => Promise<{ success: boolean; data?: SearchHit[]; error?: string }>
+  listKnowledgeNotes: () => Promise<{ success: boolean; data?: NoteEntry[]; error?: string }>
   resolveLinks: (
     targets: string[],
     from?: string
@@ -461,6 +463,7 @@ const api: ElectronAPI = {
   getNotesByTag: (tag) => ipcRenderer.invoke(IPC_CHANNELS.KNOWLEDGE.NOTES_BY_TAG, tag),
   getUnresolvedLinks: () => ipcRenderer.invoke(IPC_CHANNELS.KNOWLEDGE.UNRESOLVED),
   searchKnowledge: (query) => ipcRenderer.invoke(IPC_CHANNELS.KNOWLEDGE.SEARCH, query),
+  listKnowledgeNotes: () => ipcRenderer.invoke(IPC_CHANNELS.KNOWLEDGE.NOTES),
   resolveLinks: (targets, from) => ipcRenderer.invoke(IPC_CHANNELS.KNOWLEDGE.RESOLVE, targets, from),
   onKnowledgeProgress: (callback) => {
     const handler = (_event: unknown, progress: IndexProgress): void => callback(progress)

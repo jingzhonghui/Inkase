@@ -215,6 +215,16 @@ export interface SearchHit {
 }
 
 /**
+ * `[[` 自动补全的候选笔记
+ */
+export interface NoteEntry {
+  /** 库内相对路径 */
+  path: string
+  /** frontmatter 声明的别名 */
+  aliases: string[]
+}
+
+/**
  * 索引状态
  *
  * `degraded` 表示索引不可用（构建失败/损坏），调用方必须降级显示，

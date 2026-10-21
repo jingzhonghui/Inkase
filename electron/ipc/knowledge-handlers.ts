@@ -15,6 +15,7 @@ import type {
   KnowledgeQuery,
   LinkRef,
   LinkResolution,
+  NoteEntry,
   SearchHit,
   TagNote
 } from '../../shared/knowledge/types'
@@ -71,6 +72,7 @@ export function registerKnowledgeHandlers(_getWindow: () => BrowserWindow | null
     KNOWLEDGE.TAGS,
     KNOWLEDGE.NOTES_BY_TAG,
     KNOWLEDGE.SEARCH,
+    KNOWLEDGE.NOTES,
     KNOWLEDGE.RESOLVE,
     KNOWLEDGE.UNRESOLVED
   ]
@@ -177,6 +179,15 @@ export function registerKnowledgeHandlers(_getWindow: () => BrowserWindow | null
       return toResult<SearchHit[]>(
         await searchKnowledge(root, query, service?.getIndex() ?? null, new AbortController().signal)
       )
+    } catch (error) {
+      return fail(error)
+    }
+  })
+
+  ipcMain.handle(KNOWLEDGE.NOTES, (event) => {
+    try {
+      const root = requireRoot(event.sender.id)
+      return toResult<NoteEntry[]>(peekKnowledgeService(root)?.listNotes() ?? [])
     } catch (error) {
       return fail(error)
     }
