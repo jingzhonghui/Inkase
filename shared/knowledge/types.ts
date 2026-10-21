@@ -35,6 +35,12 @@ export interface LinkRef {
   line: number
   /** 1-based 列号 */
   column: number
+  /** 解析结果状态；非 resolved 的引用会被收进 `unresolved` */
+  status?: 'resolved' | 'ambiguous' | 'missing'
+  /** `status === 'ambiguous'` 时的候选路径 */
+  candidates?: string[]
+  /** 所在行的上下文文本（已截断），供反链面板展示 */
+  context?: string
 }
 
 /**
@@ -55,6 +61,8 @@ export interface FileEntry {
   /** 内容指纹，用于增量判定 */
   hash: string
   kind: NodeKind
+  /** frontmatter `aliases`，参与链接解析与未链接提及匹配 */
+  aliases?: string[]
 }
 
 /** 未链接提及：正文里出现了其它笔记的标题/别名，但没有建立链接 */

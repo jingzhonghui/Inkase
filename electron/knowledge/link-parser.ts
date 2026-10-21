@@ -12,6 +12,7 @@
  */
 
 import type { LinkRef } from '../../shared/knowledge/types'
+import { columnOf, inlineCodeRanges, isInsideRanges, lineOf, scanVisibleLines } from './text-scan'
 
 /** 解析出的 wikilink 明细（含字符区间，供引用重写使用） */
 export interface WikiLinkToken {
@@ -26,34 +27,6 @@ export interface WikiLinkToken {
   alias?: string
   anchor?: string
   embed: boolean
-}
-
-/** 计算每行的起始偏移 */
-function lineStarts(text: string): number[] {
-  const starts = [0]
-  for (let i = 0; i < text.length; i++) {
-    if (text[i] === '\n') starts.push(i + 1)
-  }
-  return starts
-}
-
-/** 行内代码（反引号）占用的区间，用于豁免其中的链接语法 */
-function inlineCodeRanges(line: string): Array<[number, number]> {
-  const ranges: Array<[number, number]> = []
-  let i = 0
-  while (i < line.length) {
-    if (line[i] !== '`') {
-      i++
-      continue
-    }
-    let ticks = 0
-    while (line[i + ticks] === '`') ticks++
-    const closer = line.indexOf('`'.repeat(ticks), i + ticks)
-    if (closer === -1) break // 未闭合：其后内容按普通文本处理
-    ranges.push([i, closer + ticks])
-    i = closer + ticks
-  }
-  return ranges
 }
 
 /** 拆解 `[[ ]]` 内部：`目标#锚点|别名` */
@@ -81,43 +54,6 @@ function isRelativeTarget(href: string): boolean {
   return true
 }
 
-interface ScannedLine {
-  /** 行号，1-based */
-  line: number
-  /** 行内可见内容（已去掉行尾 \r） */
-  content: string
-  /** 行起始偏移 */
-  start: number
-}
-
-/** 按行扫描，剔除围栏代码块内的行 */
-function visibleLines(text: string): ScannedLine[] {
-  const starts = lineStarts(text)
-  const result: ScannedLine[] = []
-  let fence: string | null = null
-
-  for (let i = 0; i < starts.length; i++) {
-    const start = starts[i]
-    const rawEnd = i + 1 < starts.length ? starts[i + 1] - 1 : text.length
-    let content = text.slice(start, rawEnd)
-    if (content.endsWith('\r')) content = content.slice(0, -1)
-
-    const fenceMatch = /^\s*(`{3,}|~{3,})/.exec(content)
-    if (fence) {
-      if (fenceMatch && fenceMatch[1][0] === fence[0]) fence = null
-      continue
-    }
-    if (fenceMatch) {
-      fence = fenceMatch[1]
-      continue
-    }
-
-    result.push({ line: i + 1, content, start })
-  }
-
-  return result
-}
-
 /**
  * 抽取全部 wikilink（含嵌入），遵守代码区豁免
  *
@@ -126,14 +62,13 @@ function visibleLines(text: string): ScannedLine[] {
 export function parseWikiLinks(text: string): WikiLinkToken[] {
   const tokens: WikiLinkToken[] = []
 
-  for (const { line, content, start } of visibleLines(text)) {
+  for (const { content, start } of scanVisibleLines(text)) {
     const codeRanges = inlineCodeRanges(content)
-    const inCode = (index: number): boolean => codeRanges.some(([a, b]) => index >= a && index < b)
-
     const pattern = /!?\[\[([^\]]+?)\]\]/g
     let match: RegExpExecArray | null
+
     while ((match = pattern.exec(content)) !== null) {
-      if (inCode(match.index)) continue
+      if (isInsideRanges(match.index, codeRanges)) continue
       const raw = match[0]
       const { target, anchor, alias } = splitInner(match[1])
       tokens.push({
@@ -149,6 +84,53 @@ export function parseWikiLinks(text: string): WikiLinkToken[] {
   }
 
   return tokens
+}
+
+/** 相对 Markdown 链接的一次匹配 */
+export interface MarkdownLinkMatch {
+  raw: string
+  href: string
+  start: number
+  end: number
+  line: number
+  column: number
+}
+
+/**
+ * 迭代全部「库内相对」Markdown 链接
+ *
+ * 外链（`http:` 等）、纯锚点（`#x`）与绝对路径不产出。
+ */
+export function* iterateMarkdownLinks(text: string): Generator<MarkdownLinkMatch> {
+  for (const { line, content, start } of scanVisibleLines(text)) {
+    const codeRanges = inlineCodeRanges(content)
+    // 允许 `[文本](路径 "标题")` 这种带标题的写法
+    const pattern = /\[([^\]]*)\]\(([^)\s]+)(?:\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?\)/g
+    let match: RegExpExecArray | null
+
+    while ((match = pattern.exec(content)) !== null) {
+      if (isInsideRanges(match.index, codeRanges)) continue
+      const href = match[2]
+      if (!isRelativeTarget(href)) continue
+      yield {
+        raw: match[0],
+        href,
+        start: start + match.index,
+        end: start + match.index + match[0].length,
+        line,
+        column: match.index + 1
+      }
+    }
+  }
+}
+
+/** 抽取 Markdown 链接的字符区间（供标签/提及扫描排除链接内部） */
+export function parseMarkdownLinkSpans(text: string): Array<[number, number]> {
+  const spans: Array<[number, number]> = []
+  for (const link of iterateMarkdownLinks(text)) {
+    spans.push([link.start, link.end])
+  }
+  return spans
 }
 
 /** 抽取全部链接（wikilink + 相对 Markdown 链接），按出现顺序返回 */
@@ -167,44 +149,17 @@ export function parseLinks(text: string, from: string): LinkRef[] {
     })
   }
 
-  for (const { line, content, start } of visibleLines(text)) {
-    const codeRanges = inlineCodeRanges(content)
-    const inCode = (index: number): boolean => codeRanges.some(([a, b]) => index >= a && index < b)
-
-    // 允许 `[文本](路径 "标题")` 这种带标题的写法
-    const pattern = /\[([^\]]*)\]\(([^)\s]+)(?:\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?\)/g
-    let match: RegExpExecArray | null
-    while ((match = pattern.exec(content)) !== null) {
-      if (inCode(match.index)) continue
-      const href = match[2]
-      if (!isRelativeTarget(href)) continue
-      refs.push({
-        from,
-        raw: match[0],
-        target: href,
-        kind: 'link',
-        line,
-        column: match.index + 1
-      })
-    }
+  for (const link of iterateMarkdownLinks(text)) {
+    refs.push({
+      from,
+      raw: link.raw,
+      target: link.href,
+      kind: 'link',
+      line: link.line,
+      column: link.column
+    })
   }
 
   refs.sort((a, b) => a.line - b.line || a.column - b.column)
   return refs
-}
-
-function lineOf(text: string, offset: number): number {
-  let line = 1
-  for (let i = 0; i < offset && i < text.length; i++) {
-    if (text[i] === '\n') line++
-  }
-  return line
-}
-
-function columnOf(text: string, offset: number): number {
-  let lastBreak = -1
-  for (let i = 0; i < offset && i < text.length; i++) {
-    if (text[i] === '\n') lastBreak = i
-  }
-  return offset - lastBreak
 }
