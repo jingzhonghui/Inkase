@@ -33,9 +33,7 @@ import { emptyIndex, isIndexStale, loadIndex, saveIndex, writeTextCache } from '
 import { parseLinks, parseMarkdownLinkSpans, parseWikiLinks } from './link-parser'
 import { buildLinkIndex, normalizeName, resolveLink } from './link-resolver'
 import { isInsideRanges, lineOf, scanVisibleLines, visibleSegments } from './text-scan'
-
-/** 递归扫描时跳过的目录名 */
-const SKIP_DIRS = new Set(['node_modules'])
+import { walkVault } from './vault-walk'
 
 const OFFICE_EXTENSIONS = new Set([
   '.doc',
@@ -414,58 +412,10 @@ export class KnowledgeIndexService {
   /**
    * 递归扫描库内文件
    *
-   * 跳过隐藏目录/隐藏文件（含 `.inkase`）与 `node_modules`；
-   * 根目录不可读时抛出，由 `build()` 转为降级。
+   * 遍历规则与引用重写共用 `walkVault`；根目录不可读时抛出，由 `build()` 转为降级。
    */
   private scan(): ScannedFile[] {
-    const out: ScannedFile[] = []
-
-    const walk = (absDir: string, relDir: string): void => {
-      let entries: fs.Dirent[]
-      try {
-        entries = fs.readdirSync(absDir, { withFileTypes: true })
-      } catch {
-        return // 子目录不可读：跳过，不影响整体
-      }
-
-      for (const entry of entries) {
-        if (entry.name.startsWith('.')) continue
-        if (entry.isDirectory() && SKIP_DIRS.has(entry.name)) continue
-
-        const abs = path.join(absDir, entry.name)
-        const rel = relDir === '' ? entry.name : `${relDir}/${entry.name}`
-
-        if (entry.isDirectory()) {
-          walk(abs, rel)
-          continue
-        }
-        if (!entry.isFile()) continue
-
-        let stat: fs.Stats
-        try {
-          stat = fs.statSync(abs)
-        } catch {
-          continue
-        }
-
-        out.push({
-          rel,
-          abs,
-          mtime: Math.floor(stat.mtimeMs),
-          size: stat.size,
-          kind: classifyKind(abs)
-        })
-      }
-    }
-
-    // 根目录自身不可读 → 抛出（外层降级）
-    if (!fs.statSync(this.root).isDirectory()) {
-      throw new Error(`不是目录：${this.root}`)
-    }
-    walk(this.root, '')
-
-    out.sort((a, b) => a.rel.localeCompare(b.rel))
-    return out
+    return walkVault(this.root).map((file) => ({ ...file, kind: classifyKind(file.abs) }))
   }
 
   /** 读取并解析单个文件 */
