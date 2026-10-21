@@ -23,6 +23,8 @@ export interface LinkRef {
   from: string
   /** 已解析的目标：库内相对路径；未解析时为 undefined */
   to?: string
+  /** 书写时的目标文本（未解析），如 `笔记` 或 `dir/a.md` */
+  target?: string
   /** 原始文本，如 `[[笔记|别名]]` 或 `[文本](dir/a.md)` */
   raw: string
   /** 链接或嵌入（`![[...]]`） */
