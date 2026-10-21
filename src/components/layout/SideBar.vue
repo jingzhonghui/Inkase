@@ -9,13 +9,15 @@ import {
 } from '@tabler/icons-vue'
 import FileExplorer from '../sidebar/FileExplorer.vue'
 import OutlinePanel from '../sidebar/OutlinePanel.vue'
+import TagPanel from '../knowledge/TagPanel.vue'
+import SearchPanel from '../knowledge/SearchPanel.vue'
 import Tooltip from '../common/Tooltip.vue'
 import { useFileStore } from '../../stores/file'
 
 const fileStore = useFileStore()
 
-/** 侧栏当前标签：文件浏览器 / 大纲 */
-const activeTab = ref<'files' | 'outline'>('files')
+/** 侧栏当前标签：文件浏览器 / 搜索 / 标签 / 大纲 */
+const activeTab = ref<'files' | 'search' | 'tags' | 'outline'>('files')
 
 const MIN_SIDEBAR_WIDTH = 180
 const MAX_SIDEBAR_WIDTH = 420
@@ -161,6 +163,24 @@ function openFolder(): void {
         </button>
         <button
           class="sidebar-tab"
+          :class="{ 'is-active': activeTab === 'search' }"
+          type="button"
+          data-testid="sidebar-tab-search"
+          @click="activeTab = 'search'"
+        >
+          搜索
+        </button>
+        <button
+          class="sidebar-tab"
+          :class="{ 'is-active': activeTab === 'tags' }"
+          type="button"
+          data-testid="sidebar-tab-tags"
+          @click="activeTab = 'tags'"
+        >
+          标签
+        </button>
+        <button
+          class="sidebar-tab"
           :class="{ 'is-active': activeTab === 'outline' }"
           type="button"
           @click="activeTab = 'outline'"
@@ -180,6 +200,8 @@ function openFolder(): void {
       </div>
 
       <FileExplorer v-if="activeTab === 'files'" />
+      <SearchPanel v-else-if="activeTab === 'search'" />
+      <TagPanel v-else-if="activeTab === 'tags'" />
       <OutlinePanel v-else />
     </template>
     <div

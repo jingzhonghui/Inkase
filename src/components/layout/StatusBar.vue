@@ -2,10 +2,12 @@
 import { computed, onMounted, ref } from 'vue'
 import { IconCode, IconColumns, IconFileText, IconFileTypePdf } from '@tabler/icons-vue'
 import { useFileStore, type EditorMode } from '../../stores/file'
+import { useKnowledgeStore } from '../../stores/knowledge'
 import { findCodeLanguage, languageDisplayName } from '../../utils/editor-language'
 import Tooltip from '../common/Tooltip.vue'
 
 const fileStore = useFileStore()
+const knowledgeStore = useKnowledgeStore()
 const appVersion = ref('')
 
 /** 当前生效的编辑模式：非 .md/.mdx 文件（如 .txt）实际按源码编辑显示 */
@@ -97,6 +99,17 @@ const modeLabel = computed(() => {
  * 获取模式提示文字
  */
 const modeTooltip = computed(() => `${modeLabel.value} (点击切换)`)
+
+/** 索引构建进度文案；总数未知（扫描阶段）时只显示「索引中…」 */
+const indexLabel = computed(() => {
+  const { done, total } = knowledgeStore.status.progress
+  return total > 0 ? `索引中 ${done}/${total}` : '索引中…'
+})
+
+/** 重建索引（索引降级时的手动出口） */
+async function rebuildIndex(): Promise<void> {
+  await knowledgeStore.rebuildIndex()
+}
 </script>
 
 <template>
@@ -109,6 +122,30 @@ const modeTooltip = computed(() => `${modeLabel.value} (点击切换)`)
       <span class="status-item">
         行 {{ fileStore.cursorLine }}, 列 {{ fileStore.cursorColumn }}
       </span>
+      <!-- 知识库索引：构建中显示进度，降级时给出重建入口 -->
+      <template v-if="knowledgeStore.building || knowledgeStore.degraded">
+        <span class="status-separator">|</span>
+        <Tooltip
+          v-if="knowledgeStore.degraded"
+          content="知识库索引不可用，点击重建"
+        >
+          <button
+            class="index-status is-degraded"
+            type="button"
+            data-testid="index-rebuild"
+            @click="rebuildIndex"
+          >
+            重建索引
+          </button>
+        </Tooltip>
+        <span
+          v-else
+          class="status-item index-status"
+          data-testid="index-progress"
+        >
+          {{ indexLabel }}
+        </span>
+      </template>
     </div>
 
     <div class="status-right">
@@ -192,6 +229,27 @@ const modeTooltip = computed(() => `${modeLabel.value} (点击切换)`)
 
 .loading {
   color: var(--color-text-tertiary);
+}
+
+/* 知识库索引状态 */
+.index-status {
+  white-space: nowrap;
+}
+
+.index-status.is-degraded {
+  padding: 2px 8px;
+  font-size: inherit;
+  font-family: inherit;
+  color: var(--color-warning);
+  background: transparent;
+  border: 1px solid var(--color-warning);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.index-status.is-degraded:hover {
+  background-color: var(--color-bg-primary);
 }
 
 /* 模式切换按钮 */
