@@ -109,6 +109,24 @@ export const IPC_CHANNELS = {
   LINK: {
     OPEN: 'link:open'
   },
+  KNOWLEDGE: {
+    /** 当前索引状态（不触发构建） */
+    STATUS: 'knowledge:status',
+    /** 载入已有索引；缺失或过期时构建 */
+    ENSURE: 'knowledge:ensure',
+    /** 强制全量重建 */
+    REBUILD: 'knowledge:rebuild',
+    /** 指定文件的反向链接（含未链接提及） */
+    BACKLINKS: 'knowledge:backlinks',
+    /** 全部标签及计数 */
+    TAGS: 'knowledge:tags',
+    /** 某标签下的文件 */
+    NOTES_BY_TAG: 'knowledge:notesByTag',
+    /** 断链清单 */
+    UNRESOLVED: 'knowledge:unresolved',
+    /** 构建进度事件 */
+    PROGRESS: 'knowledge:progress'
+  },
   AI: {
     CONFIG: {
       GET: 'ai:config:get',

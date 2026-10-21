@@ -15,6 +15,7 @@ import type {
   ToolExecutionResult
 } from '../shared/ai/types'
 import type { ConflictChoice, EnableSyncOptions, SyncConfig, SyncResult, SyncStatusView } from './sync/types'
+import type { BacklinkItem, IndexProgress, IndexStatus, LinkRef } from '../shared/knowledge/types'
 
 export type { UpdateInfoPayload }
 
@@ -243,6 +244,16 @@ export interface ElectronAPI {
   deleteAiConversation: (root: string | null, id: string) => Promise<{ success: boolean; error?: string }>
   summarizeAiConversation: (text: string) => Promise<{ success: boolean; data?: { title: string }; error?: string }>
   authorizeWorkspaceRoot: (root: string | null) => Promise<{ success: boolean; error?: string }>
+
+  // 知识库索引
+  knowledgeStatus: () => Promise<{ success: boolean; data?: IndexStatus; error?: string }>
+  ensureKnowledgeIndex: () => Promise<{ success: boolean; data?: IndexStatus; error?: string }>
+  rebuildKnowledgeIndex: () => Promise<{ success: boolean; data?: IndexStatus; error?: string }>
+  getBacklinks: (relPath: string) => Promise<{ success: boolean; data?: BacklinkItem[]; error?: string }>
+  getKnowledgeTags: () => Promise<{ success: boolean; data?: Array<{ tag: string; count: number }>; error?: string }>
+  getNotesByTag: (tag: string) => Promise<{ success: boolean; data?: string[]; error?: string }>
+  getUnresolvedLinks: () => Promise<{ success: boolean; data?: LinkRef[]; error?: string }>
+  onKnowledgeProgress: (callback: (progress: IndexProgress) => void) => () => void
 }
 
 // 通过 contextBridge 暴露安全的 API
@@ -423,6 +434,20 @@ const api: ElectronAPI = {
     const handler = (_event: unknown, payload: AiRunEvent): void => callback(payload)
     ipcRenderer.on(IPC_CHANNELS.AI.EVENT, handler)
     return () => ipcRenderer.removeListener(IPC_CHANNELS.AI.EVENT, handler)
+  },
+
+  // 知识库索引
+  knowledgeStatus: () => ipcRenderer.invoke(IPC_CHANNELS.KNOWLEDGE.STATUS),
+  ensureKnowledgeIndex: () => ipcRenderer.invoke(IPC_CHANNELS.KNOWLEDGE.ENSURE),
+  rebuildKnowledgeIndex: () => ipcRenderer.invoke(IPC_CHANNELS.KNOWLEDGE.REBUILD),
+  getBacklinks: (relPath) => ipcRenderer.invoke(IPC_CHANNELS.KNOWLEDGE.BACKLINKS, relPath),
+  getKnowledgeTags: () => ipcRenderer.invoke(IPC_CHANNELS.KNOWLEDGE.TAGS),
+  getNotesByTag: (tag) => ipcRenderer.invoke(IPC_CHANNELS.KNOWLEDGE.NOTES_BY_TAG, tag),
+  getUnresolvedLinks: () => ipcRenderer.invoke(IPC_CHANNELS.KNOWLEDGE.UNRESOLVED),
+  onKnowledgeProgress: (callback) => {
+    const handler = (_event: unknown, progress: IndexProgress): void => callback(progress)
+    ipcRenderer.on(IPC_CHANNELS.KNOWLEDGE.PROGRESS, handler)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.KNOWLEDGE.PROGRESS, handler)
   }
 }
 

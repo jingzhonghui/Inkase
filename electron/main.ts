@@ -10,6 +10,8 @@ import { registerPreviewProtocol, registerPreviewSchemePrivileges } from './ipc/
 import { hadAbnormalExit, markAppRunning, readRecoverySnapshot, writeRecoverySnapshot, clearRecoverySnapshot } from './recovery'
 import { resolveExistingUserGuidePath } from './user-guide'
 import { registerAiHandlers, disposeAiServices } from './ai/ipc-handlers'
+import { registerKnowledgeHandlers } from './ipc/knowledge-handlers'
+import { disposeKnowledgeServices } from './knowledge/service-registry'
 import { findRecentAliveInstance, sendTargetsToInstance, startInstanceService, stopInstanceService, touchHeartbeat } from './instance-broker'
 import { initUpdater, checkForUpdates, openReleasesPage } from './updater'
 import { inspectLaunchTarget, parseLaunchTargets, type LaunchTarget } from './launch-target'
@@ -313,6 +315,9 @@ async function bootstrap(): Promise<void> {
   // 注册 AI 助手 handlers
   registerAiHandlers(() => mainWindow)
 
+  // 注册知识库索引 handlers
+  registerKnowledgeHandlers(() => mainWindow)
+
   createWindow()
 
   queueOpenTargets(
@@ -341,6 +346,7 @@ app.on('window-all-closed', () => {
   // 清理临时资源
   cleanupAll()
   disposeAiServices()
+  disposeKnowledgeServices()
   syncEngine.dispose()
 
   if (process.platform !== 'darwin') {
@@ -353,5 +359,6 @@ app.on('before-quit', () => {
   stopInstanceService()
   cleanupAll()
   disposeAiServices()
+  disposeKnowledgeServices()
   syncEngine.dispose()
 })
