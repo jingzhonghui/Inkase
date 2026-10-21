@@ -8,6 +8,7 @@ import TabBar from '../TabBar.vue'
 import EditorPanel from '../EditorPanel.vue'
 import AppHeader from '../../layout/AppHeader.vue'
 import { useAiStore } from '../../../stores/ai'
+import { useDockStore } from '../../../stores/dock'
 import { useFileStore } from '../../../stores/file'
 import { createMdxDocument } from '../../../types/mdx'
 
@@ -184,39 +185,40 @@ describe('AI editor view', () => {
 })
 
 describe('AI header entry', () => {
-  it('does not auto-open AI and opens it from the View menu', async () => {
+  it('does not auto-open AI and opens the dock from the View menu', async () => {
     setActivePinia(createPinia())
     const wrapper = mount(AppHeader, {
       global: { stubs: { teleport: true } }
     })
-    const aiStore = useAiStore()
-    expect(aiStore.panelOpen).toBe(false)
+    const dockStore = useDockStore()
+    expect(dockStore.open).toBe(false)
 
     await wrapper.findAll('.menu-item').find((item) => item.text() === '视图')!.trigger('click')
     await wrapper.findAll('.menu-entry').find((item) => item.text().includes('AI 助手'))!.trigger('click')
 
-    expect(aiStore.panelOpen).toBe(true)
-    expect(aiStore.panelActive).toBe(true)
+    // 有笔记时 AI 的主入口是右侧停靠面板，全屏 AI 标签页由面板内的「全屏」按钮进入
+    expect(dockStore.open).toBe(true)
+    expect(dockStore.activeTab).toBe('ai')
   })
 
-  it('opens AI from the header button and closes it again on a second click', async () => {
+  it('opens the AI dock from the header button and closes it again on a second click', async () => {
     setActivePinia(createPinia())
     const wrapper = mount(AppHeader, {
       global: { stubs: { teleport: true } }
     })
-    const aiStore = useAiStore()
-    const close = vi.spyOn(aiStore, 'requestClosePanel').mockResolvedValue()
-    expect(aiStore.panelOpen).toBe(false)
+    const dockStore = useDockStore()
+    expect(dockStore.open).toBe(false)
 
     const aiButton = wrapper.find('[aria-label="AI 助手"]')
     await aiButton.trigger('click')
 
-    expect(aiStore.panelOpen).toBe(true)
-    expect(aiStore.panelActive).toBe(true)
+    expect(dockStore.open).toBe(true)
+    expect(dockStore.activeTab).toBe('ai')
     expect(aiButton.classes()).toContain('active')
 
     await aiButton.trigger('click')
-    expect(close).toHaveBeenCalledTimes(1)
-    expect(close).toHaveBeenCalledWith()
+
+    expect(dockStore.open).toBe(false)
+    expect(aiButton.classes()).not.toContain('active')
   })
 })

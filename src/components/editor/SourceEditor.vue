@@ -1424,6 +1424,7 @@ watch(() => [fileStore.activeTabId, fileStore.fileContent] as const, ([newTabId,
     if (tabChanged) view.dispatch({ selection: { anchor: 0 } })
     updateCursorPosition(view.state)
     updateEditorSelectionSnapshot(view.state)
+    applyRevealRequest()
     return
   }
 
@@ -1449,7 +1450,37 @@ watch(() => [fileStore.activeTabId, fileStore.fileContent] as const, ([newTabId,
   isSyncing = false
   updateCursorPosition(view.state)
   updateEditorSelectionSnapshot(view.state)
+  applyRevealRequest()
 })
+
+/**
+ * 消费定位请求：滚动到目标行并选中
+ *
+ * 文件内容可能仍在异步加载，故除监听请求本身外，内容同步完成后也会补一次检查；
+ * `lastRevealToken` 保证同一请求只生效一次（用户随后手动滚动不会被拉回）。
+ */
+let lastRevealToken = 0
+
+function applyRevealRequest(): void {
+  const request = fileStore.revealRequest
+  const view = editorView.value
+  if (!request || !view) return
+  if (request.token === lastRevealToken) return
+  if (request.path !== fileStore.activeTab?.fileInfo?.path) return
+
+  const lineNumber = Math.min(Math.max(1, request.line), view.state.doc.lines)
+  const line = view.state.doc.line(lineNumber)
+  const column = Math.min(Math.max(1, request.column), line.length + 1)
+
+  lastRevealToken = request.token
+  view.dispatch({
+    selection: { anchor: line.from + column - 1 },
+    scrollIntoView: true
+  })
+  view.focus()
+}
+
+watch(() => fileStore.revealRequest, applyRevealRequest)
 
 // Watch for theme changes
 watch(() => themeStore.currentTheme, updateTheme)

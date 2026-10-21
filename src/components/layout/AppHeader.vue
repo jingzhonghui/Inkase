@@ -4,8 +4,8 @@ import { IconChevronRight, IconCopy, IconFile, IconFolder, IconMessageChatbot, I
 import { useFileStore, type EditorMode } from '../../stores/file'
 import { useThemeStore } from '../../stores/theme'
 import { useUpdateStore } from '../../stores/update'
-import { useAiStore } from '../../stores/ai'
 import { useSyncStore } from '../../stores/sync'
+import { useDockStore } from '../../stores/dock'
 import {
   useAppearanceStore,
   MIN_UI_FONT_SIZE,
@@ -27,7 +27,7 @@ import Tooltip from '../common/Tooltip.vue'
 const fileStore = useFileStore()
 const themeStore = useThemeStore()
 const updateStore = useUpdateStore()
-const aiStore = useAiStore()
+const dockStore = useDockStore()
 const syncStore = useSyncStore()
 const appearanceStore = useAppearanceStore()
 const isMaximized = ref(false)
@@ -175,7 +175,7 @@ const viewMenu = computed<MenuItem[]>(() => [
   },
   { kind: 'divider' },
   { kind: 'item', label: '显示侧边栏', action: 'toggle-sidebar', checked: !fileStore.sidebarCollapsed },
-  { kind: 'item', label: 'AI 助手', action: 'open-ai', checked: aiStore.panelOpen },
+  { kind: 'item', label: 'AI 助手', action: 'open-ai', checked: dockStore.open && dockStore.activeTab === 'ai' },
   { kind: 'divider' },
   { kind: 'item', label: '设置', action: 'settings', shortcut: 'Ctrl+,' }
 ])
@@ -453,7 +453,7 @@ async function runMenuItem(item: MenuItem): Promise<void> {
       fileStore.toggleSidebar()
       break
     case 'open-ai':
-      aiStore.openPanel()
+      dockStore.toggle('ai')
       break
     case 'sync':
       syncStore.openPanel()
@@ -635,11 +635,7 @@ function toggleTheme(): void {
 }
 
 function toggleAiPanel(): void {
-  if (aiStore.panelOpen) {
-    void aiStore.requestClosePanel()
-  } else {
-    aiStore.openPanel()
-  }
+  dockStore.toggle('ai')
 }
 
 const syncTooltip = computed(() => {
@@ -821,11 +817,11 @@ onUnmounted(() => {
         </button>
       </Tooltip>
 
-      <Tooltip :content="aiStore.panelOpen ? '关闭 AI 助手' : 'AI 助手'">
+      <Tooltip :content="dockStore.open && dockStore.activeTab === 'ai' ? '关闭 AI 助手' : 'AI 助手'">
         <button
           class="icon-btn"
-          :aria-label="aiStore.panelOpen ? '关闭 AI 助手' : 'AI 助手'"
-          :class="{ active: aiStore.panelOpen }"
+          :aria-label="dockStore.open && dockStore.activeTab === 'ai' ? '关闭 AI 助手' : 'AI 助手'"
+          :class="{ active: dockStore.open && dockStore.activeTab === 'ai' }"
           @click="toggleAiPanel"
         >
           <IconMessageChatbot class="icon" />

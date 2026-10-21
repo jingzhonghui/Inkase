@@ -56,17 +56,31 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
     return toAbsolutePath(base, relPath)
   }
 
+  /**
+   * 知识库 API 句柄
+   *
+   * 该能力由 preload 暴露；缺失时（旧版本 preload、测试环境）整体降级为空态，
+   * 而不是抛错拖垮应用外壳。
+   */
+  function api(): typeof window.electronAPI | null {
+    return typeof window.electronAPI?.onKnowledgeProgress === 'function' ? window.electronAPI : null
+  }
+
   async function refreshStatus(): Promise<void> {
-    const res = await window.electronAPI.knowledgeStatus()
+    const bridge = api()
+    if (bridge === null) return
+    const res = await bridge.knowledgeStatus()
     if (res.success && res.data) status.value = res.data
   }
 
   /** 载入已有索引；缺失或过期时构建 */
   async function ensureIndex(): Promise<void> {
+    const bridge = api()
+    if (bridge === null) return
     loading.value = true
     error.value = null
     try {
-      const res = await window.electronAPI.ensureKnowledgeIndex()
+      const res = await bridge.ensureKnowledgeIndex()
       if (res.success && res.data) status.value = res.data
       else error.value = res.error ?? '索引不可用'
     } catch (cause) {
@@ -78,10 +92,12 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
 
   /** 强制全量重建 */
   async function rebuildIndex(): Promise<void> {
+    const bridge = api()
+    if (bridge === null) return
     loading.value = true
     error.value = null
     try {
-      const res = await window.electronAPI.rebuildKnowledgeIndex()
+      const res = await bridge.rebuildKnowledgeIndex()
       if (res.success && res.data) status.value = res.data
       else error.value = res.error ?? '索引重建失败'
       await Promise.all([loadTags(), loadUnresolved()])
@@ -96,25 +112,42 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
   /** 拉取指定文件的反链（含未链接提及） */
   async function loadBacklinks(relPath: string): Promise<void> {
     backlinksPath.value = relPath
-    const res = await window.electronAPI.getBacklinks(relPath)
+    const bridge = api()
+    if (bridge === null) {
+      backlinks.value = []
+      return
+    }
+    const res = await bridge.getBacklinks(relPath)
     backlinks.value = res.success && res.data ? res.data : []
   }
 
   /** 拉取全部标签 */
   async function loadTags(): Promise<void> {
-    const res = await window.electronAPI.getKnowledgeTags()
+    const bridge = api()
+    if (bridge === null) {
+      tags.value = []
+      return
+    }
+    const res = await bridge.getKnowledgeTags()
     tags.value = res.success && res.data ? res.data : []
   }
 
   /** 拉取断链清单 */
   async function loadUnresolved(): Promise<void> {
-    const res = await window.electronAPI.getUnresolvedLinks()
+    const bridge = api()
+    if (bridge === null) {
+      unresolved.value = []
+      return
+    }
+    const res = await bridge.getUnresolvedLinks()
     unresolved.value = res.success && res.data ? res.data : []
   }
 
   /** 某个标签下的笔记（库内相对路径） */
   async function loadNotesByTag(tag: string): Promise<string[]> {
-    const res = await window.electronAPI.getNotesByTag(tag)
+    const bridge = api()
+    if (bridge === null) return []
+    const res = await bridge.getNotesByTag(tag)
     return res.success && res.data ? res.data : []
   }
 
@@ -136,6 +169,9 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
 
   /** 应用启动时调用一次：绑定工作区与当前笔记 */
   function init(): void {
+    // 未暴露知识库 API 时不做任何订阅，整个知识库功能静默降级
+    if (api() === null) return
+
     const fileStore = useFileStore()
 
     watch(

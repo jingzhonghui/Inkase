@@ -4,6 +4,8 @@ import { IconFile, IconFolder, IconPlus, IconSourceCode, IconWorldWww } from '@t
 import { useFileStore } from '../../stores/file'
 import { useAiStore } from '../../stores/ai'
 import AiPanel from '../ai/AiPanel.vue'
+import RightDock from '../layout/RightDock.vue'
+import { useDockStore } from '../../stores/dock'
 import SourceEditor from './SourceEditor.vue'
 import IrEditor from './IrEditor.vue'
 import PreviewPanel from './PreviewPanel.vue'
@@ -16,6 +18,7 @@ import 'splitpanes/dist/splitpanes.css'
 
 const fileStore = useFileStore()
 const aiStore = useAiStore()
+const dockStore = useDockStore()
 defineProps<{ aiReady?: boolean }>()
 const emit = defineEmits<{ openAiSettings: [] }>()
 
@@ -252,10 +255,17 @@ function onPreviewScroll(ratio: number): void {
     </div>
 
     <AiPanel
-      v-if="aiStore.panelOpen"
-      v-show="aiStore.panelActive"
+      v-if="aiStore.panelOpen && aiStore.panelActive"
       :ready="aiReady ?? false"
       @open-settings="emit('openAiSettings')"
+    />
+
+    <!-- 右侧三合一停靠面板（反链 / 图谱 / AI）；全屏 AI 时让位 -->
+    <RightDock
+      v-if="hasOpenFile && dockStore.open && !aiStore.panelActive"
+      :ready="aiReady ?? false"
+      @open-settings="emit('openAiSettings')"
+      @expand-ai="aiStore.openPanel()"
     />
   </div>
 </template>
@@ -266,7 +276,7 @@ function onPreviewScroll(ratio: number): void {
   min-width: 0;
   min-height: 0;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   overflow: hidden;
   background-color: var(--color-bg-primary);
 }

@@ -1493,7 +1493,36 @@ watch([activeTabId, fileContent], ([newTabId, newContent], [oldTabId]) => {
   // 切换 tab 后编辑器选区被重置为文档开头，重新发布快照避免残留旧 tab 的选区。
   if (tabChanged) publishSelectionFromProseMirror()
   nextTick(() => loadEditorImages())
+  applyRevealRequest()
 })
+
+/**
+ * 消费定位请求
+ *
+ * IR 模式下 Markdown 源码行号与 ProseMirror 文档位置没有精确映射，
+ * 这里按行占比粗略滚动（够用：定位到目标附近，再由用户微调），
+ * 精确映射留待后续实现。
+ */
+let lastRevealToken = 0
+
+function applyRevealRequest(): void {
+  const request = fileStore.revealRequest
+  if (!request) return
+  if (request.token === lastRevealToken) return
+  if (request.path !== fileStore.activeTab?.fileInfo?.path) return
+
+  const container = containerRef.value
+  if (!container) return
+
+  lastRevealToken = request.token
+  const totalLines = Math.max(1, (fileStore.fileContent || '').split('\n').length)
+  const ratio = Math.min(1, Math.max(0, (request.line - 1) / totalLines))
+  const maxScroll = container.scrollHeight - container.clientHeight
+  if (maxScroll > 0) container.scrollTop = ratio * maxScroll
+  viewRef.value?.focus()
+}
+
+watch(() => fileStore.revealRequest, applyRevealRequest)
 
 watch(() => themeStore.currentTheme, () => {
   nextTick(() => {

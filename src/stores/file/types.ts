@@ -67,3 +67,20 @@ export interface EditorSelectionSnapshot {
   cursor: number
   text: string
 }
+
+/**
+ * 编辑器定位请求
+ *
+ * 反链 / 标签 / 断链面板点击后，先打开文件再请求定位；
+ * 由该文件对应的编辑器消费（`token` 自增用于去重，同一请求只生效一次）。
+ */
+export interface RevealRequest {
+  /** 目标文件绝对路径 */
+  path: string
+  /** 1-based 行号 */
+  line: number
+  /** 1-based 列号 */
+  column: number
+  /** 自增令牌 */
+  token: number
+}

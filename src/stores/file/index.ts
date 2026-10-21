@@ -6,7 +6,14 @@ import { createMdxDocument } from '../../types/mdx'
 import { loadSessionState, saveSessionState } from '../session'
 import { useAiStore } from '../ai'
 import { requestDialog } from '../../utils/dialog'
-import type { FileInfo, EditorMode, EditorSelectionSnapshot, RecentItem, TabInfo } from './types'
+import type {
+  FileInfo,
+  EditorMode,
+  EditorSelectionSnapshot,
+  RecentItem,
+  RevealRequest,
+  TabInfo
+} from './types'
 import { createTabState, createTabOps } from './tabs'
 import { useAssets } from './assets'
 import { useFolder } from './folder'
@@ -796,6 +803,21 @@ export const useFileStore = defineStore('file', () => {
     cursorColumn.value = column
   }
 
+  /** 定位请求（由编辑器消费后滚动到目标行） */
+  const revealRequest = ref<RevealRequest | null>(null)
+  let revealToken = 0
+
+  /**
+   * 请求在指定文件中定位到某一行
+   *
+   * 只产生请求，不做导航——调用方负责先 `openFile`；
+   * 目标文件的内容若仍在异步加载，编辑器会在内容就绪后补一次检查。
+   */
+  function requestReveal(path: string, line: number, column = 1): void {
+    revealToken += 1
+    revealRequest.value = { path, line, column, token: revealToken }
+  }
+
   // ====== 会话恢复 ======
   async function restoreSession(): Promise<void> {
     const state = loadSessionState()
@@ -1261,6 +1283,8 @@ export const useFileStore = defineStore('file', () => {
     toggleSidebar,
     setSidebarWidth,
     setCursorPosition,
+    revealRequest,
+    requestReveal,
     setImageCompressSettings: assets.setImageCompressSettings,
 
     // 文件操作
@@ -1341,4 +1365,4 @@ export const useFileStore = defineStore('file', () => {
   }
 })
 
-export type { EditorMode, FileInfo, FolderItem, FileTreeNode, RecentItem, TabInfo } from './types'
+export type { EditorMode, FileInfo, FolderItem, FileTreeNode, RecentItem, RevealRequest, TabInfo } from './types'
