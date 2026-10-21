@@ -81,12 +81,13 @@ export interface IndexError {
 /**
  * 重命名 / 移动后自动改写引用的结果
  *
- * `changed` 为改写处数、`files` 为受影响文件数；`errors` 记录读写失败的文件
- * （单个文件失败不阻断重命名本身）。
+ * `changed` 为改写处数、`files` 为受影响文件数、`paths` 为被改写的文件；
+ * `errors` 记录读写失败的文件（单个文件失败不阻断重命名本身）。
  */
 export interface ReferenceRewriteResult {
   changed: number
   files: number
+  paths: string[]
   errors: IndexError[]
 }
 

@@ -19,9 +19,16 @@ import { exportMdxFile } from '../mdx/export'
 import { addRecentFile as addRecent } from './file-handlers'
 import { clearRecoveryData } from '../recovery'
 import type { RecoverySnapshot } from '../recovery'
+import {
+  clearTempDirs,
+  normalizeTempKey as normalizeFilePath,
+  registerTempDir,
+  tempDirsByFile,
+  unregisterTempDir
+} from '../mdx/temp-registry'
 
-// 文件路径 → 临时目录的映射（主进程唯一持有的状态）
-const tempDirsByFile = new Map<string, string>()
+// 文件路径 → 临时目录的映射（主进程唯一持有的状态，见 electron/mdx/temp-registry.ts）
+// 放在独立模块中，便于 file-handlers 在重命名/移动时迁移 key 而不形成循环依赖
 
 export function attachRecoveryAssetData(snapshot: RecoverySnapshot): RecoverySnapshot {
   return {
@@ -45,10 +52,6 @@ export function attachRecoveryAssetData(snapshot: RecoverySnapshot): RecoverySna
   }
 }
 
-function normalizeFilePath(filePath: string): string {
-  return path.normalize(path.resolve(filePath))
-}
-
 /** 图片扩展名 → MIME 类型映射；非图片返回 null */
 const IMAGE_MIME_TYPES: Record<string, string> = {
   '.png': 'image/png',
@@ -63,14 +66,6 @@ const IMAGE_MIME_TYPES: Record<string, string> = {
 
 function getImageMimeType(filePath: string): string | null {
   return IMAGE_MIME_TYPES[path.extname(filePath).toLowerCase()] ?? null
-}
-
-function registerTempDir(filePath: string, tempDir: string): void {
-  tempDirsByFile.set(normalizeFilePath(filePath), tempDir)
-}
-
-function unregisterTempDir(filePath: string): void {
-  tempDirsByFile.delete(normalizeFilePath(filePath))
 }
 
 /** 从临时目录重新读取当前文档状态（assets 等可能已被资源类 handler 修改） */
@@ -933,5 +928,5 @@ export function isCloseConfirmed(): boolean {
  */
 export function cleanupAll(): void {
   cleanupAllTempDirs()
-  tempDirsByFile.clear()
+  clearTempDirs()
 }

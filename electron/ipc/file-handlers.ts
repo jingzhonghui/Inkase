@@ -15,10 +15,23 @@ import { buildPathMap, buildRenameMap, rewriteVault } from '../knowledge/ref-rew
 import { planRenames } from '../knowledge/rename-plan'
 import { getKnowledgeService } from '../knowledge/service-registry'
 import { readVaultText, writeVaultText } from '../knowledge/vault-text'
+import { remapTempDir } from '../mdx/temp-registry'
 import { getAuthorizedWorkspaceRoot } from '../workspace/workspace-authorization'
 
 /** 最近文件列表上限 */
 const MAX_RECENT_FILES = 20
+
+/**
+ * 取该 IPC 发送方已授权的工作区根目录
+ *
+ * 拿不到发送方信息（非正常调用、测试替身）时视为未授权：此时无从判断路径属于哪个库，
+ * 一律跳过引用重写，而不是抛错中断重命名本身。
+ */
+function authorizedRootOf(event: { sender?: { id?: number } }): string | null {
+  const senderId = event?.sender?.id
+  if (typeof senderId !== 'number') return null
+  return getAuthorizedWorkspaceRoot(senderId)
+}
 
 /**
  * 重命名 / 移动后重写库内引用
@@ -59,6 +72,7 @@ async function rewriteReferencesAfterMove(
   return {
     changed: plan.changes.reduce((sum, item) => sum + item.count, 0),
     files: plan.changes.length,
+    paths: plan.changes.map((item) => item.path),
     errors
   }
 }
@@ -524,10 +538,12 @@ export function registerFileHandlers(): void {
       }
 
       // 磁盘操作前先算好受影响路径
-      const root = getAuthorizedWorkspaceRoot(event.sender.id)
+      const root = authorizedRootOf(event)
       const renames = root === null ? null : planRenames(root, oldPath, newPath, isDirectory)
 
       fs.renameSync(oldPath, newPath)
+      // 已打开的 .mdx 临时目录登记按路径索引，必须同步迁移，否则下次保存找不到临时目录
+      remapTempDir(oldPath, newPath)
 
       const references = root === null || renames === null ? null : await rewriteReferencesAfterMove(root, renames)
       return { success: true, data: { path: newPath, references } }
@@ -558,7 +574,7 @@ export function registerFileHandlers(): void {
         }
       }
       // 磁盘操作前先算好受影响路径
-      const moveRoot = getAuthorizedWorkspaceRoot(event.sender.id)
+      const moveRoot = authorizedRootOf(event)
       const moveRenames =
         moveRoot === null ? null : planRenames(moveRoot, sourcePath, targetPath, sourceStat.isDirectory())
       try {
@@ -573,6 +589,9 @@ export function registerFileHandlers(): void {
           fs.unlinkSync(sourcePath)
         }
       }
+      // 已打开的 .mdx 临时目录登记按路径索引，必须同步迁移，否则下次保存找不到临时目录
+      remapTempDir(sourcePath, targetPath)
+
       const references =
         moveRoot === null || moveRenames === null ? null : await rewriteReferencesAfterMove(moveRoot, moveRenames)
       return { success: true, data: { path: targetPath, references } }

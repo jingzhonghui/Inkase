@@ -10,10 +10,9 @@
 
 import * as fs from 'node:fs'
 import * as path from 'node:path'
+import AdmZip from 'adm-zip'
 import * as mammoth from 'mammoth'
 import type { NodeKind } from '../../shared/knowledge/types'
-import { cleanupTempDir, openMdx } from '../mdx/reader'
-import { prepareAssetsData, saveMdx } from '../mdx/writer'
 import { DEFAULT_MDX_SEARCH_LIMITS, extractMdxContentText } from '../workspace/mdx-content-search'
 
 /** `.mdx`：安全解包并取出 `content.md` 文本 */
@@ -53,7 +52,10 @@ export async function readVaultText(absPath: string, relPath: string): Promise<s
 /**
  * 引用重写用：写回正文
  *
- * `.mdx` 走 `openMdx` → 改 `document.content` → `saveMdx`，**资源原样保留**。
+ * `.mdx` 直接在内存中改写 ZIP 条目，**不经过临时目录**：
+ * `openMdx` 会删除并重建该文件的临时目录，而那个目录可能正被编辑器使用
+ * （资源预览即依赖它），走临时目录会破坏已打开文档的图片/附件。
+ * 内存改写同时保证其余条目（资源）原样保留。
  */
 export async function writeVaultText(absPath: string, relPath: string, text: string): Promise<void> {
   const ext = path.extname(relPath).toLowerCase()
@@ -66,17 +68,41 @@ export async function writeVaultText(absPath: string, relPath: string, text: str
     throw new Error(`不支持改写 ${relPath}`)
   }
 
-  const opened = openMdx(absPath)
-  if (!opened.success || !opened.data) {
-    throw new Error(opened.error ?? 'MDX 打开失败')
+  rewriteMdxContentEntry(absPath, text)
+}
+
+/** 在内存中改写 MDX 的正文条目并原子写回 */
+function rewriteMdxContentEntry(absPath: string, text: string): void {
+  const zip = new AdmZip(absPath)
+
+  const manifestEntry = zip.getEntry('mdx.json')
+  if (manifestEntry === null) throw new Error('MDX 缺少 mdx.json')
+
+  let manifest: Record<string, unknown>
+  try {
+    manifest = JSON.parse(manifestEntry.getData().toString('utf8')) as Record<string, unknown>
+  } catch {
+    throw new Error('MDX 清单无效')
   }
 
-  const { document, tempDir } = opened.data
+  const contentFile = typeof manifest.content_file === 'string' ? manifest.content_file : 'content.md'
+  const normalized = contentFile.replace(/\\/g, '/')
+  if (normalized.startsWith('/') || normalized.split('/').includes('..')) {
+    throw new Error('MDX 内容路径不安全')
+  }
+  if (zip.getEntry(normalized) === null) throw new Error('MDX 内容文件不存在')
+
+  zip.updateFile(normalized, Buffer.from(text, 'utf-8'))
+  manifest.modified_at = new Date().toISOString()
+  zip.updateFile('mdx.json', Buffer.from(JSON.stringify(manifest, null, 2), 'utf-8'))
+
+  const tempPath = `${absPath}.tmp`
   try {
-    document.content = text
-    const saved = await saveMdx(absPath, document, prepareAssetsData(tempDir, document))
-    if (!saved.success) throw new Error(saved.error ?? 'MDX 保存失败')
+    zip.writeZip(tempPath)
+    // Windows 下 rename 不能覆盖已存在文件，与 mdx/writer 的 atomicWrite 保持一致
+    if (process.platform === 'win32' && fs.existsSync(absPath)) fs.unlinkSync(absPath)
+    fs.renameSync(tempPath, absPath)
   } finally {
-    cleanupTempDir(tempDir)
+    if (fs.existsSync(tempPath)) fs.rmSync(tempPath, { force: true })
   }
 }
