@@ -5,6 +5,7 @@ import type {
   IndexStatus,
   KnowledgeQuery,
   LinkRef,
+  LinkResolution,
   SearchHit,
   TagNote,
   TagSummary
@@ -173,6 +174,18 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
     return res.data ?? []
   }
 
+  /** 批量解析链接目标（供 `[[ ]]` 装饰上色） */
+  async function resolveTargets(
+    targets: string[],
+    from?: string
+  ): Promise<Record<string, LinkResolution>> {
+    const bridge = api()
+    if (bridge === null) return {}
+    if (targets.length === 0) return {}
+    const res = await bridge.resolveLinks(targets, from)
+    return res.success && res.data ? res.data : {}
+  }
+
   /** 库内容发生变化（重命名/移动/外部修改）后刷新全部派生数据 */
   async function refreshAll(): Promise<void> {
     await refreshStatus()
@@ -261,6 +274,7 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
     loadUnresolved,
     loadNotesByTag,
     search,
+    resolveTargets,
     refreshAll,
     clear,
     init,

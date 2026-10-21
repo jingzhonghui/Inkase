@@ -25,6 +25,7 @@ import {
   type IndexStatus,
   type KnowledgeIndex,
   type LinkRef,
+  type LinkResolution,
   type MentionItem,
   type NodeKind,
   type TagNote,
@@ -469,6 +470,35 @@ export class KnowledgeIndexService {
       }
       return { path: file, sources }
     })
+  }
+
+  /**
+   * 批量解析链接目标
+   *
+   * 渲染层需要给整篇文档的 `[[链接]]` 上色，逐个走 IPC 不现实，
+   * 因此一次解析全部目标——**语义仍在主进程**，渲染层只拿到结果。
+   */
+  resolveTargets(targets: string[], from?: string): Record<string, LinkResolution> {
+    const index = this.index
+    const result: Record<string, LinkResolution> = {}
+    if (index === null) {
+      for (const target of targets) result[target] = { status: 'missing' }
+      return result
+    }
+
+    const linkIndex = buildLinkIndex(
+      Object.keys(index.files),
+      Object.fromEntries(
+        Object.entries(index.files)
+          .filter(([, entry]) => entry.aliases !== undefined)
+          .map(([rel, entry]) => [rel, entry.aliases ?? []])
+      )
+    )
+
+    for (const target of targets) {
+      result[target] = resolveLink(target, linkIndex, from)
+    }
+    return result
   }
 
   /** 设置进度并向外广播 */

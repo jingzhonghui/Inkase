@@ -14,6 +14,7 @@ import type {
   IndexStatus,
   KnowledgeQuery,
   LinkRef,
+  LinkResolution,
   SearchHit,
   TagNote
 } from '../../shared/knowledge/types'
@@ -35,6 +36,9 @@ const IDLE_STATUS: IndexStatus = {
   progress: { phase: 'idle', done: 0, total: 0 },
   fileCount: 0
 }
+
+/** 单次批量解析的目标上限（一篇文档的链接数远小于此） */
+const RESOLVE_MAX = 500
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : '未知错误'
@@ -67,6 +71,7 @@ export function registerKnowledgeHandlers(_getWindow: () => BrowserWindow | null
     KNOWLEDGE.TAGS,
     KNOWLEDGE.NOTES_BY_TAG,
     KNOWLEDGE.SEARCH,
+    KNOWLEDGE.RESOLVE,
     KNOWLEDGE.UNRESOLVED
   ]
 
@@ -172,6 +177,20 @@ export function registerKnowledgeHandlers(_getWindow: () => BrowserWindow | null
       return toResult<SearchHit[]>(
         await searchKnowledge(root, query, service?.getIndex() ?? null, new AbortController().signal)
       )
+    } catch (error) {
+      return fail(error)
+    }
+  })
+
+  ipcMain.handle(KNOWLEDGE.RESOLVE, (event, targets: string[], from?: string) => {
+    try {
+      const root = requireRoot(event.sender.id)
+      if (!Array.isArray(targets)) throw new Error('目标列表无效')
+      // 只接受字符串并设上限，避免渲染层构造超大请求
+      const list = targets.filter((item): item is string => typeof item === 'string').slice(0, RESOLVE_MAX)
+      const rel = typeof from === 'string' && from !== '' ? resolveRelPath(root, from) : undefined
+      const service = peekKnowledgeService(root)
+      return toResult<Record<string, LinkResolution>>(service?.resolveTargets(list, rel) ?? {})
     } catch (error) {
       return fail(error)
     }

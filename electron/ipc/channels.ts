@@ -126,6 +126,8 @@ export const IPC_CHANNELS = {
     UNRESOLVED: 'knowledge:unresolved',
     /** 结构化查询（文本 + 标签 / 属性 / 路径） */
     SEARCH: 'knowledge:search',
+    /** 批量解析链接目标（供 `[[ ]]` 装饰上色） */
+    RESOLVE: 'knowledge:resolve',
     /** 构建进度事件 */
     PROGRESS: 'knowledge:progress'
   },
