@@ -13,7 +13,7 @@
  * 解析逻辑发生不兼容变化时递增，用于让既有索引整体失效并全量重建。
  * 2：标签开始记录来源（行内 `#标签` / frontmatter `tags`）。
  */
-export const KNOWLEDGE_PARSER_VERSION = 2
+export const KNOWLEDGE_PARSER_VERSION = 3
 
 /** 库内节点类型（决定如何抽取正文） */
 export type NodeKind = 'md' | 'mdx' | 'office' | 'pdf' | 'image' | 'other'
@@ -76,7 +76,31 @@ export interface FileEntry {
 export interface MentionItem {
   targetPath: string
   line: number
+  /** 提及所在列（1-based，用于精确改写为链接） */
+  column: number
+  /** 书写时实际出现的文本（如笔记名或别名） */
+  raw: string
   text: string
+}
+
+/**
+ * 把未链接提及改写为 `[[链接]]` 的请求
+ *
+ * `column` / `raw` 用于精确定位并在改写前校验索引是否已过期。
+ */
+export interface MentionConversion {
+  /** 提及所在的来源文件（库内相对路径） */
+  path: string
+  line: number
+  column: number
+  raw: string
+}
+
+/** 提及转换结果 */
+export interface MentionConversionResult {
+  changed: boolean
+  /** changed 为 false 时说明原因（索引过期、位置不匹配等） */
+  reason?: string
 }
 
 /** 索引错误：单个文件解析失败不影响整体构建 */
@@ -168,6 +192,10 @@ export interface BacklinkItem {
   text: string
   /** linked = 已建立链接；unlinked = 未链接提及 */
   kind: 'linked' | 'unlinked'
+  /** 未链接提及的列号（1-based），已链接条目没有 */
+  column?: number
+  /** 未链接提及书写时的文本，已链接条目没有 */
+  raw?: string
 }
 
 /** 索引构建进度 */

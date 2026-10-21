@@ -130,6 +130,8 @@ export const IPC_CHANNELS = {
     RESOLVE: 'knowledge:resolve',
     /** 库内笔记清单（供 `[[` 自动补全） */
     NOTES: 'knowledge:notes',
+    /** 把未链接提及改写为链接 */
+    CONVERT_MENTION: 'knowledge:convertMention',
     /** 构建进度事件 */
     PROGRESS: 'knowledge:progress'
   },

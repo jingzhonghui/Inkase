@@ -82,8 +82,112 @@ describe('KnowledgeIndexService', () => {
     expect(index.unresolved).toHaveLength(1)
   })
 
-  it('reuses unchanged files on the next build', async () => {
-    writeFile('doc.mdx', 'x')
+  it('lists notes with aliases sorted by path', async () => {
+    writeFile('b.md', '---\naliases: [乙, second]\n---\n\n# B\n')
+    writeFile('a.md', '# A\n')
+
+    const service = new KnowledgeIndexService(root)
+    await service.build()
+
+    expect(service.listNotes()).toEqual([
+      { path: 'a.md', aliases: [] },
+      { path: 'b.md', aliases: ['乙', 'second'] }
+    ])
+  })
+
+  it('batch-resolves link targets and reports missing ones', async () => {
+    writeFile('note.md', '# note\n')
+    writeFile('src.md', '[[note]] [[没有这个]]\n')
+
+    const service = new KnowledgeIndexService(root)
+    await service.build()
+
+    const resolved = service.resolveTargets(['note', '没有这个'], 'src.md')
+    expect(resolved['note']).toEqual({ status: 'resolved', targetPath: 'note.md' })
+    expect(resolved['没有这个']).toEqual({ status: 'missing' })
+  })
+
+  it('reports ambiguous targets instead of guessing', async () => {
+    writeFile('x/dup.md', '# x\n')
+    writeFile('y/dup.md', '# y\n')
+
+    const service = new KnowledgeIndexService(root)
+    await service.build()
+
+    expect(service.resolveTargets(['dup'])['dup']).toEqual({
+      status: 'ambiguous',
+      candidates: ['x/dup.md', 'y/dup.md']
+    })
+  })
+
+  it('treats every target as missing when the index is unavailable', () => {
+    expect(new KnowledgeIndexService(root).resolveTargets(['a', 'b'])).toEqual({
+      a: { status: 'missing' },
+      b: { status: 'missing' }
+    })
+  })
+
+  it('converts an unlinked mention into a link on disk', async () => {
+    writeFile('note-a.md', '# A\n')
+    writeFile('note-b.md', '# B\n\nnote-a 只是提及\n')
+
+    const service = new KnowledgeIndexService(root)
+    await service.build()
+
+    const mention = service.queryBacklinks('note-a.md').find((item) => item.kind === 'unlinked')
+    expect(mention).toMatchObject({ path: 'note-b.md', line: 3, column: 1, raw: 'note-a' })
+
+    const result = await service.convertMention({
+      path: 'note-b.md',
+      line: 3,
+      column: 1,
+      raw: 'note-a'
+    })
+
+    expect(result).toEqual({ changed: true })
+    expect(fs.readFileSync(path.join(root, 'note-b.md'), 'utf-8')).toBe('# B\n\n[[note-a]] 只是提及\n')
+
+    // 索引已重建：该处不再是「未链接提及」，而成为已链接
+    const after = service.queryBacklinks('note-a.md')
+    expect(after.some((item) => item.kind === 'unlinked')).toBe(false)
+    expect(after.some((item) => item.kind === 'linked')).toBe(true)
+  })
+
+  it('refuses to convert when the source no longer matches the index', async () => {
+    writeFile('note-a.md', '# A\n')
+    writeFile('note-b.md', '# B\n\nnote-a 只是提及\n')
+
+    const service = new KnowledgeIndexService(root)
+    await service.build()
+
+    writeFile('note-b.md', '# B\n\n改过了\n')
+    const result = await service.convertMention({
+      path: 'note-b.md',
+      line: 3,
+      column: 1,
+      raw: 'note-a'
+    })
+
+    expect(result.changed).toBe(false)
+    expect(result.reason).toContain('原文已变化')
+    expect(fs.readFileSync(path.join(root, 'note-b.md'), 'utf-8')).toBe('# B\n\n改过了\n')
+  })
+
+  it('rejects mention paths outside the vault', async () => {
+    const service = new KnowledgeIndexService(root)
+    await service.build()
+
+    const result = await service.convertMention({
+      path: '../escape.md',
+      line: 1,
+      column: 1,
+      raw: 'x'
+    })
+
+    expect(result.changed).toBe(false)
+  })
+
+  it('reuses unchanged files on the next build', async () => {    writeFile('doc.mdx', 'x')
     writeFile('note-b.md', '# B\n')
 
     let calls = 0

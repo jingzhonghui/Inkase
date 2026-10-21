@@ -26,6 +26,8 @@ import {
   type KnowledgeIndex,
   type LinkRef,
   type LinkResolution,
+  type MentionConversion,
+  type MentionConversionResult,
   type MentionItem,
   type NoteEntry,
   type NodeKind,
@@ -38,7 +40,9 @@ import { parseFrontmatter, readList, type Frontmatter } from './frontmatter'
 import { emptyIndex, isIndexStale, loadIndex, removeIndex, saveIndex, writeTextCache } from './index-store'
 import { parseLinks, parseMarkdownLinkSpans, parseWikiLinks } from './link-parser'
 import { buildLinkIndex, normalizeName, resolveLink } from './link-resolver'
-import { isInsideRanges, lineOf, scanVisibleLines, visibleSegments } from './text-scan'
+import { columnOf, isInsideRanges, lineOf, lineStarts, scanVisibleLines, visibleSegments } from './text-scan'
+import { resolveRelPath } from './rel-path'
+import { readVaultText, writeVaultText } from './vault-text'
 import { walkVault } from './vault-walk'
 
 const OFFICE_EXTENSIONS = new Set([
@@ -422,7 +426,14 @@ export class KnowledgeIndexService {
     for (const [from, list] of Object.entries(index.mentions)) {
       for (const mention of list) {
         if (mention.targetPath === relPath) {
-          items.push({ path: from, line: mention.line, text: mention.text, kind: 'unlinked' })
+          items.push({
+            path: from,
+            line: mention.line,
+            column: mention.column,
+            raw: mention.raw,
+            text: mention.text,
+            kind: 'unlinked'
+          })
         }
       }
     }
@@ -471,6 +482,55 @@ export class KnowledgeIndexService {
       }
       return { path: file, sources }
     })
+  }
+
+  /**
+   * 把一条未链接提及改写为 `[[链接]]`
+   *
+   * 改写前必须在原文里校验 `column` / `raw` 仍然对得上——索引可能已经过期
+   * （用户刚编辑过该文件），此时宁可拒绝也不要在错误位置插入链接。
+   * 改写后走一次 `build()`，未变化的文件会被增量复用。
+   */
+  async convertMention(request: MentionConversion): Promise<MentionConversionResult> {
+    // resolveRelPath 负责安全校验与归一化，返回的是**相对**路径
+    let rel: string
+    try {
+      rel = resolveRelPath(this.root, request.path)
+    } catch {
+      return { changed: false, reason: '路径越界' }
+    }
+    const target = path.resolve(this.root, rel)
+
+    let text: string | null
+    try {
+      text = await readVaultText(target, rel)
+    } catch (error) {
+      return { changed: false, reason: describeError(error) }
+    }
+    if (text === null) return { changed: false, reason: '该文件不支持改写' }
+
+    const starts = lineStarts(text)
+    const lineStart = starts[request.line - 1]
+    if (lineStart === undefined) return { changed: false, reason: '行号已失效' }
+
+    const lineEnd = request.line < starts.length ? starts[request.line] - 1 : text.length
+    const line = text.slice(lineStart, lineEnd).replace(/\r$/, '')
+
+    const at = request.column - 1
+    if (line.slice(at, at + request.raw.length) !== request.raw) {
+      return { changed: false, reason: '原文已变化，请刷新反链后重试' }
+    }
+    // 已经是链接或已在链接内，避免二次包裹
+    if (line[at - 1] === '[' && line[at - 2] === '[') {
+      return { changed: false, reason: '该位置已经是链接' }
+    }
+
+    const replaced = `${line.slice(0, at)}[[${request.raw}]]${line.slice(at + request.raw.length)}`
+    const next = text.slice(0, lineStart) + replaced + text.slice(lineStart + line.length)
+
+    await writeVaultText(target, rel, next)
+    await this.build()
+    return { changed: true }
   }
 
   /**
@@ -673,6 +733,8 @@ function collectMentions(
         found.push({
           targetPath: target,
           line,
+          column: columnOf(body, absolute),
+          raw: match[0],
           text: truncate(lines.get(segment.line) ?? match[0], CONTEXT_MAX)
         })
       }

@@ -22,6 +22,8 @@ import type {
   KnowledgeQuery,
   LinkRef,
   LinkResolution,
+  MentionConversion,
+  MentionConversionResult,
   NoteEntry,
   ReferenceRewriteResult,
   SearchHit,
@@ -267,6 +269,9 @@ export interface ElectronAPI {
   getUnresolvedLinks: () => Promise<{ success: boolean; data?: LinkRef[]; error?: string }>
   searchKnowledge: (query: KnowledgeQuery) => Promise<{ success: boolean; data?: SearchHit[]; error?: string }>
   listKnowledgeNotes: () => Promise<{ success: boolean; data?: NoteEntry[]; error?: string }>
+  convertMention: (
+    request: MentionConversion
+  ) => Promise<{ success: boolean; data?: MentionConversionResult; error?: string }>
   resolveLinks: (
     targets: string[],
     from?: string
@@ -464,6 +469,7 @@ const api: ElectronAPI = {
   getUnresolvedLinks: () => ipcRenderer.invoke(IPC_CHANNELS.KNOWLEDGE.UNRESOLVED),
   searchKnowledge: (query) => ipcRenderer.invoke(IPC_CHANNELS.KNOWLEDGE.SEARCH, query),
   listKnowledgeNotes: () => ipcRenderer.invoke(IPC_CHANNELS.KNOWLEDGE.NOTES),
+  convertMention: (request) => ipcRenderer.invoke(IPC_CHANNELS.KNOWLEDGE.CONVERT_MENTION, request),
   resolveLinks: (targets, from) => ipcRenderer.invoke(IPC_CHANNELS.KNOWLEDGE.RESOLVE, targets, from),
   onKnowledgeProgress: (callback) => {
     const handler = (_event: unknown, progress: IndexProgress): void => callback(progress)

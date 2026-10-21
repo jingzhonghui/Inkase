@@ -6,6 +6,8 @@ import type {
   KnowledgeQuery,
   LinkRef,
   LinkResolution,
+  MentionConversion,
+  MentionConversionResult,
   NoteEntry,
   SearchHit,
   TagNote,
@@ -175,6 +177,25 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
     return res.data ?? []
   }
 
+  /**
+   * 把一条未链接提及改写为链接
+   *
+   * 改写成功后索引已在主进程重建，这里刷新反链让提及从「未链接」组消失。
+   */
+  async function convertMention(request: MentionConversion): Promise<MentionConversionResult> {
+    const bridge = api()
+    if (bridge === null) return { changed: false, reason: '知识库 API 不可用' }
+
+    const res = await bridge.convertMention(request)
+    if (!res.success || !res.data) {
+      const reason = res.error ?? '改写失败'
+      error.value = reason
+      return { changed: false, reason }
+    }
+    if (res.data.changed) await refreshAll()
+    return res.data
+  }
+
   /** 库内笔记清单（`[[` 自动补全的候选） */
   const notes = ref<NoteEntry[]>([])
 
@@ -290,6 +311,7 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
     resolveTargets,
     notes,
     loadNotes,
+    convertMention,
     refreshAll,
     clear,
     init,

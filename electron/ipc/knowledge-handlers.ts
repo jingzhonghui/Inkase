@@ -15,6 +15,8 @@ import type {
   KnowledgeQuery,
   LinkRef,
   LinkResolution,
+  MentionConversion,
+  MentionConversionResult,
   NoteEntry,
   SearchHit,
   TagNote
@@ -73,6 +75,7 @@ export function registerKnowledgeHandlers(_getWindow: () => BrowserWindow | null
     KNOWLEDGE.NOTES_BY_TAG,
     KNOWLEDGE.SEARCH,
     KNOWLEDGE.NOTES,
+    KNOWLEDGE.CONVERT_MENTION,
     KNOWLEDGE.RESOLVE,
     KNOWLEDGE.UNRESOLVED
   ]
@@ -202,6 +205,26 @@ export function registerKnowledgeHandlers(_getWindow: () => BrowserWindow | null
       const rel = typeof from === 'string' && from !== '' ? resolveRelPath(root, from) : undefined
       const service = peekKnowledgeService(root)
       return toResult<Record<string, LinkResolution>>(service?.resolveTargets(list, rel) ?? {})
+    } catch (error) {
+      return fail(error)
+    }
+  })
+
+  ipcMain.handle(KNOWLEDGE.CONVERT_MENTION, async (event, request: MentionConversion) => {
+    try {
+      const root = requireRoot(event.sender.id)
+      if (typeof request !== 'object' || request === null) throw new Error('请求无效')
+      const { path: relPath, line, column, raw } = request
+      if (typeof relPath !== 'string' || relPath === '') throw new Error('路径无效')
+      if (typeof raw !== 'string' || raw === '') throw new Error('提及文本无效')
+      if (!Number.isInteger(line) || line < 1) throw new Error('行号无效')
+      if (!Number.isInteger(column) || column < 1) throw new Error('列号无效')
+
+      const service = peekKnowledgeService(root)
+      if (service === null) throw new Error('索引不可用')
+
+      const result = await service.convertMention({ path: relPath, line, column, raw })
+      return toResult<MentionConversionResult>(result)
     } catch (error) {
       return fail(error)
     }
