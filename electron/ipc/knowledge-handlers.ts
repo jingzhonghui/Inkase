@@ -76,6 +76,17 @@ function sanitizeLayers(raw: unknown): readonly GraphLayer[] {
   return layers.length > 0 ? layers : DEFAULT_LAYERS
 }
 
+/**
+ * 是否启用规模护栏
+ *
+ * 只有渲染层明确传 `{ aggregated: false }` 才放行原图（用户点了「显示全部」）；
+ * 其余任何情况（含畸形参数）都按聚合处理，安全默认。
+ */
+function wantsAggregation(raw: unknown): boolean {
+  if (typeof raw !== 'object' || raw === null) return true
+  return (raw as { aggregated?: unknown }).aggregated !== false
+}
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : '未知错误'
 }
@@ -264,14 +275,15 @@ export function registerKnowledgeHandlers(_getWindow: () => BrowserWindow | null
     }
   })
 
-  ipcMain.handle(KNOWLEDGE.GRAPH, (event, layers?: unknown) => {
+  ipcMain.handle(KNOWLEDGE.GRAPH, (event, layers?: unknown, options?: unknown) => {
     try {
       const root = requireRoot(event.sender.id)
       const index = peekKnowledgeService(root)?.getIndex() ?? null
       if (index === null) return toResult<Graph>(emptyGraph())
-      // 聚合后的图仍然可能有上千节点，护栏必须在主进程先跑一遍，
-      // 避免把整库节点表推进渲染进程
-      return toResult<Graph>(applyGuardrail(buildGraph(index, { layers: sanitizeLayers(layers) })))
+      const graph = buildGraph(index, { layers: sanitizeLayers(layers) })
+      // 默认在主进程先跑护栏：聚合后的图仍然可能有上千节点，
+      // 没必要把整库节点表推进渲染进程。只有用户显式「显示全部」才放行原图。
+      return toResult<Graph>(wantsAggregation(options) ? applyGuardrail(graph) : graph)
     } catch (error) {
       return fail(error)
     }

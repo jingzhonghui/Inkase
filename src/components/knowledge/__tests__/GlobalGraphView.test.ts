@@ -165,4 +165,68 @@ describe('GlobalGraphView', () => {
     expect(wrapper.find('[data-testid="graph-relayout"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="graph-search"]').exists()).toBe(true)
   })
+
+  it('opens the filter panel on demand', async () => {
+    openVault()
+    useKnowledgeStore().graph = sampleGraph()
+
+    const wrapper = mount(GlobalGraphView)
+    await settle()
+
+    expect(wrapper.find('[data-testid="graph-filters"]').exists()).toBe(false)
+    await wrapper.get('[data-testid="graph-filters-toggle"]').trigger('click')
+    expect(wrapper.find('[data-testid="graph-filters"]').exists()).toBe(true)
+  })
+
+  it('reflects the filters in the stats line', async () => {
+    openVault()
+    useKnowledgeStore().graph = sampleGraph()
+
+    const wrapper = mount(GlobalGraphView)
+    await settle()
+    expect(wrapper.get('[data-testid="graph-stats"]').text()).toBe('3 节点 · 1 连线 · 1 孤立')
+
+    // 隐藏孤立节点：计数与画面一起收敛
+    useKnowledgeStore().updateGraphFilters({ orphans: 'hide' })
+    await nextTick()
+    expect(wrapper.get('[data-testid="graph-stats"]').text()).toBe('2 节点 · 1 连线 · 0 孤立')
+  })
+
+  it('explains an empty view when the filters exclude everything', async () => {
+    openVault()
+    useKnowledgeStore().graph = sampleGraph()
+    // 一个文件夹都不选 → 全部笔记被排除，库里其实是有内容的
+    useKnowledgeStore().updateGraphFilters({ folders: [] })
+
+    const wrapper = mount(GlobalGraphView)
+    await settle()
+
+    expect(wrapper.get('[data-testid="graph-empty"]').text()).toContain('过滤器排除了所有节点')
+    expect(wrapper.find('[data-testid="graph-stats"]').exists()).toBe(false)
+  })
+
+  it('repaints after the filters change', async () => {
+    openVault()
+    useKnowledgeStore().graph = sampleGraph()
+
+    const wrapper = mount(GlobalGraphView)
+    await settle()
+    await vi.waitFor(() => expect(arc.mock.calls.length).toBeGreaterThanOrEqual(3), {
+      timeout: 3000
+    })
+
+    useKnowledgeStore().updateGraphFilters({ orphans: 'hide' })
+    await settle()
+
+    // 重绘后只剩两个非孤立节点，孤立环也不再画
+    await vi.waitFor(() => expect(wrapper.get('[data-testid="graph-stats"]').text()).toContain('2 节点'), {
+      timeout: 3000
+    })
+    const afterHide = arc.mock.calls.length
+    useKnowledgeStore().updateGraphFilters({ orphans: 'all' })
+    await settle()
+    await vi.waitFor(() => expect(arc.mock.calls.length).toBeGreaterThan(afterHide), {
+      timeout: 3000
+    })
+  })
 })

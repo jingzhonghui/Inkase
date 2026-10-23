@@ -13,6 +13,7 @@
  */
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import {
+  IconAdjustmentsHorizontal,
   IconArrowsMaximize,
   IconRefresh,
   IconSearch,
@@ -22,6 +23,7 @@ import {
 } from '@tabler/icons-vue'
 import { useFileStore } from '../../stores/file'
 import { useKnowledgeStore } from '../../stores/knowledge'
+import GraphFilters from './GraphFilters.vue'
 import { layoutNetwork } from '../../utils/graph-layout'
 import {
   GLOBAL_LAYOUT_SEED,
@@ -41,7 +43,7 @@ import {
   type PositionedNode,
   type ViewTransform
 } from '../../utils/graph-view'
-import type { GraphEdge, GraphNode } from '../../../shared/knowledge/graph'
+import { filterGraph, type GraphEdge, type GraphNode } from '../../../shared/knowledge/graph'
 
 const knowledge = useKnowledgeStore()
 const fileStore = useFileStore()
@@ -66,14 +68,25 @@ const searchMiss = ref(false)
 const layingOut = ref(false)
 const frozen = ref(false)
 const layoutMs = ref(0)
+/** 过滤面板展开状态 */
+const filtersOpen = ref(false)
 /** 用户手动平移/缩放过就不要再自动适配视图，免得把人家刚摆好的视角抢走 */
 const userMoved = ref(false)
 const seedBump = ref(0)
 
 const graph = computed(() => knowledge.graph)
-const adjacency = computed(() => buildAdjacency(graph.value.edges))
+
+/**
+ * 当前视图（已过滤）
+ *
+ * 布局按**未过滤**的整图算，位置因此与过滤器无关：勾选/取消勾选时节点留在原地，
+ * 只是出现或消失。这是「空间记忆」的一部分，不能让用户每切一次过滤就重新认图。
+ */
+const visible = computed(() => filterGraph(graph.value, knowledge.graphFilters))
+
+const adjacency = computed(() => buildAdjacency(visible.value.edges))
 const maxDegree = computed(() =>
-  graph.value.nodes.reduce((max, node) => Math.max(max, node.degree), 0)
+  visible.value.nodes.reduce((max, node) => Math.max(max, node.degree), 0)
 )
 
 /** 布局完成后才有的可绘制节点 */
@@ -82,7 +95,7 @@ const positioned = computed<PositionedNode[]>(() => {
   if (map.size === 0) return []
   const max = maxDegree.value
   const result: PositionedNode[] = []
-  for (const node of graph.value.nodes) {
+  for (const node of visible.value.nodes) {
     const point = map.get(node.id)
     if (point === undefined) continue
     result.push({ ...node, x: point.x, y: point.y, radius: radiusForDegree(node.degree, max) })
@@ -103,11 +116,11 @@ const highlightSet = computed<Set<string> | null>(() => {
 
 /** 无交互时常显的标签：度数最高的那一小撮 */
 const topLabelIds = computed<Set<string>>(() => {
-  const sorted = [...graph.value.nodes].sort((left, right) => right.degree - left.degree)
+  const sorted = [...visible.value.nodes].sort((left, right) => right.degree - left.degree)
   return new Set(sorted.slice(0, LABEL_BUDGET).map((node) => node.id))
 })
 
-const nodeById = computed(() => new Map(graph.value.nodes.map((node) => [node.id, node])))
+const nodeById = computed(() => new Map(visible.value.nodes.map((node) => [node.id, node])))
 
 const selectedNode = computed<GraphNode | null>(() => {
   const id = selectedId.value
@@ -122,13 +135,14 @@ const selectedOpenable = computed(() => {
 
 const stats = computed(
   () =>
-    `${graph.value.nodes.length} 节点 · ${graph.value.edges.length} 连线 · ${graph.value.isolated.length} 孤立`
+    `${visible.value.nodes.length} 节点 · ${visible.value.edges.length} 连线 · ${visible.value.isolated.length} 孤立`
 )
 
 const emptyReason = computed<string | null>(() => {
   if (knowledge.root === null) return '先打开一个文件夹，图谱才有可以检索的库'
   if (knowledge.degraded) return '索引不可用，图谱暂不可用'
   if (knowledge.graph.nodes.length === 0) return '这个库里还没有可绘制的笔记'
+  if (visible.value.nodes.length === 0) return '当前过滤器排除了所有节点，放宽条件试试'
   return null
 })
 
@@ -261,7 +275,7 @@ function draw(): void {
   context.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * view.x, dpr * view.y)
 
   // 边：悬停时只保留与焦点相邻的连线
-  for (const edge of graph.value.edges) {
+  for (const edge of visible.value.edges) {
     const from = index.get(edge.from)
     const to = index.get(edge.to)
     if (from === undefined || to === undefined) continue
@@ -534,9 +548,11 @@ function locate(): void {
     searchMiss.value = false
     return
   }
+  // 只在当前视图里找：被过滤器藏掉的节点定位过去也看不见
+  const candidates = visible.value.nodes
   const match =
-    graph.value.nodes.find((node) => node.label.toLowerCase() === term) ??
-    graph.value.nodes.find((node) => node.label.toLowerCase().includes(term))
+    candidates.find((node) => node.label.toLowerCase() === term) ??
+    candidates.find((node) => node.label.toLowerCase().includes(term))
   if (match === undefined) {
     searchMiss.value = true
     return
@@ -616,6 +632,12 @@ watch(
 
 watch(
   () => viewport.value,
+  () => requestDraw()
+)
+
+// 过滤器只改变可见集合，不重排；但画布必须重绘，否则会停在旧画面上
+watch(
+  () => knowledge.graphFilters,
   () => requestDraw()
 )
 </script>
@@ -705,6 +727,20 @@ watch(
         <button
           type="button"
           class="icon-button"
+          :class="{ active: filtersOpen }"
+          :aria-pressed="filtersOpen"
+          aria-label="过滤图谱"
+          data-testid="graph-filters-toggle"
+          @click="filtersOpen = !filtersOpen"
+        >
+          <IconAdjustmentsHorizontal
+            :size="15"
+            :stroke-width="1.8"
+          />
+        </button>
+        <button
+          type="button"
+          class="icon-button"
           aria-label="重新布局"
           data-testid="graph-relayout"
           @click="relayout"
@@ -717,68 +753,72 @@ watch(
       </div>
     </header>
 
-    <div
-      ref="stage"
-      class="graph-stage"
-    >
-      <canvas
-        ref="canvas"
-        class="graph-surface"
-        data-testid="graph-canvas"
-        @pointerdown.prevent="onPointerDown"
-        @pointermove="onPointerMove"
-        @pointerup="onPointerUp"
-        @pointercancel="onPointerUp"
-        @pointerleave="onPointerLeave"
-        @dblclick="onDoubleClick"
-        @wheel="onWheel"
-      />
+    <div class="graph-body">
+      <GraphFilters v-if="filtersOpen" />
 
-      <p
-        v-if="emptyReason !== null"
-        class="graph-empty"
-        data-testid="graph-empty"
+      <div
+        ref="stage"
+        class="graph-stage"
       >
-        <IconTopologyStar3
-          :size="26"
-          :stroke-width="1.3"
+        <canvas
+          ref="canvas"
+          class="graph-surface"
+          data-testid="graph-canvas"
+          @pointerdown.prevent="onPointerDown"
+          @pointermove="onPointerMove"
+          @pointerup="onPointerUp"
+          @pointercancel="onPointerUp"
+          @pointerleave="onPointerLeave"
+          @dblclick="onDoubleClick"
+          @wheel="onWheel"
         />
-        <span>{{ emptyReason }}</span>
-      </p>
 
-      <p
-        v-else-if="layingOut || (!frozen && positioned.length === 0)"
-        class="graph-empty"
-        data-testid="graph-laying-out"
-      >
-        <span>正在计算布局…</span>
-      </p>
-
-      <p
-        v-if="searchMiss"
-        class="graph-search-miss"
-        data-testid="graph-search-miss"
-      >
-        没有找到匹配的笔记
-      </p>
-
-      <footer
-        v-if="selectedNode !== null"
-        class="graph-selection"
-        data-testid="graph-selected"
-      >
-        <span class="selection-name">{{ selectedNode.label }}</span>
-        <span class="selection-meta">{{ selectedNode.kind }} · 度数 {{ selectedNode.degree }}</span>
-        <button
-          v-if="selectedOpenable"
-          type="button"
-          class="selection-open"
-          data-testid="graph-open-selected"
-          @click="openSelected"
+        <p
+          v-if="emptyReason !== null"
+          class="graph-empty"
+          data-testid="graph-empty"
         >
-          打开笔记
-        </button>
-      </footer>
+          <IconTopologyStar3
+            :size="26"
+            :stroke-width="1.3"
+          />
+          <span>{{ emptyReason }}</span>
+        </p>
+
+        <p
+          v-else-if="layingOut || (!frozen && positioned.length === 0)"
+          class="graph-empty"
+          data-testid="graph-laying-out"
+        >
+          <span>正在计算布局…</span>
+        </p>
+
+        <p
+          v-if="searchMiss"
+          class="graph-search-miss"
+          data-testid="graph-search-miss"
+        >
+          没有找到匹配的笔记
+        </p>
+
+        <footer
+          v-if="selectedNode !== null"
+          class="graph-selection"
+          data-testid="graph-selected"
+        >
+          <span class="selection-name">{{ selectedNode.label }}</span>
+          <span class="selection-meta">{{ selectedNode.kind }} · 度数 {{ selectedNode.degree }}</span>
+          <button
+            v-if="selectedOpenable"
+            type="button"
+            class="selection-open"
+            data-testid="graph-open-selected"
+            @click="openSelected"
+          >
+            打开笔记
+          </button>
+        </footer>
+      </div>
     </div>
   </section>
 </template>
@@ -876,9 +916,22 @@ watch(
   color: var(--color-text);
 }
 
+.icon-button.active {
+  background: color-mix(in srgb, var(--color-primary) 14%, transparent);
+  color: var(--color-primary);
+}
+
+.graph-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
 .graph-stage {
   position: relative;
   flex: 1;
+  min-width: 0;
   min-height: 0;
   overflow: hidden;
 }

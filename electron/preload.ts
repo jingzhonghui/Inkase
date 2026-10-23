@@ -278,7 +278,8 @@ export interface ElectronAPI {
     from?: string
   ) => Promise<{ success: boolean; data?: Record<string, LinkResolution>; error?: string }>
   getKnowledgeGraph: (
-    layers?: readonly GraphLayer[]
+    layers?: readonly GraphLayer[],
+    options?: { aggregated?: boolean }
   ) => Promise<{ success: boolean; data?: Graph; error?: string }>
   onKnowledgeProgress: (callback: (progress: IndexProgress) => void) => () => void
 }
@@ -475,7 +476,8 @@ const api: ElectronAPI = {
   listKnowledgeNotes: () => ipcRenderer.invoke(IPC_CHANNELS.KNOWLEDGE.NOTES),
   convertMention: (request) => ipcRenderer.invoke(IPC_CHANNELS.KNOWLEDGE.CONVERT_MENTION, request),
   resolveLinks: (targets, from) => ipcRenderer.invoke(IPC_CHANNELS.KNOWLEDGE.RESOLVE, targets, from),
-  getKnowledgeGraph: (layers) => ipcRenderer.invoke(IPC_CHANNELS.KNOWLEDGE.GRAPH, layers),
+  getKnowledgeGraph: (layers, options) =>
+    ipcRenderer.invoke(IPC_CHANNELS.KNOWLEDGE.GRAPH, layers, options),
   onKnowledgeProgress: (callback) => {
     const handler = (_event: unknown, progress: IndexProgress): void => callback(progress)
     ipcRenderer.on(IPC_CHANNELS.KNOWLEDGE.PROGRESS, handler)

@@ -1,6 +1,13 @@
 import { computed, ref, watch } from 'vue'
 import { defineStore } from 'pinia'
-import { emptyGraph, type Graph, type GraphLayer } from '../../shared/knowledge/graph'
+import {
+  DEFAULT_LAYERS,
+  defaultGraphFilters,
+  emptyGraph,
+  type Graph,
+  type GraphFilters,
+  type GraphLayer
+} from '../../shared/knowledge/graph'
 import type {
   BacklinkItem,
   IndexStatus,
@@ -263,18 +270,69 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
     graphTabActive.value = false
   }
 
-  async function loadGraph(layers?: readonly GraphLayer[]): Promise<void> {
+  /** 视图过滤器（纯视图状态，不动索引） */
+  const graphFilters = ref<GraphFilters>(defaultGraphFilters())
+  /** 当前图上请求过的层：目录边要按需生成，刷新时得沿用 */
+  const graphLayers = ref<readonly GraphLayer[]>(DEFAULT_LAYERS)
+  /** 是否已手动解除规模护栏（显示全部节点） */
+  const graphExpanded = ref(false)
+
+  function updateGraphFilters(patch: Partial<GraphFilters>): void {
+    graphFilters.value = { ...graphFilters.value, ...patch }
+  }
+
+  function resetGraphFilters(): void {
+    graphFilters.value = defaultGraphFilters()
+  }
+
+  /**
+   * 切换某一层边
+   *
+   * L1–L5 由渲染层直接扣边，不需要往返主进程；目录边（L6）是主进程按需生成的，
+   * 开关它必须重新拉一次图。这是设计上刻意的取舍：默认关闭的层不该为所有人付成本。
+   */
+  async function toggleGraphLayer(layer: GraphLayer): Promise<void> {
+    const current = graphFilters.value.layers
+    const next = current.includes(layer)
+      ? current.filter((item) => item !== layer)
+      : [...current, layer]
+    graphFilters.value = { ...graphFilters.value, layers: next }
+    if (layer === 'folder') await loadGraph(next)
+  }
+
+  async function loadGraph(
+    layers?: readonly GraphLayer[],
+    options?: { aggregated?: boolean }
+  ): Promise<void> {
     const bridge = api()
     if (bridge === null) return
+    const requested = layers ?? graphLayers.value
     graphLoading.value = true
     try {
-      const res = await bridge.getKnowledgeGraph(layers)
+      const res = await bridge.getKnowledgeGraph(requested, {
+        aggregated: options?.aggregated ?? !graphExpanded.value
+      })
       graph.value = res.success && res.data ? res.data : emptyGraph()
+      graphLayers.value = requested
       graphLoaded.value = true
       graphVersion.value += 1
     } finally {
       graphLoading.value = false
     }
+  }
+
+  /** 手动解除规模护栏：重新拉未聚合的整图（>1500 节点时由调用方确认） */
+  async function expandGraph(): Promise<void> {
+    if (graphExpanded.value) return
+    graphExpanded.value = true
+    await loadGraph(graphLayers.value)
+  }
+
+  /** 恢复自动聚合 */
+  async function collapseGraph(): Promise<void> {
+    if (!graphExpanded.value) return
+    graphExpanded.value = false
+    await loadGraph(graphLayers.value)
   }
 
   /** 库内容发生变化（重命名/移动/外部修改）后刷新全部派生数据 */
@@ -298,6 +356,9 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
     graphVersion.value = 0
     graphTabOpen.value = false
     graphTabActive.value = false
+    graphFilters.value = defaultGraphFilters()
+    graphLayers.value = DEFAULT_LAYERS
+    graphExpanded.value = false
     error.value = null
   }
 
@@ -382,10 +443,18 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
     graphVersion,
     graphTabOpen,
     graphTabActive,
+    graphFilters,
+    graphLayers,
+    graphExpanded,
     openGraphTab,
     activateGraphTab,
     deactivateGraphTab,
     closeGraphTab,
+    updateGraphFilters,
+    resetGraphFilters,
+    toggleGraphLayer,
+    expandGraph,
+    collapseGraph,
     loadGraph,
     convertMention,
     refreshAll,

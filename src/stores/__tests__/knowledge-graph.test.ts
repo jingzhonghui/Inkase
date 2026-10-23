@@ -3,7 +3,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { useKnowledgeStore } from '../knowledge'
-import { emptyGraph, type Graph } from '../../../shared/knowledge/graph'
+import {
+  DEFAULT_LAYERS,
+  defaultGraphFilters,
+  emptyGraph,
+  type Graph
+} from '../../../shared/knowledge/graph'
 
 /** 两点一线的最小图谱 */
 function sampleGraph(): Graph {
@@ -128,7 +133,8 @@ describe('knowledge graph loading', () => {
 
     await store.loadGraph(['link'])
 
-    expect(bridge.getKnowledgeGraph).toHaveBeenCalledWith(['link'])
+    // 第二个参数是护栏开关，默认按聚合拉取
+    expect(bridge.getKnowledgeGraph).toHaveBeenCalledWith(['link'], { aggregated: true })
   })
 
   it('falls back to an empty graph when the call fails', async () => {
@@ -153,5 +159,135 @@ describe('knowledge graph loading', () => {
     await store.loadGraph()
     await store.refreshAll()
     expect(bridge.getKnowledgeGraph).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('graph guardrail release', () => {
+  const original = window.electronAPI
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+  })
+
+  afterEach(() => {
+    window.electronAPI = original
+  })
+
+  it('asks for the unaggregated graph on expand and goes back on collapse', async () => {
+    const bridge = installBridge()
+    const store = useKnowledgeStore()
+
+    await store.loadGraph()
+    expect(bridge.getKnowledgeGraph).toHaveBeenLastCalledWith(DEFAULT_LAYERS, { aggregated: true })
+
+    await store.expandGraph()
+    expect(store.graphExpanded).toBe(true)
+    expect(bridge.getKnowledgeGraph).toHaveBeenLastCalledWith(DEFAULT_LAYERS, { aggregated: false })
+
+    // 幂等：已经在展开态时不要再打一次 IPC
+    await store.expandGraph()
+    expect(bridge.getKnowledgeGraph).toHaveBeenCalledTimes(2)
+
+    await store.collapseGraph()
+    expect(store.graphExpanded).toBe(false)
+    expect(bridge.getKnowledgeGraph).toHaveBeenLastCalledWith(DEFAULT_LAYERS, { aggregated: true })
+    expect(bridge.getKnowledgeGraph).toHaveBeenCalledTimes(3)
+  })
+
+  it('keeps the expanded mode across refreshAll', async () => {
+    const bridge = installBridge()
+    const store = useKnowledgeStore()
+
+    await store.expandGraph()
+    await store.refreshAll()
+
+    for (const call of bridge.getKnowledgeGraph.mock.calls) {
+      expect(call[1]).toEqual({ aggregated: false })
+    }
+  })
+})
+
+describe('graph filters', () => {
+  const original = window.electronAPI
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+  })
+
+  afterEach(() => {
+    window.electronAPI = original
+  })
+
+  it('starts wide open and can be patched and reset', () => {
+    const store = useKnowledgeStore()
+
+    expect(store.graphFilters).toEqual(defaultGraphFilters())
+
+    store.updateGraphFilters({ orphans: 'only', filesOnly: true })
+    expect(store.graphFilters.orphans).toBe('only')
+    expect(store.graphFilters.filesOnly).toBe(true)
+    // 未提到的字段保持不变
+    expect(store.graphFilters.layers).toEqual(DEFAULT_LAYERS)
+
+    store.resetGraphFilters()
+    expect(store.graphFilters).toEqual(defaultGraphFilters())
+  })
+
+  it('toggles ordinary layers without a round trip', async () => {
+    const bridge = installBridge()
+    const store = useKnowledgeStore()
+
+    await store.toggleGraphLayer('tag')
+    expect(store.graphFilters.layers).not.toContain('tag')
+    expect(bridge.getKnowledgeGraph).not.toHaveBeenCalled()
+
+    await store.toggleGraphLayer('tag')
+    expect(store.graphFilters.layers).toContain('tag')
+    expect(bridge.getKnowledgeGraph).not.toHaveBeenCalled()
+  })
+
+  it('reloads the graph when the folder layer changes', async () => {
+    const bridge = installBridge()
+    const store = useKnowledgeStore()
+
+    await store.toggleGraphLayer('folder')
+    expect(store.graphFilters.layers).toContain('folder')
+    expect(bridge.getKnowledgeGraph).toHaveBeenLastCalledWith(
+      [...DEFAULT_LAYERS, 'folder'],
+      { aggregated: true }
+    )
+
+    await store.toggleGraphLayer('folder')
+    expect(store.graphFilters.layers).not.toContain('folder')
+    expect(bridge.getKnowledgeGraph).toHaveBeenLastCalledWith(DEFAULT_LAYERS, { aggregated: true })
+  })
+
+  it('remembers the requested layers when expanding', async () => {
+    const bridge = installBridge()
+    const store = useKnowledgeStore()
+
+    await store.toggleGraphLayer('folder')
+    await store.expandGraph()
+
+    expect(bridge.getKnowledgeGraph).toHaveBeenLastCalledWith(
+      [...DEFAULT_LAYERS, 'folder'],
+      { aggregated: false }
+    )
+  })
+
+  it('resets filters, layers and guardrail state with the workspace', async () => {
+    const store = useKnowledgeStore()
+    installBridge()
+
+    store.openGraphTab()
+    store.updateGraphFilters({ folders: ['notes'], orphans: 'hide' })
+    await store.toggleGraphLayer('folder')
+    await store.expandGraph()
+
+    store.clear()
+
+    expect(store.graphFilters).toEqual(defaultGraphFilters())
+    expect(store.graphLayers).toEqual(DEFAULT_LAYERS)
+    expect(store.graphExpanded).toBe(false)
   })
 })

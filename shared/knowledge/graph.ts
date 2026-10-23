@@ -69,6 +69,37 @@ export const DEFAULT_LAYERS: readonly GraphLayer[] = [
   'mention'
 ]
 
+/** 全部六层（含目录层级）；目录边只在用户显式打开时才由主进程生成 */
+export const ALL_LAYERS: readonly GraphLayer[] = [...DEFAULT_LAYERS, 'folder']
+
+/** 孤立节点的显示方式 */
+export type OrphanMode = 'all' | 'only' | 'hide'
+
+/**
+ * 图谱视图过滤器
+ *
+ * 全部是**视图属性**，不影响索引、不影响孤立判定（判定结果仍是整库事实）。
+ * `null` 表示「不按这一维过滤」，空数组表示「一个都不显示」——两者语义不同，
+ * 不能合并成 `length === 0`。
+ */
+export interface GraphFilters {
+  /** 显示的边层 */
+  layers: readonly GraphLayer[]
+  /** 顶层目录白名单 */
+  folders: readonly string[] | null
+  /** 标签白名单（节点 id，形如 `#tag`） */
+  tags: readonly string[] | null
+  /** 孤立节点：全部 / 只看孤立 / 隐藏孤立 */
+  orphans: OrphanMode
+  /** 只显示真实文件节点（隐藏标签、目录与聚合块） */
+  filesOnly: boolean
+}
+
+/** 默认过滤器：全开、不过滤 */
+export function defaultGraphFilters(): GraphFilters {
+  return { layers: DEFAULT_LAYERS, folders: null, tags: null, orphans: 'all', filesOnly: false }
+}
+
 /** 规模护栏默认阈值：超过即自动聚合 */
 export const GUARDRAIL_LIMIT = 1500
 
@@ -294,5 +325,58 @@ export function applyGuardrail(graph: Graph, limit: number = GUARDRAIL_LIMIT): G
     ),
     aggregated: true,
     hiddenCount: graph.nodes.length - kept.size
+  }
+}
+
+/**
+ * 视图过滤
+ *
+ * 只做「看得见什么」，不改变图谱事实：过滤后按可见边重算度数与孤立标记，
+ * 所以统计数字与画面永远一致（这正是过滤存在的意义——用户看到的就是他筛的）。
+ * 位置由未过滤的整图布局提供，切换过滤不会让节点乱跳。
+ */
+export function filterGraph(graph: Graph, filters: GraphFilters): Graph {
+  const layers = new Set<GraphLayer>(filters.layers)
+  const folders = filters.folders === null ? null : new Set<string>(filters.folders)
+  const tags = filters.tags === null ? null : new Set<string>(filters.tags)
+
+  const kept = new Set<string>()
+  for (const node of graph.nodes) {
+    const structural = isStructuralNode(node)
+    if (filters.filesOnly && structural) continue
+    if (filters.orphans === 'only' && (structural || !node.isolated)) continue
+    if (filters.orphans === 'hide' && node.isolated) continue
+    // 标签没有目录归属（folder 恒为 ''），按 tags 维度单独过滤
+    if (folders !== null && node.kind !== 'tag' && !folders.has(node.folder)) continue
+    if (tags !== null && node.kind === 'tag' && !tags.has(node.id)) continue
+    kept.add(node.id)
+  }
+
+  const nodes = graph.nodes.filter((node) => kept.has(node.id)).map((node) => ({ ...node }))
+  const edges = graph.edges.filter(
+    (edge) => layers.has(edge.layer) && kept.has(edge.from) && kept.has(edge.to)
+  )
+
+  const degrees = computeDegree(edges)
+  for (const node of nodes) node.degree = degrees.get(node.id) ?? 0
+
+  const isolated = nodes
+    .filter((node) => !isStructuralNode(node) && node.degree === 0)
+    .map((node) => node.id)
+    .sort((a, b) => a.localeCompare(b))
+  const isolatedSet = new Set(isolated)
+  for (const node of nodes) node.isolated = isolatedSet.has(node.id)
+
+  return {
+    nodes,
+    edges,
+    isolated,
+    components: computeComponents(
+      nodes.filter((node) => !isStructuralNode(node)).map((node) => node.id),
+      edges
+    ),
+    // 聚合状态是数据层事实，不随视图过滤变化
+    aggregated: graph.aggregated,
+    hiddenCount: graph.hiddenCount
   }
 }
