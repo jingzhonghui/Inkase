@@ -263,3 +263,25 @@ export interface IndexStatus {
   progress: IndexProgress
   fileCount: number
 }
+
+/** 最近修改的一篇笔记（工作台首屏用） */
+export interface RecentNote {
+  /** 库内相对路径 */
+  path: string
+  /** 文件修改时间（毫秒时间戳） */
+  mtime: number
+}
+
+/**
+ * 知识库概览
+ *
+ * 首屏的「一行库状态」与「最近修改」由主进程一次算好，渲染层不做二次聚合。
+ * 计数口径固定：笔记只算 Markdown / MDX，孤立与断链都来自整库索引。
+ */
+export interface KnowledgeOverview {
+  noteCount: number
+  tagCount: number
+  isolatedCount: number
+  brokenCount: number
+  recent: RecentNote[]
+}

@@ -24,6 +24,10 @@ function installBridge(): void {
     getKnowledgeTags: vi.fn().mockResolvedValue({ success: true, data: [] }),
     getUnresolvedLinks: vi.fn().mockResolvedValue({ success: true, data: [] }),
     listKnowledgeNotes: vi.fn().mockResolvedValue({ success: true, data: [] }),
+    getKnowledgeOverview: vi.fn().mockResolvedValue({
+      success: true,
+      data: { noteCount: 0, tagCount: 0, isolatedCount: 0, brokenCount: 0, recent: [] }
+    }),
     getBacklinks: vi.fn().mockResolvedValue({ success: true, data: [] }),
     getKnowledgeGraph: vi.fn().mockResolvedValue({ success: true, data: null })
   }
@@ -143,5 +147,18 @@ describe('RightDock', () => {
 
     expect(requestClose).not.toHaveBeenCalled()
     expect(dock.open).toBe(false)
+  })
+
+  it('keeps only the AI tab when no file is open', async () => {
+    const dock = useDockStore()
+    dock.open = true
+    dock.setTab('backlinks')
+    const wrapper = mount(RightDock, { props: { ready: false, hasFile: false } })
+
+    expect(wrapper.find('[data-testid="dock-tab-backlinks"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="dock-tab-graph"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="dock-tab-ai"]').classes()).toContain('active')
+    // 持久化的选择不被改写，打开文件后仍回到反链
+    expect(dock.activeTab).toBe('backlinks')
   })
 })

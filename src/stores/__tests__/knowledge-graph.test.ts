@@ -32,6 +32,7 @@ interface GraphBridge {
   getKnowledgeTags: ReturnType<typeof vi.fn>
   getUnresolvedLinks: ReturnType<typeof vi.fn>
   listKnowledgeNotes: ReturnType<typeof vi.fn>
+  getKnowledgeOverview: ReturnType<typeof vi.fn>
   getBacklinks: ReturnType<typeof vi.fn>
 }
 
@@ -45,6 +46,10 @@ function installBridge(graph = sampleGraph()): GraphBridge {
     getKnowledgeTags: vi.fn().mockResolvedValue({ success: true, data: [] }),
     getUnresolvedLinks: vi.fn().mockResolvedValue({ success: true, data: [] }),
     listKnowledgeNotes: vi.fn().mockResolvedValue({ success: true, data: [] }),
+    getKnowledgeOverview: vi.fn().mockResolvedValue({
+      success: true,
+      data: { noteCount: 2, tagCount: 0, isolatedCount: 0, brokenCount: 0, recent: [] }
+    }),
     getBacklinks: vi.fn().mockResolvedValue({ success: true, data: [] })
   }
   ;(window as unknown as { electronAPI: unknown }).electronAPI = bridge

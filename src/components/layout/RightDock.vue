@@ -13,17 +13,27 @@ import AiPanel from '../ai/AiPanel.vue'
 import BacklinksPanel from '../knowledge/BacklinksPanel.vue'
 import LocalGraphPanel from '../knowledge/LocalGraphPanel.vue'
 
-const props = defineProps<{ ready: boolean }>()
+const props = withDefaults(defineProps<{ ready: boolean; hasFile?: boolean }>(), {
+  hasFile: true
+})
 const emit = defineEmits<{ openSettings: [] }>()
 
 const dock = useDockStore()
 const aiStore = useAiStore()
 
-const tabs: ReadonlyArray<{ id: DockTab; label: string; icon: unknown }> = [
+const baseTabs: ReadonlyArray<{ id: DockTab; label: string; icon: unknown }> = [
   { id: 'backlinks', label: '反链', icon: IconLink },
   { id: 'graph', label: '图谱', icon: IconTopologyStar3 },
   { id: 'ai', label: 'AI', icon: IconMessageChatbot }
 ]
+
+/** 没有打开笔记时，反链与图谱无内容可看，只保留 AI */
+const tabs = computed(() =>
+  props.hasFile ? baseTabs : baseTabs.filter((tab) => tab.id === 'ai')
+)
+
+/** 实际生效的页签：无文件时强制落到 AI，但不改写用户持久化的选择 */
+const activeTab = computed<DockTab>(() => (props.hasFile ? dock.activeTab : 'ai'))
 
 /** 拖拽过程中的临时宽度（松手才落库，避免每次 mousemove 都写 localStorage） */
 const dragWidth = ref<number | null>(null)
@@ -65,7 +75,7 @@ onUnmounted(() => {
  * 所以走 store 的 requestClose；其余页签直接收起即可。
  */
 async function handleClose(): Promise<void> {
-  if (dock.activeTab === 'ai' && !(await aiStore.requestClose())) return
+  if (activeTab.value === 'ai' && !(await aiStore.requestClose())) return
   dock.close()
 }
 </script>
@@ -89,7 +99,7 @@ async function handleClose(): Promise<void> {
         :key="tab.id"
         type="button"
         class="dock-tab"
-        :class="{ active: dock.activeTab === tab.id }"
+        :class="{ active: activeTab === tab.id }"
         :data-testid="`dock-tab-${tab.id}`"
         @click="dock.setTab(tab.id)"
       >
@@ -101,7 +111,7 @@ async function handleClose(): Promise<void> {
         <span>{{ tab.label }}</span>
       </button>
       <button
-        v-if="dock.activeTab === 'ai'"
+        v-if="activeTab === 'ai'"
         type="button"
         class="dock-close"
         :aria-label="dock.wide ? '恢复常规宽度' : '拉满面板宽度'"
@@ -123,7 +133,7 @@ async function handleClose(): Promise<void> {
       <button
         type="button"
         class="dock-close"
-        :class="{ 'dock-close-pushed': dock.activeTab === 'ai' }"
+        :class="{ 'dock-close-pushed': activeTab === 'ai' }"
         aria-label="关闭面板"
         data-testid="dock-close"
         @click="handleClose"
@@ -136,8 +146,8 @@ async function handleClose(): Promise<void> {
     </header>
 
     <div class="dock-body">
-      <BacklinksPanel v-if="dock.activeTab === 'backlinks'" />
-      <LocalGraphPanel v-else-if="dock.activeTab === 'graph'" />
+      <BacklinksPanel v-if="activeTab === 'backlinks'" />
+      <LocalGraphPanel v-else-if="activeTab === 'graph'" />
       <AiPanel
         v-else
         :ready="props.ready"

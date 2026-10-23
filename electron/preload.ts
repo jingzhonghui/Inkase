@@ -20,6 +20,7 @@ import type {
   BacklinkItem,
   IndexProgress,
   IndexStatus,
+  KnowledgeOverview,
   KnowledgeQuery,
   LinkRef,
   LinkResolution,
@@ -270,6 +271,7 @@ export interface ElectronAPI {
   getUnresolvedLinks: () => Promise<{ success: boolean; data?: LinkRef[]; error?: string }>
   searchKnowledge: (query: KnowledgeQuery) => Promise<{ success: boolean; data?: SearchHit[]; error?: string }>
   listKnowledgeNotes: () => Promise<{ success: boolean; data?: NoteEntry[]; error?: string }>
+  getKnowledgeOverview: () => Promise<{ success: boolean; data?: KnowledgeOverview; error?: string }>
   convertMention: (
     request: MentionConversion
   ) => Promise<{ success: boolean; data?: MentionConversionResult; error?: string }>
@@ -474,6 +476,7 @@ const api: ElectronAPI = {
   getUnresolvedLinks: () => ipcRenderer.invoke(IPC_CHANNELS.KNOWLEDGE.UNRESOLVED),
   searchKnowledge: (query) => ipcRenderer.invoke(IPC_CHANNELS.KNOWLEDGE.SEARCH, query),
   listKnowledgeNotes: () => ipcRenderer.invoke(IPC_CHANNELS.KNOWLEDGE.NOTES),
+  getKnowledgeOverview: () => ipcRenderer.invoke(IPC_CHANNELS.KNOWLEDGE.OVERVIEW),
   convertMention: (request) => ipcRenderer.invoke(IPC_CHANNELS.KNOWLEDGE.CONVERT_MENTION, request),
   resolveLinks: (targets, from) => ipcRenderer.invoke(IPC_CHANNELS.KNOWLEDGE.RESOLVE, targets, from),
   getKnowledgeGraph: (layers, options) =>

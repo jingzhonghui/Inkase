@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from 'vue'
 
-const props = defineProps<{ running: boolean; ready: boolean }>()
+const props = defineProps<{ running: boolean; ready: boolean; large?: boolean }>()
 const emit = defineEmits<{ send: [text: string]; stop: [] }>()
 const text = ref('')
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
@@ -29,14 +29,15 @@ defineExpose({ setText })
 <template>
   <form
     class="composer"
+    :class="{ large: props.large }"
     @submit.prevent="submit"
   >
     <textarea
       ref="textareaRef"
       v-model="text"
       data-testid="ai-input"
-      rows="2"
-      placeholder="与文稿协作…"
+      :rows="props.large ? 3 : 2"
+      :placeholder="props.large ? '问 AI，或让它整理这个库…' : '与文稿协作…'"
       aria-label="AI 消息"
       spellcheck="false"
       @keydown="keydown"
@@ -67,4 +68,8 @@ defineExpose({ setText })
 textarea { flex: 1; min-height: 42px; resize: none; border: 0; outline: none; background: transparent; color: var(--color-text); font: inherit; line-height: 1.5; }
 button { min-width: 62px; padding: 8px 13px; border: 0; border-radius: 6px; background: var(--color-primary); color: white; cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .45; }.stop { background: var(--color-text-secondary); }
+/* 首屏大输入框：唯一视觉焦点 */
+.composer.large { max-width: 820px; padding: 18px 20px; border-radius: 14px; box-shadow: 0 14px 40px rgb(0 0 0 / 10%); }
+.composer.large textarea { min-height: 76px; font-size: calc(var(--ui-font-size) + 2px); line-height: 1.6; }
+.composer.large button { min-width: 76px; padding: 10px 18px; }
 </style>

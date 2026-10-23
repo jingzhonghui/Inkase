@@ -50,6 +50,10 @@ function installBridge() {
     getKnowledgeTags: vi.fn().mockResolvedValue({ success: true, data: [] }),
     getUnresolvedLinks: vi.fn().mockResolvedValue({ success: true, data: [] }),
     listKnowledgeNotes: vi.fn().mockResolvedValue({ success: true, data: [] }),
+    getKnowledgeOverview: vi.fn().mockResolvedValue({
+      success: true,
+      data: { noteCount: 1, tagCount: 1, isolatedCount: 1, brokenCount: 0, recent: [] }
+    }),
     getBacklinks: vi.fn().mockResolvedValue({ success: true, data: [] })
   }
   ;(window as unknown as { electronAPI: unknown }).electronAPI = bridge

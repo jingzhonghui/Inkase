@@ -19,6 +19,7 @@ import {
 import type {
   BacklinkItem,
   IndexStatus,
+  KnowledgeOverview,
   KnowledgeQuery,
   LinkRef,
   LinkResolution,
@@ -29,6 +30,7 @@ import type {
   TagNote
 } from '../../shared/knowledge/types'
 import { buildGraph } from '../knowledge/graph-service'
+import { buildOverview, emptyOverview } from '../knowledge/overview'
 import { resolveRelPath } from '../knowledge/rel-path'
 import { searchKnowledge } from '../knowledge/search-service'
 import {
@@ -119,6 +121,7 @@ export function registerKnowledgeHandlers(_getWindow: () => BrowserWindow | null
     KNOWLEDGE.NOTES_BY_TAG,
     KNOWLEDGE.SEARCH,
     KNOWLEDGE.NOTES,
+    KNOWLEDGE.OVERVIEW,
     KNOWLEDGE.CONVERT_MENTION,
     KNOWLEDGE.RESOLVE,
     KNOWLEDGE.GRAPH,
@@ -236,6 +239,16 @@ export function registerKnowledgeHandlers(_getWindow: () => BrowserWindow | null
     try {
       const root = requireRoot(event.sender.id)
       return toResult<NoteEntry[]>(peekKnowledgeService(root)?.listNotes() ?? [])
+    } catch (error) {
+      return fail(error)
+    }
+  })
+
+  ipcMain.handle(KNOWLEDGE.OVERVIEW, (event) => {
+    try {
+      const root = requireRoot(event.sender.id)
+      const index = peekKnowledgeService(root)?.getIndex() ?? null
+      return toResult<KnowledgeOverview>(index === null ? emptyOverview() : buildOverview(index))
     } catch (error) {
       return fail(error)
     }

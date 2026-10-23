@@ -157,7 +157,7 @@ describe('global graph in the editor', () => {
     expect(wrapper.get('.document-view').attributes('style') ?? '').not.toContain('display: none')
   })
 
-  it('falls back to the welcome page after closing with no files', async () => {
+  it('falls back to the AI workbench after closing with no files', async () => {
     const knowledge = useKnowledgeStore()
     const wrapper = mount(EditorPanel, {
       global: { stubs: { TabBar: true } }
@@ -165,10 +165,10 @@ describe('global graph in the editor', () => {
     knowledge.openGraphTab()
     await nextTick()
     expect(wrapper.find('[data-testid="global-graph"]').exists()).toBe(true)
-    expect(wrapper.get('.welcome-page').attributes('style')).toContain('display: none')
+    expect(wrapper.find('[data-testid="ai-workbench"]').exists()).toBe(false)
 
     knowledge.closeGraphTab()
     await nextTick()
-    expect(wrapper.get('.welcome-page').attributes('style') ?? '').not.toContain('display: none')
+    expect(wrapper.find('[data-testid="ai-workbench"]').exists()).toBe(true)
   })
 })

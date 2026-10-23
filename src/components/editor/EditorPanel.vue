@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { IconFile, IconFolder, IconPlus, IconSourceCode, IconWorldWww } from '@tabler/icons-vue'
+import { IconSourceCode, IconWorldWww } from '@tabler/icons-vue'
 import { useFileStore } from '../../stores/file'
 import { useKnowledgeStore } from '../../stores/knowledge'
 import RightDock from '../layout/RightDock.vue'
 import GlobalGraphView from '../knowledge/GlobalGraphView.vue'
+import AiWorkbench from '../ai/AiWorkbench.vue'
 import { useDockStore } from '../../stores/dock'
 import SourceEditor from './SourceEditor.vue'
 import IrEditor from './IrEditor.vue'
@@ -66,105 +67,12 @@ function onPreviewScroll(ratio: number): void {
     <!-- 标签栏 -->
     <TabBar />
 
-    <!-- 无文件打开时：显示欢迎页 -->
-    <div
-      v-show="!hasOpenFile && !graphActive"
-      class="welcome-page"
-    >
-      <div class="welcome-content">
-        <img
-          src="../../assets/logo.svg"
-          alt="Inkase"
-          class="welcome-logo"
-        >
-        <h1 class="welcome-title">
-          Inkase
-        </h1>
-        <p class="welcome-subtitle">
-          自包含文档工作台
-        </p>
-
-        <div class="welcome-actions">
-          <button
-            class="welcome-btn primary"
-            @click="fileStore.newFile()"
-          >
-            <IconPlus />
-            新建文件
-          </button>
-          <button
-            class="welcome-btn"
-            @click="fileStore.openFile()"
-          >
-            <IconFile />
-            打开文件
-          </button>
-          <button
-            class="welcome-btn"
-            @click="fileStore.openFolder()"
-          >
-            <IconFolder />
-            打开文件夹
-          </button>
-        </div>
-
-        <div class="welcome-shortcuts">
-          <h2 class="shortcuts-title">
-            快捷键
-          </h2>
-          <div class="shortcuts-grid">
-            <div class="shortcut-item">
-              <kbd>Ctrl+N</kbd>
-              <span>新建文件</span>
-            </div>
-            <div class="shortcut-item">
-              <kbd>Ctrl+O</kbd>
-              <span>打开文件</span>
-            </div>
-            <div class="shortcut-item">
-              <kbd>Ctrl+P</kbd>
-              <span>快速打开文件</span>
-            </div>
-            <div class="shortcut-item">
-              <kbd>Ctrl+S</kbd>
-              <span>保存文件</span>
-            </div>
-            <div class="shortcut-item">
-              <kbd>Ctrl+Shift+S</kbd>
-              <span>另存为</span>
-            </div>
-            <div class="shortcut-item">
-              <kbd>Ctrl+B</kbd>
-              <span>粗体</span>
-            </div>
-            <div class="shortcut-item">
-              <kbd>Ctrl+I</kbd>
-              <span>斜体</span>
-            </div>
-            <div class="shortcut-item">
-              <kbd>Ctrl+K</kbd>
-              <span>插入链接</span>
-            </div>
-            <div class="shortcut-item">
-              <kbd>Ctrl+H</kbd>
-              <span>替换</span>
-            </div>
-            <div class="shortcut-item">
-              <kbd>Ctrl+F</kbd>
-              <span>查找</span>
-            </div>
-            <div class="shortcut-item">
-              <kbd>Shift+Alt+F</kbd>
-              <span>格式化文档</span>
-            </div>
-            <div class="shortcut-item">
-              <kbd>Ctrl+/</kbd>
-              <span>切换编辑模式</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
+    <!-- 无文件打开时：AI 工作台首屏（空状态） -->
+    <AiWorkbench
+      v-if="!hasOpenFile && !graphActive"
+      :ready="aiReady ?? false"
+      @open-settings="emit('openAiSettings')"
+    />
 
     <!-- 有文件打开时：显示编辑器 -->
     <div
@@ -261,8 +169,9 @@ function onPreviewScroll(ratio: number): void {
 
     <!-- 右侧三合一停靠面板（反链 / 图谱 / AI）；全局图谱时让位 -->
     <RightDock
-      v-if="hasOpenFile && dockStore.open && !graphActive"
+      v-if="dockStore.open && !graphActive"
       :ready="aiReady ?? false"
+      :has-file="hasOpenFile"
       @open-settings="emit('openAiSettings')"
     />
   </div>
@@ -319,126 +228,6 @@ function onPreviewScroll(ratio: number): void {
   background: var(--color-primary-light);
   color: var(--color-primary);
   border-color: var(--color-primary);
-}
-
-/* 欢迎页 */
-.welcome-page {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow-y: auto;
-}
-
-.welcome-content {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 48px 32px;
-  max-width: 520px;
-  width: 100%;
-}
-
-.welcome-logo {
-  width: 64px;
-  height: 64px;
-  margin-bottom: 16px;
-}
-
-.welcome-title {
-  font-size: calc(var(--ui-font-size) + 15px);
-  font-weight: 700;
-  color: var(--color-text);
-  margin: 0;
-}
-
-.welcome-subtitle {
-  font-size: calc(var(--ui-font-size) + 1px);
-  color: var(--color-text-secondary);
-  margin: 8px 0 32px;
-}
-
-.welcome-actions {
-  display: flex;
-  gap: 12px;
-  margin-bottom: 40px;
-}
-
-.welcome-btn {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 20px;
-  font-size: var(--ui-font-size);
-  font-weight: 500;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-bg-primary);
-  color: var(--color-text);
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.welcome-btn:hover {
-  border-color: var(--color-primary);
-  color: var(--color-primary);
-  background: var(--color-primary-light);
-}
-
-.welcome-btn.primary {
-  background: var(--color-primary);
-  border-color: var(--color-primary);
-  color: white;
-}
-
-.welcome-btn.primary:hover {
-  background: var(--color-primary-hover);
-}
-
-.welcome-btn svg {
-  width: 16px;
-  height: 16px;
-}
-
-.shortcuts-title {
-  font-size: calc(var(--ui-font-size) - 1px);
-  font-weight: 600;
-  color: var(--color-text-tertiary);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  margin: 0 0 16px;
-}
-
-.shortcuts-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px 32px;
-}
-
-.shortcut-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 6px 0;
-}
-
-.shortcut-item kbd {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 8px;
-  font-family: var(--font-mono);
-  font-size: calc(var(--ui-font-size) - 2px);
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
-  color: var(--color-text-secondary);
-  white-space: nowrap;
-}
-
-.shortcut-item span {
-  font-size: var(--ui-font-size);
-  color: var(--color-text-secondary);
 }
 
 /* Splitpanes 主题适配 */

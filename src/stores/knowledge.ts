@@ -11,6 +11,7 @@ import {
 import type {
   BacklinkItem,
   IndexStatus,
+  KnowledgeOverview,
   KnowledgeQuery,
   LinkRef,
   LinkResolution,
@@ -32,6 +33,11 @@ function idleStatus(): IndexStatus {
   return { state: 'idle', progress: { phase: 'idle', done: 0, total: 0 }, fileCount: 0 }
 }
 
+/** 空概览：索引未就绪时首屏显示零值而不是空白 */
+function idleOverview(): KnowledgeOverview {
+  return { noteCount: 0, tagCount: 0, isolatedCount: 0, brokenCount: 0, recent: [] }
+}
+
 /**
  * 知识库索引 Store
  *
@@ -44,6 +50,8 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
   const backlinksPath = ref<string | null>(null)
   const tags = ref<TagCount[]>([])
   const unresolved = ref<LinkRef[]>([])
+  /** 首屏概览：计数与最近修改（主进程一次算好） */
+  const overview = ref<KnowledgeOverview>(idleOverview())
   const loading = ref(false)
   const error = ref<string | null>(null)
   /** 进度事件退订函数 */
@@ -117,7 +125,7 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
       const res = await bridge.rebuildKnowledgeIndex()
       if (res.success && res.data) status.value = res.data
       else error.value = res.error ?? '索引重建失败'
-      await Promise.all([loadTags(), loadUnresolved()])
+      await Promise.all([loadTags(), loadUnresolved(), loadOverview()])
       if (backlinksPath.value !== null) await loadBacklinks(backlinksPath.value)
     } catch (cause) {
       error.value = cause instanceof Error ? cause.message : '索引重建失败'
@@ -158,6 +166,17 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
     }
     const res = await bridge.getUnresolvedLinks()
     unresolved.value = res.success && res.data ? res.data : []
+  }
+
+  /** 拉取首屏概览（计数 + 最近修改） */
+  async function loadOverview(): Promise<void> {
+    const bridge = api()
+    if (bridge === null) {
+      overview.value = idleOverview()
+      return
+    }
+    const res = await bridge.getKnowledgeOverview()
+    if (res.success && res.data) overview.value = res.data
   }
 
   /** 某个标签下的笔记（含各自来源） */
@@ -338,7 +357,7 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
   /** 库内容发生变化（重命名/移动/外部修改）后刷新全部派生数据 */
   async function refreshAll(): Promise<void> {
     await refreshStatus()
-    await Promise.all([loadTags(), loadUnresolved(), loadNotes()])
+    await Promise.all([loadTags(), loadUnresolved(), loadNotes(), loadOverview()])
     if (backlinksPath.value !== null) await loadBacklinks(backlinksPath.value)
     // 图谱按需刷新：没打开过图谱页签就不必算
     if (graphLoaded.value) await loadGraph()
@@ -350,6 +369,7 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
     backlinksPath.value = null
     tags.value = []
     unresolved.value = []
+    overview.value = idleOverview()
     notes.value = []
     graph.value = emptyGraph()
     graphLoaded.value = false
@@ -377,7 +397,7 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
           return
         }
         await ensureIndex()
-        await Promise.all([loadTags(), loadUnresolved(), loadNotes()])
+        await Promise.all([loadTags(), loadUnresolved(), loadNotes(), loadOverview()])
       },
       { immediate: true }
     )
@@ -418,6 +438,7 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
     backlinksPath,
     tags,
     unresolved,
+    overview,
     loading,
     error,
     building,
@@ -432,6 +453,7 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
     loadBacklinks,
     loadTags,
     loadUnresolved,
+    loadOverview,
     loadNotesByTag,
     search,
     resolveTargets,
