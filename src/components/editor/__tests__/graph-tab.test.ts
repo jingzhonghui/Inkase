@@ -171,4 +171,22 @@ describe('global graph in the editor', () => {
     await nextTick()
     expect(wrapper.find('[data-testid="ai-workbench"]').exists()).toBe(true)
   })
+
+  it('keeps the tab bar above the content row', async () => {
+    useFileStore().createGeneratedDocument('文档', 'content', 'markdown')
+    const wrapper = mount(EditorPanel, {
+      global: {
+        stubs: {
+          IrEditor: { template: '<div data-testid="document-editor" />' },
+          SourceEditor: { template: '<div data-testid="document-editor" />' },
+          PreviewPanel: true
+        }
+      }
+    })
+    await nextTick()
+
+    const panel = wrapper.get('.editor-panel')
+    expect(panel.element.children[0]).toBe(wrapper.get('.tab-bar').element)
+    expect(wrapper.get('.editor-body > .document-view').exists()).toBe(true)
+  })
 })

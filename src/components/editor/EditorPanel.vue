@@ -67,113 +67,116 @@ function onPreviewScroll(ratio: number): void {
     <!-- 标签栏 -->
     <TabBar />
 
-    <!-- 无文件打开时：AI 工作台首屏（空状态） -->
-    <AiWorkbench
-      v-if="!hasOpenFile && !graphActive"
-      :ready="aiReady ?? false"
-      @open-settings="emit('openAiSettings')"
-    />
+    <!-- 内容区：编辑区 / 全局图谱 + 右侧停靠区 -->
+    <div class="editor-body">
+      <!-- 无文件打开时：AI 工作台首屏（空状态） -->
+      <AiWorkbench
+        v-if="!hasOpenFile && !graphActive"
+        :ready="aiReady ?? false"
+        @open-settings="emit('openAiSettings')"
+      />
 
-    <!-- 有文件打开时：显示编辑器 -->
-    <div
-      v-if="hasOpenFile"
-      v-show="!graphActive"
-      class="document-view"
-    >
-      <!-- HTML 预览切换悬浮按钮（仅 HTML 标签页显示，独立于 Markdown 模式体系） -->
-      <button
-        v-if="isHtmlTab"
-        class="html-preview-toggle"
-        :class="{ active: isHtmlPreviewOn }"
-        :title="isHtmlPreviewOn ? '返回源码' : '预览 HTML'"
-        @click="fileStore.toggleHtmlPreview()"
+      <!-- 有文件打开时：显示编辑器 -->
+      <div
+        v-if="hasOpenFile"
+        v-show="!graphActive"
+        class="document-view"
       >
-        <IconSourceCode
-          v-if="isHtmlPreviewOn"
-          :size="16"
-          :stroke-width="2"
+        <!-- HTML 预览切换悬浮按钮（仅 HTML 标签页显示，独立于 Markdown 模式体系） -->
+        <button
+          v-if="isHtmlTab"
+          class="html-preview-toggle"
+          :class="{ active: isHtmlPreviewOn }"
+          :title="isHtmlPreviewOn ? '返回源码' : '预览 HTML'"
+          @click="fileStore.toggleHtmlPreview()"
+        >
+          <IconSourceCode
+            v-if="isHtmlPreviewOn"
+            :size="16"
+            :stroke-width="2"
+          />
+          <IconWorldWww
+            v-else
+            :size="16"
+            :stroke-width="2"
+          />
+        </button>
+
+        <!-- 图片文件：只读查看 -->
+        <ImageViewer
+          v-if="isImageTab"
+          :key="fileStore.activeTabId || 'image-viewer'"
         />
-        <IconWorldWww
+
+        <!-- PDF 文件：只读查看 -->
+        <PdfViewer
+          v-else-if="isPdfTab"
+          :key="fileStore.activeTabId || 'pdf-viewer'"
+        />
+
+        <!-- HTML 文件预览态：浏览器式渲染（右上角按钮切换源码/预览） -->
+        <HtmlPreview
+          v-else-if="isHtmlPreviewOn"
+          :key="`html-preview-${fileStore.activeTabId || 'html'}`"
+        />
+
+        <!-- HTML 文件源码态：纯文本源码 + 右上角预览按钮 -->
+        <SourceEditor
+          v-else-if="isPlainTextTab && isHtmlTab"
+          :key="`html-source-${fileStore.activeTabId || 'html-src'}`"
+          :plain-text="true"
+        />
+
+        <!-- 纯文本文件（.txt 等）：源码编辑显示原文，不进入即时渲染/预览 -->
+        <SourceEditor
+          v-else-if="isPlainTextTab"
+          :key="`plain-${fileStore.activeTabId || 'plain'}`"
+          :plain-text="true"
+        />
+
+        <!-- 即时渲染模式 -->
+        <IrEditor
+          v-else-if="isIrMode"
+          :key="fileStore.activeTabId || 'ir-editor'"
+        />
+
+        <!-- 源码模式：仅显示编辑器 -->
+        <SourceEditor
+          v-else-if="!showPreview"
+        />
+
+        <!-- 分屏模式：可拖拽调整左右面板 -->
+        <Splitpanes
           v-else
-          :size="16"
-          :stroke-width="2"
-        />
-      </button>
+          class="splitpanes-theme"
+        >
+          <Pane :min-size="20">
+            <SourceEditor
+              ref="sourceEditorRef"
+              @scroll="onEditorScroll"
+            />
+          </Pane>
+          <Pane :min-size="20">
+            <PreviewPanel
+              ref="previewRef"
+              :enable-scroll-sync="true"
+              @scroll="onPreviewScroll"
+            />
+          </Pane>
+        </Splitpanes>
+      </div>
 
-      <!-- 图片文件：只读查看 -->
-      <ImageViewer
-        v-if="isImageTab"
-        :key="fileStore.activeTabId || 'image-viewer'"
+      <!-- 全局图谱：独立视图，占满内容区 -->
+      <GlobalGraphView v-if="graphActive" />
+
+      <!-- 右侧三合一停靠面板（反链 / 图谱 / AI）；全局图谱时让位 -->
+      <RightDock
+        v-if="dockStore.open && !graphActive"
+        :ready="aiReady ?? false"
+        :has-file="hasOpenFile"
+        @open-settings="emit('openAiSettings')"
       />
-
-      <!-- PDF 文件：只读查看 -->
-      <PdfViewer
-        v-else-if="isPdfTab"
-        :key="fileStore.activeTabId || 'pdf-viewer'"
-      />
-
-      <!-- HTML 文件预览态：浏览器式渲染（右上角按钮切换源码/预览） -->
-      <HtmlPreview
-        v-else-if="isHtmlPreviewOn"
-        :key="`html-preview-${fileStore.activeTabId || 'html'}`"
-      />
-
-      <!-- HTML 文件源码态：纯文本源码 + 右上角预览按钮 -->
-      <SourceEditor
-        v-else-if="isPlainTextTab && isHtmlTab"
-        :key="`html-source-${fileStore.activeTabId || 'html-src'}`"
-        :plain-text="true"
-      />
-
-      <!-- 纯文本文件（.txt 等）：源码编辑显示原文，不进入即时渲染/预览 -->
-      <SourceEditor
-        v-else-if="isPlainTextTab"
-        :key="`plain-${fileStore.activeTabId || 'plain'}`"
-        :plain-text="true"
-      />
-
-      <!-- 即时渲染模式 -->
-      <IrEditor
-        v-else-if="isIrMode"
-        :key="fileStore.activeTabId || 'ir-editor'"
-      />
-
-      <!-- 源码模式：仅显示编辑器 -->
-      <SourceEditor
-        v-else-if="!showPreview"
-      />
-
-      <!-- 分屏模式：可拖拽调整左右面板 -->
-      <Splitpanes
-        v-else
-        class="splitpanes-theme"
-      >
-        <Pane :min-size="20">
-          <SourceEditor
-            ref="sourceEditorRef"
-            @scroll="onEditorScroll"
-          />
-        </Pane>
-        <Pane :min-size="20">
-          <PreviewPanel
-            ref="previewRef"
-            :enable-scroll-sync="true"
-            @scroll="onPreviewScroll"
-          />
-        </Pane>
-      </Splitpanes>
     </div>
-
-    <!-- 全局图谱：独立视图，占满内容区 -->
-    <GlobalGraphView v-if="graphActive" />
-
-    <!-- 右侧三合一停靠面板（反链 / 图谱 / AI）；全局图谱时让位 -->
-    <RightDock
-      v-if="dockStore.open && !graphActive"
-      :ready="aiReady ?? false"
-      :has-file="hasOpenFile"
-      @open-settings="emit('openAiSettings')"
-    />
   </div>
 </template>
 
@@ -183,9 +186,19 @@ function onPreviewScroll(ratio: number): void {
   min-width: 0;
   min-height: 0;
   display: flex;
-  flex-direction: row;
+  flex-direction: column;
   overflow: hidden;
   background-color: var(--color-bg-primary);
+}
+
+/* 标签栏固定在顶部，编辑区与右侧停靠区横向并排 */
+.editor-body {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: row;
+  overflow: hidden;
 }
 
 .document-view {
