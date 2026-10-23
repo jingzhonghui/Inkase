@@ -15,6 +15,7 @@ import type {
   ToolExecutionResult
 } from '../shared/ai/types'
 import type { ConflictChoice, EnableSyncOptions, SyncConfig, SyncResult, SyncStatusView } from './sync/types'
+import type { Graph, GraphLayer } from '../shared/knowledge/graph'
 import type {
   BacklinkItem,
   IndexProgress,
@@ -276,6 +277,9 @@ export interface ElectronAPI {
     targets: string[],
     from?: string
   ) => Promise<{ success: boolean; data?: Record<string, LinkResolution>; error?: string }>
+  getKnowledgeGraph: (
+    layers?: readonly GraphLayer[]
+  ) => Promise<{ success: boolean; data?: Graph; error?: string }>
   onKnowledgeProgress: (callback: (progress: IndexProgress) => void) => () => void
 }
 
@@ -471,6 +475,7 @@ const api: ElectronAPI = {
   listKnowledgeNotes: () => ipcRenderer.invoke(IPC_CHANNELS.KNOWLEDGE.NOTES),
   convertMention: (request) => ipcRenderer.invoke(IPC_CHANNELS.KNOWLEDGE.CONVERT_MENTION, request),
   resolveLinks: (targets, from) => ipcRenderer.invoke(IPC_CHANNELS.KNOWLEDGE.RESOLVE, targets, from),
+  getKnowledgeGraph: (layers) => ipcRenderer.invoke(IPC_CHANNELS.KNOWLEDGE.GRAPH, layers),
   onKnowledgeProgress: (callback) => {
     const handler = (_event: unknown, progress: IndexProgress): void => callback(progress)
     ipcRenderer.on(IPC_CHANNELS.KNOWLEDGE.PROGRESS, handler)

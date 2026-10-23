@@ -10,6 +10,7 @@ import { IconLink, IconMaximize, IconMessageChatbot, IconTopologyStar3, IconX } 
 import { clampDockWidth, useDockStore, type DockTab } from '../../stores/dock'
 import AiPanel from '../ai/AiPanel.vue'
 import BacklinksPanel from '../knowledge/BacklinksPanel.vue'
+import LocalGraphPanel from '../knowledge/LocalGraphPanel.vue'
 
 const props = defineProps<{ ready: boolean }>()
 const emit = defineEmits<{ openSettings: []; expandAi: [] }>()
@@ -116,13 +117,7 @@ onUnmounted(() => {
 
     <div class="dock-body">
       <BacklinksPanel v-if="dock.activeTab === 'backlinks'" />
-      <div
-        v-else-if="dock.activeTab === 'graph'"
-        class="dock-placeholder"
-        data-testid="dock-graph-placeholder"
-      >
-        图谱视图开发中
-      </div>
+      <LocalGraphPanel v-else-if="dock.activeTab === 'graph'" />
       <AiPanel
         v-else
         :ready="props.ready"
@@ -218,11 +213,5 @@ onUnmounted(() => {
   min-height: 0;
   display: flex;
   flex-direction: column;
-}
-
-.dock-placeholder {
-  padding: 16px 12px;
-  color: var(--color-text-tertiary);
-  font-size: calc(var(--ui-font-size) - 2px);
 }
 </style>

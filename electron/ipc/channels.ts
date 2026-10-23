@@ -132,6 +132,8 @@ export const IPC_CHANNELS = {
     NOTES: 'knowledge:notes',
     /** 把未链接提及改写为链接 */
     CONVERT_MENTION: 'knowledge:convertMention',
+    /** 图谱（六层边，已过规模护栏） */
+    GRAPH: 'knowledge:graph',
     /** 构建进度事件 */
     PROGRESS: 'knowledge:progress'
   },

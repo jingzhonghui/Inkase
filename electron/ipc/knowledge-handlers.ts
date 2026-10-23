@@ -9,6 +9,13 @@
  */
 
 import { ipcMain, type BrowserWindow, type WebContents } from 'electron'
+import {
+  DEFAULT_LAYERS,
+  applyGuardrail,
+  emptyGraph,
+  type Graph,
+  type GraphLayer
+} from '../../shared/knowledge/graph'
 import type {
   BacklinkItem,
   IndexStatus,
@@ -21,6 +28,7 @@ import type {
   SearchHit,
   TagNote
 } from '../../shared/knowledge/types'
+import { buildGraph } from '../knowledge/graph-service'
 import { resolveRelPath } from '../knowledge/rel-path'
 import { searchKnowledge } from '../knowledge/search-service'
 import {
@@ -42,6 +50,31 @@ const IDLE_STATUS: IndexStatus = {
 
 /** 单次批量解析的目标上限（一篇文档的链接数远小于此） */
 const RESOLVE_MAX = 500
+
+/** 六层边的合法取值（用于校验渲染层传来的 layers） */
+const VALID_LAYERS: ReadonlySet<string> = new Set<string>([
+  'link',
+  'resource',
+  'tag',
+  'relation',
+  'mention',
+  'folder'
+])
+
+/**
+ * 收敛渲染层传来的层列表
+ *
+ * 非数组或全部非法时退回默认层（L6 目录边默认关闭）；
+ * 空数组视为「只要节点，不要边」是合法请求，故仅在**全部非法**时兜底。
+ */
+function sanitizeLayers(raw: unknown): readonly GraphLayer[] {
+  if (!Array.isArray(raw)) return DEFAULT_LAYERS
+  if (raw.length === 0) return []
+  const layers = raw.filter(
+    (item): item is GraphLayer => typeof item === 'string' && VALID_LAYERS.has(item)
+  )
+  return layers.length > 0 ? layers : DEFAULT_LAYERS
+}
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : '未知错误'
@@ -77,6 +110,7 @@ export function registerKnowledgeHandlers(_getWindow: () => BrowserWindow | null
     KNOWLEDGE.NOTES,
     KNOWLEDGE.CONVERT_MENTION,
     KNOWLEDGE.RESOLVE,
+    KNOWLEDGE.GRAPH,
     KNOWLEDGE.UNRESOLVED
   ]
 
@@ -225,6 +259,19 @@ export function registerKnowledgeHandlers(_getWindow: () => BrowserWindow | null
 
       const result = await service.convertMention({ path: relPath, line, column, raw })
       return toResult<MentionConversionResult>(result)
+    } catch (error) {
+      return fail(error)
+    }
+  })
+
+  ipcMain.handle(KNOWLEDGE.GRAPH, (event, layers?: unknown) => {
+    try {
+      const root = requireRoot(event.sender.id)
+      const index = peekKnowledgeService(root)?.getIndex() ?? null
+      if (index === null) return toResult<Graph>(emptyGraph())
+      // 聚合后的图仍然可能有上千节点，护栏必须在主进程先跑一遍，
+      // 避免把整库节点表推进渲染进程
+      return toResult<Graph>(applyGuardrail(buildGraph(index, { layers: sanitizeLayers(layers) })))
     } catch (error) {
       return fail(error)
     }

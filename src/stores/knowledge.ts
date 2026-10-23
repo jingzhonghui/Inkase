@@ -1,5 +1,6 @@
 import { computed, ref, watch } from 'vue'
 import { defineStore } from 'pinia'
+import { emptyGraph, type Graph, type GraphLayer } from '../../shared/knowledge/graph'
 import type {
   BacklinkItem,
   IndexStatus,
@@ -219,11 +220,37 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
     return res.success && res.data ? res.data : {}
   }
 
+  /**
+   * 图谱
+   *
+   * 主进程已跑过规模护栏，渲染层拿到的是「可以直接画」的图。
+   * 懒加载：只有用户真的打开图谱页签才拉，避免每次索引刷新都白算一次。
+   */
+  const graph = ref<Graph>(emptyGraph())
+  const graphLoading = ref(false)
+  /** 是否曾经请求过图谱（用于索引刷新后决定要不要顺带刷新） */
+  const graphLoaded = ref(false)
+
+  async function loadGraph(layers?: readonly GraphLayer[]): Promise<void> {
+    const bridge = api()
+    if (bridge === null) return
+    graphLoading.value = true
+    try {
+      const res = await bridge.getKnowledgeGraph(layers)
+      graph.value = res.success && res.data ? res.data : emptyGraph()
+      graphLoaded.value = true
+    } finally {
+      graphLoading.value = false
+    }
+  }
+
   /** 库内容发生变化（重命名/移动/外部修改）后刷新全部派生数据 */
   async function refreshAll(): Promise<void> {
     await refreshStatus()
     await Promise.all([loadTags(), loadUnresolved(), loadNotes()])
     if (backlinksPath.value !== null) await loadBacklinks(backlinksPath.value)
+    // 图谱按需刷新：没打开过图谱页签就不必算
+    if (graphLoaded.value) await loadGraph()
   }
 
   function clear(): void {
@@ -233,6 +260,8 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
     tags.value = []
     unresolved.value = []
     notes.value = []
+    graph.value = emptyGraph()
+    graphLoaded.value = false
     error.value = null
   }
 
@@ -311,6 +340,10 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
     resolveTargets,
     notes,
     loadNotes,
+    graph,
+    graphLoading,
+    graphLoaded,
+    loadGraph,
     convertMention,
     refreshAll,
     clear,
