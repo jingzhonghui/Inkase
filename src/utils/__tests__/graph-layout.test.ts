@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { layoutNetwork } from '../graph-layout'
+import { layoutIterations } from '../graph-view'
 
 /** 造 n 个互不相连的节点 */
 function isolatedNodes(count: number): Array<{ id: string }> {
@@ -161,5 +162,26 @@ describe('layoutNetwork', () => {
       expect(Number.isFinite(point.x)).toBe(true)
       expect(Number.isFinite(point.y)).toBe(true)
     }
+  })
+
+  it('lays out 2000 nodes inside the first-paint budget', () => {
+    const count = 2000
+    // 每 8 个点串一条链，模拟真实库里的「若干小簇 + 大量孤立节点」
+    const edges: Array<{ from: string; to: string }> = []
+    for (let index = 0; index + 1 < count; index++) {
+      if (index % 8 !== 7) edges.push({ from: `n${index}`, to: `n${index + 1}` })
+    }
+
+    const started = performance.now()
+    const positions = layoutNetwork(isolatedNodes(count), edges, {
+      width: 1600,
+      height: 1000,
+      iterations: layoutIterations(count)
+    })
+    const elapsed = performance.now() - started
+
+    expect(positions.size).toBe(count)
+    // 产品验收是「首次进入 < 1.5s」，这里留出慢机器的余量
+    expect(elapsed).toBeLessThan(2000)
   })
 })

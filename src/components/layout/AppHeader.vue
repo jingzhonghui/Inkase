@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { IconChevronRight, IconCopy, IconFile, IconFolder, IconMessageChatbot, IconMinus, IconMoon, IconRefresh, IconSquare, IconSun, IconX } from '@tabler/icons-vue'
+import { IconChevronRight, IconCopy, IconFile, IconFolder, IconMessageChatbot, IconMinus, IconMoon, IconRefresh, IconSquare, IconSun, IconTopologyStar3, IconX } from '@tabler/icons-vue'
 import { useFileStore, type EditorMode } from '../../stores/file'
 import { useThemeStore } from '../../stores/theme'
 import { useUpdateStore } from '../../stores/update'
 import { useSyncStore } from '../../stores/sync'
 import { useDockStore } from '../../stores/dock'
+import { useKnowledgeStore } from '../../stores/knowledge'
 import {
   useAppearanceStore,
   MIN_UI_FONT_SIZE,
@@ -29,6 +30,7 @@ const themeStore = useThemeStore()
 const updateStore = useUpdateStore()
 const dockStore = useDockStore()
 const syncStore = useSyncStore()
+const knowledgeStore = useKnowledgeStore()
 const appearanceStore = useAppearanceStore()
 const isMaximized = ref(false)
 const quickOpenVisible = ref(false)
@@ -176,6 +178,7 @@ const viewMenu = computed<MenuItem[]>(() => [
   { kind: 'divider' },
   { kind: 'item', label: '显示侧边栏', action: 'toggle-sidebar', checked: !fileStore.sidebarCollapsed },
   { kind: 'item', label: 'AI 助手', action: 'open-ai', checked: dockStore.open && dockStore.activeTab === 'ai' },
+  { kind: 'item', label: '全局图谱', action: 'open-graph', checked: knowledgeStore.graphTabActive },
   { kind: 'divider' },
   { kind: 'item', label: '设置', action: 'settings', shortcut: 'Ctrl+,' }
 ])
@@ -455,6 +458,9 @@ async function runMenuItem(item: MenuItem): Promise<void> {
     case 'open-ai':
       dockStore.toggle('ai')
       break
+    case 'open-graph':
+      knowledgeStore.openGraphTab()
+      break
     case 'sync':
       syncStore.openPanel()
       break
@@ -636,6 +642,12 @@ function toggleTheme(): void {
 
 function toggleAiPanel(): void {
   dockStore.toggle('ai')
+}
+
+/** 全局图谱入口：再点一次回到笔记，避免用户被困在图里 */
+function toggleGraphTab(): void {
+  if (knowledgeStore.graphTabActive) knowledgeStore.deactivateGraphTab()
+  else knowledgeStore.openGraphTab()
 }
 
 const syncTooltip = computed(() => {
@@ -825,6 +837,18 @@ onUnmounted(() => {
           @click="toggleAiPanel"
         >
           <IconMessageChatbot class="icon" />
+        </button>
+      </Tooltip>
+
+      <Tooltip :content="knowledgeStore.graphTabActive ? '回到笔记' : '全局图谱'">
+        <button
+          class="icon-btn"
+          :aria-label="knowledgeStore.graphTabActive ? '回到笔记' : '全局图谱'"
+          :class="{ active: knowledgeStore.graphTabActive }"
+          :disabled="!fileStore.openedFolderPath"
+          @click="toggleGraphTab"
+        >
+          <IconTopologyStar3 class="icon" />
         </button>
       </Tooltip>
 
@@ -1432,6 +1456,17 @@ onUnmounted(() => {
 .icon-btn.active {
   color: var(--color-primary);
   background-color: var(--color-primary-light);
+}
+
+.icon-btn:disabled {
+  color: var(--color-text-tertiary);
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.icon-btn:disabled:hover {
+  background-color: transparent;
+  color: var(--color-text-tertiary);
 }
 
 .sync-btn:disabled {

@@ -230,6 +230,38 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
   const graphLoading = ref(false)
   /** 是否曾经请求过图谱（用于索引刷新后决定要不要顺带刷新） */
   const graphLoaded = ref(false)
+  /** 图谱数据版本：全局视图据此判断「该不该重跑布局」，避免无谓重排 */
+  const graphVersion = ref(0)
+
+  /**
+   * 全局图谱页签
+   *
+   * 与 AI 助手页签同一套伪页签语义：`graphTabOpen` 控制页签是否在标签栏里，
+   * `graphTabActive` 控制它是否占据内容区。两者分开是因为关闭面板不应丢失
+   * 用户的缩放/选中状态——重新点开应当回到原样。
+   */
+  const graphTabOpen = ref(false)
+  const graphTabActive = ref(false)
+
+  function openGraphTab(): void {
+    graphTabOpen.value = true
+    graphTabActive.value = true
+  }
+
+  function activateGraphTab(): void {
+    if (!graphTabOpen.value) return
+    graphTabActive.value = true
+  }
+
+  /** 切到文件页签时调用：保留页签，只让出内容区 */
+  function deactivateGraphTab(): void {
+    graphTabActive.value = false
+  }
+
+  function closeGraphTab(): void {
+    graphTabOpen.value = false
+    graphTabActive.value = false
+  }
 
   async function loadGraph(layers?: readonly GraphLayer[]): Promise<void> {
     const bridge = api()
@@ -239,6 +271,7 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
       const res = await bridge.getKnowledgeGraph(layers)
       graph.value = res.success && res.data ? res.data : emptyGraph()
       graphLoaded.value = true
+      graphVersion.value += 1
     } finally {
       graphLoading.value = false
     }
@@ -262,6 +295,9 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
     notes.value = []
     graph.value = emptyGraph()
     graphLoaded.value = false
+    graphVersion.value = 0
+    graphTabOpen.value = false
+    graphTabActive.value = false
     error.value = null
   }
 
@@ -343,6 +379,13 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
     graph,
     graphLoading,
     graphLoaded,
+    graphVersion,
+    graphTabOpen,
+    graphTabActive,
+    openGraphTab,
+    activateGraphTab,
+    deactivateGraphTab,
+    closeGraphTab,
     loadGraph,
     convertMention,
     refreshAll,

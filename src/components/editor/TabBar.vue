@@ -2,17 +2,20 @@
 import { ref, reactive, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import {
   IconMessageChatbot,
+  IconTopologyStar3,
   IconX,
   type Icon
 } from '@tabler/icons-vue'
 import { useFileStore } from '../../stores/file'
 import { useAiStore } from '../../stores/ai'
+import { useKnowledgeStore } from '../../stores/knowledge'
 import type { TabInfo } from '../../stores/file'
 import { FILE_ICON_COMPONENTS, getFileIconKey, type FileIconKey } from '../../utils/file-icons'
 import Tooltip from '../common/Tooltip.vue'
 
 const fileStore = useFileStore()
 const aiStore = useAiStore()
+const knowledge = useKnowledgeStore()
 
 // 标签过多时，自动把当前活动标签滚动到可见区域
 watch(
@@ -28,7 +31,30 @@ watch(
 
 async function handleTabClick(tabId: string): Promise<void> {
   aiStore.deactivatePanel()
+  knowledge.deactivateGraphTab()
   await fileStore.setActiveTab(tabId)
+}
+
+/** AI 页签与全局图谱页签互斥：进入一个就把另一个的内容区让出去 */
+function activateAiTab(): void {
+  knowledge.deactivateGraphTab()
+  aiStore.activatePanel()
+}
+
+function handleGraphTabClick(): void {
+  aiStore.deactivatePanel()
+  knowledge.activateGraphTab()
+}
+
+function handleGraphClose(event: MouseEvent): void {
+  event.stopPropagation()
+  knowledge.closeGraphTab()
+}
+
+function handleGraphMiddleClick(event: MouseEvent): void {
+  if (event.button !== 1) return
+  event.preventDefault()
+  knowledge.closeGraphTab()
 }
 
 /** 双击预览标签将其转正（普通标签无操作） */
@@ -198,7 +224,7 @@ onUnmounted(() => {
 
 <template>
   <div
-    v-if="fileStore.tabs.length > 0 || aiStore.panelOpen"
+    v-if="fileStore.tabs.length > 0 || aiStore.panelOpen || knowledge.graphTabOpen"
     class="tab-bar"
   >
     <div
@@ -206,7 +232,7 @@ onUnmounted(() => {
       :key="tab.id"
       :data-tab-id="tab.id"
       class="tab"
-      :class="{ active: !aiStore.panelActive && tab.id === fileStore.activeTabId, preview: tab.isPreview, dragging: dragTabId === tab.id }"
+      :class="{ active: !aiStore.panelActive && !knowledge.graphTabActive && tab.id === fileStore.activeTabId, preview: tab.isPreview, dragging: dragTabId === tab.id }"
       draggable="true"
       @click="handleTabClick(tab.id)"
       @dblclick="handleTabDblClick(tab.id)"
@@ -260,7 +286,7 @@ onUnmounted(() => {
       class="tab ai-tab"
       :class="{ active: aiStore.panelActive }"
       data-testid="ai-tab"
-      @click="aiStore.activatePanel()"
+      @click="activateAiTab"
       @mousedown="handleAiMiddleClick"
     >
       <IconMessageChatbot
@@ -292,6 +318,40 @@ onUnmounted(() => {
           class="tab-close-btn"
           data-testid="ai-tab-close"
           @click="handleAiClose"
+        >
+          <IconX :size="14" />
+        </button>
+      </Tooltip>
+    </div>
+
+    <div
+      v-if="knowledge.graphTabOpen"
+      class="tab graph-tab"
+      :class="{ active: knowledge.graphTabActive && !aiStore.panelActive }"
+      data-testid="graph-tab"
+      @click="handleGraphTabClick"
+      @mousedown="handleGraphMiddleClick"
+    >
+      <IconTopologyStar3
+        class="tab-icon"
+        :size="16"
+        stroke="1.8"
+      />
+      <span class="tab-label">全局图谱</span>
+      <Tooltip
+        v-if="knowledge.graphLoading"
+        content="正在刷新图谱"
+      >
+        <span
+          class="graph-status-marker"
+          data-testid="graph-tab-loading"
+        />
+      </Tooltip>
+      <Tooltip content="关闭全局图谱">
+        <button
+          class="tab-close-btn"
+          data-testid="graph-tab-close"
+          @click="handleGraphClose"
         >
           <IconX :size="14" />
         </button>
@@ -466,6 +526,25 @@ onUnmounted(() => {
 
 @keyframes ai-tab-spin {
   to { transform: rotate(360deg); }
+}
+
+.graph-tab > .tooltip-trigger {
+  flex: 0 0 auto;
+}
+
+/* 图谱刷新指示：一个不抢眼的呼吸点，表示后台在重算 */
+.graph-status-marker {
+  width: 7px;
+  height: 7px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background-color: var(--color-primary);
+  animation: graph-tab-pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes graph-tab-pulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
 }
 
 .tab-close-btn {

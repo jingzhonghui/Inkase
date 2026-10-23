@@ -10,7 +10,7 @@
  * 标签只在中心、悬停邻居与高度数节点上显示——面板很窄，全显示等于全看不清。
  */
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { IconRefresh, IconTopologyStar3 } from '@tabler/icons-vue'
+import { IconArrowsMaximize, IconRefresh, IconTopologyStar3 } from '@tabler/icons-vue'
 import {
   MAX_FOCUS_DEPTH,
   MIN_FOCUS_DEPTH,
@@ -282,19 +282,33 @@ onBeforeUnmount(() => {
           {{ hop }}
         </button>
       </div>
-      <button
-        type="button"
-        class="graph-refresh"
-        :class="{ spinning: knowledge.graphLoading }"
-        aria-label="刷新图谱"
-        data-testid="graph-refresh"
-        @click="refresh"
-      >
-        <IconRefresh
-          :size="14"
-          :stroke-width="1.8"
-        />
-      </button>
+      <div class="graph-actions">
+        <button
+          type="button"
+          class="graph-expand"
+          aria-label="打开全局图谱"
+          data-testid="graph-expand"
+          @click="knowledge.openGraphTab()"
+        >
+          <IconArrowsMaximize
+            :size="14"
+            :stroke-width="1.8"
+          />
+        </button>
+        <button
+          type="button"
+          class="graph-refresh"
+          :class="{ spinning: knowledge.graphLoading }"
+          aria-label="刷新图谱"
+          data-testid="graph-refresh"
+          @click="refresh"
+        >
+          <IconRefresh
+            :size="14"
+            :stroke-width="1.8"
+          />
+        </button>
+      </div>
     </header>
 
     <div
@@ -454,13 +468,20 @@ onBeforeUnmount(() => {
   color: var(--color-primary);
 }
 
+.graph-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.graph-expand,
 .graph-refresh {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 24px;
   height: 24px;
-  margin-left: auto;
   border: 0;
   border-radius: var(--radius-sm);
   background: transparent;
@@ -468,6 +489,7 @@ onBeforeUnmount(() => {
   cursor: pointer;
 }
 
+.graph-expand:hover,
 .graph-refresh:hover {
   background: var(--color-bg-secondary);
   color: var(--color-text);
