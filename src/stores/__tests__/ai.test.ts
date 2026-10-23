@@ -72,12 +72,13 @@ describe('ai store', () => {
     eventHandler!(event)
   }
 
-  describe('tab lifecycle', () => {
-    it('defaults to hidden, inactive, empty conversation state', () => {
+  describe('panel lifecycle', () => {
+    it('starts with an empty conversation state', () => {
       const store = useAiStore()
 
-      expect(store.panelOpen).toBe(false)
-      expect(store.panelActive).toBe(false)
+      // 面板开关归 dock store，AI store 不再持有 panelOpen / panelActive
+      expect(store).not.toHaveProperty('panelOpen')
+      expect(store).not.toHaveProperty('panelActive')
       expect(store.messages).toEqual([])
       expect(store).not.toHaveProperty('materials')
       expect(store.activeRunId).toBeNull()
@@ -87,101 +88,57 @@ describe('ai store', () => {
       expect(store.conversations).toEqual([])
     })
 
-    it('openPanel sets both panelOpen and panelActive', () => {
+    it('always allows closing when idle, keeping the session intact', async () => {
       const store = useAiStore()
-
-      store.openPanel()
-
-      expect(store.panelOpen).toBe(true)
-      expect(store.panelActive).toBe(true)
-    })
-
-    it('activatePanel and deactivatePanel toggle only panelActive', () => {
-      const store = useAiStore()
-
-      store.activatePanel()
-      expect(store.panelActive).toBe(true)
-      expect(store.panelOpen).toBe(false)
-
-      store.deactivatePanel()
-      expect(store.panelActive).toBe(false)
-    })
-
-    it('requestClosePanel hides the tab but retains messages when idle', async () => {
-      const store = useAiStore()
-      store.openPanel()
       store.messages.push({ id: 'm1', role: 'user', content: 'hi' })
 
-      await store.requestClosePanel()
+      await expect(store.requestClose()).resolves.toBe(true)
 
-      expect(store.panelOpen).toBe(false)
-      expect(store.panelActive).toBe(false)
+      // 关闭只收起面板，会话内容留在 store 里
       expect(store.messages).toHaveLength(1)
-    })
-
-    it('reopening the panel restores the retained session', async () => {
-      const store = useAiStore()
-      store.openPanel()
-      store.messages.push({ id: 'm1', role: 'user', content: 'hi' })
-
-      await store.requestClosePanel()
-      expect(store.panelOpen).toBe(false)
-
-      store.openPanel()
-      expect(store.panelOpen).toBe(true)
-      expect(store.panelActive).toBe(true)
-      expect(store.messages).toHaveLength(1)
+      expect(electronApi.cancelAiRun).not.toHaveBeenCalled()
     })
   })
 
-  describe('requestClosePanel while running', () => {
-    it('leaves the tab and run untouched when the dialog is cancelled', async () => {
+  describe('requestClose while running', () => {
+    it('refuses to close when the dialog is cancelled', async () => {
       const store = useAiStore()
-      store.openPanel()
       store.activeRunId = 'r1'
       store.running = true
       vi.mocked(requestDialog).mockResolvedValue(1) // 取消
 
-      await store.requestClosePanel()
+      await expect(store.requestClose()).resolves.toBe(false)
 
-      expect(store.panelOpen).toBe(true)
-      expect(store.panelActive).toBe(true)
       expect(store.running).toBe(true)
       expect(store.activeRunId).toBe('r1')
       expect(electronApi.cancelAiRun).not.toHaveBeenCalled()
     })
 
-    it('confirms, cancels the run, clears approvals, then closes the tab', async () => {
+    it('confirms, cancels the run, then reports it may close', async () => {
       const store = useAiStore()
-      store.openPanel()
       store.activeRunId = 'r1'
       store.running = true
       store.pendingApprovals.push(makeApproval({ id: 'a1', runId: 'r1' }))
       vi.mocked(requestDialog).mockResolvedValue(0) // 确认关闭
       electronApi.cancelAiRun.mockResolvedValue({ success: true })
 
-      await store.requestClosePanel()
+      await expect(store.requestClose()).resolves.toBe(true)
 
       expect(electronApi.cancelAiRun).toHaveBeenCalledWith('r1')
       expect(store.pendingApprovals).toEqual([])
-      expect(store.panelOpen).toBe(false)
-      expect(store.panelActive).toBe(false)
       expect(store.running).toBe(false)
     })
 
-    it('keeps the panel and run state when cancellation is rejected', async () => {
+    it('keeps the run state when cancellation is rejected', async () => {
       const store = useAiStore()
-      store.openPanel()
       store.activeRunId = 'r1'
       store.running = true
       store.pendingApprovals.push(makeApproval({ id: 'a1', runId: 'r1' }))
       vi.mocked(requestDialog).mockResolvedValue(0)
       electronApi.cancelAiRun.mockResolvedValue({ success: false, error: 'cancel failed' })
 
-      await store.requestClosePanel()
+      await expect(store.requestClose()).resolves.toBe(false)
 
-      expect(store.panelOpen).toBe(true)
-      expect(store.panelActive).toBe(true)
       expect(store.running).toBe(true)
       expect(store.activeRunId).toBe('r1')
       expect(store.pendingApprovals).toHaveLength(1)
@@ -190,7 +147,6 @@ describe('ai store', () => {
 
     it('waits for a pending start and cancels its eventual run before closing', async () => {
       const store = useAiStore()
-      store.openPanel()
       vi.mocked(requestDialog).mockResolvedValue(0)
       let resolveStart!: (value: { success: true; data: { runId: string } }) => void
       electronApi.startAiRun.mockImplementation(
@@ -201,15 +157,14 @@ describe('ai store', () => {
       electronApi.cancelAiRun.mockResolvedValue({ success: true })
 
       const sendPromise = store.sendMessage('hello')
-      const closePromise = store.requestClosePanel()
+      const closePromise = store.requestClose()
       await Promise.resolve()
 
-      expect(store.panelOpen).toBe(true)
       resolveStart({ success: true, data: { runId: 'r1' } })
-      await Promise.all([sendPromise, closePromise])
+      const [closed] = await Promise.all([closePromise, sendPromise])
 
+      expect(closed).toBe(true)
       expect(electronApi.cancelAiRun).toHaveBeenCalledWith('r1')
-      expect(store.panelOpen).toBe(false)
       expect(store.activeRunId).toBeNull()
       expect(store.running).toBe(false)
     })
@@ -217,7 +172,6 @@ describe('ai store', () => {
     it('waits for start ownership before closing after an early terminal event', async () => {
       const store = useAiStore()
       store.init()
-      store.openPanel()
       vi.mocked(requestDialog).mockResolvedValue(0)
       let resolveStart!: (value: { success: true; data: { runId: string } }) => void
       electronApi.startAiRun.mockImplementation(
@@ -230,13 +184,12 @@ describe('ai store', () => {
       const send = store.sendMessage('hello')
       emit({ type: 'run-started', runId: 'r1' })
       emit({ type: 'run-completed', runId: 'r1' })
-      const close = store.requestClosePanel()
+      const close = store.requestClose()
       await Promise.resolve()
 
-      expect(store.panelOpen).toBe(true)
       resolveStart({ success: true, data: { runId: 'r1' } })
-      await Promise.all([send, close])
-      expect(store.panelOpen).toBe(false)
+      const [closed] = await Promise.all([close, send])
+      expect(closed).toBe(true)
     })
   })
 
@@ -1020,9 +973,8 @@ describe('ai store', () => {
       expect(apply).toHaveBeenCalledTimes(2)
     })
 
-    it('deactivates AI after an approved generated document is created', async () => {
+    it('reveals an approved generated document as the active tab', async () => {
       const store = useAiStore()
-      store.openPanel()
       store.pendingApprovals.push(makeApproval({
         id: 'a1',
         execution: {
@@ -1040,8 +992,10 @@ describe('ai store', () => {
 
       await store.resolveApproval('a1', { status: 'approved', scope: 'once' })
 
-      expect(store.panelActive).toBe(false)
-      expect(useFileStore().fileContent).toBe('visible content')
+      // AI 住在停靠区，不再需要「让出内容区」；新文档直接成为当前标签
+      const fileStore = useFileStore()
+      expect(fileStore.fileContent).toBe('visible content')
+      expect(fileStore.activeTab?.fileInfo?.name).toBe('Generated.md')
     })
   })
 

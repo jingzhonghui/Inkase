@@ -408,7 +408,6 @@ export const useFileStore = defineStore('file', () => {
             format: 'mdx'
           }
           activeTabId.value = tab.id
-          useAiStore().deactivatePanel()
           return true
         }
       }
@@ -424,7 +423,6 @@ export const useFileStore = defineStore('file', () => {
         format: 'mdx'
       }
       activeTabId.value = tab.id
-      useAiStore().deactivatePanel()
       return true
     } catch (err) {
       error.value = err instanceof Error ? err.message : '新建文件失败'
@@ -453,7 +451,6 @@ export const useFileStore = defineStore('file', () => {
         if (existing) {
           if (options?.preview === false) existing.isPreview = false
           activeTabId.value = existing.id
-          useAiStore().deactivatePanel()
           await folder.revealFileInTree(filePath)
           return true
         }
@@ -470,7 +467,6 @@ export const useFileStore = defineStore('file', () => {
         if (existing) {
           if (options?.preview === false) existing.isPreview = false
           activeTabId.value = existing.id
-          useAiStore().deactivatePanel()
           await folder.revealFileInTree(fPath)
           return true
         }
@@ -527,7 +523,6 @@ export const useFileStore = defineStore('file', () => {
           tabs.value.splice(previewIndex, 1, tab)
         }
         activeTabId.value = tab.id
-        useAiStore().deactivatePanel()
         await folder.revealFileInTree(fPath)
 
         await loadRecentFiles()
@@ -736,8 +731,6 @@ export const useFileStore = defineStore('file', () => {
       sidebarCollapsed: sidebarCollapsed.value,
       sidebarWidth: sidebarWidth.value,
       editorMode: editorMode.value,
-      aiPanelOpen: useAiStore().panelOpen,
-      aiPanelActive: useAiStore().panelActive,
       aiActiveConversationId: useAiStore().activeConversationId,
       maxOpenTabs: maxOpenTabs.value
     })
@@ -872,12 +865,7 @@ export const useFileStore = defineStore('file', () => {
       }
     }
 
-    if (state.aiPanelOpen) {
-      useAiStore().openPanel()
-      if (state.aiPanelActive === false) {
-        useAiStore().deactivatePanel()
-      }
-    }
+    // AI 停靠面板的开关由 dock store 自己持久化（见 stores/dock.ts），此处不再重复记录
 
     if (!state.openedFolderPath) {
       await useAiStore().loadConversations(null)
@@ -981,7 +969,6 @@ export const useFileStore = defineStore('file', () => {
         const existing = tabState.findTabByPath(fPath)
         if (existing) {
           activeTabId.value = existing.id
-          useAiStore().deactivatePanel()
           return true
         }
 
@@ -1004,7 +991,6 @@ export const useFileStore = defineStore('file', () => {
           format: 'mdx'
         }
         activeTabId.value = tab.id
-        useAiStore().deactivatePanel()
 
         await loadRecentFiles()
 
@@ -1047,7 +1033,6 @@ export const useFileStore = defineStore('file', () => {
         const existing = tabState.findTabByPath(fPath)
         if (existing) {
           activeTabId.value = existing.id
-          useAiStore().deactivatePanel()
           return true
         }
 
@@ -1070,7 +1055,6 @@ export const useFileStore = defineStore('file', () => {
           format: result.data.format || (fPath.toLowerCase().endsWith('.md') ? 'markdown' : 'mdx')
         }
         activeTabId.value = tab.id
-        useAiStore().deactivatePanel()
 
         await loadRecentFiles()
 

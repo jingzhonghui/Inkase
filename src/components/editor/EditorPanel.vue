@@ -2,9 +2,7 @@
 import { computed, ref } from 'vue'
 import { IconFile, IconFolder, IconPlus, IconSourceCode, IconWorldWww } from '@tabler/icons-vue'
 import { useFileStore } from '../../stores/file'
-import { useAiStore } from '../../stores/ai'
 import { useKnowledgeStore } from '../../stores/knowledge'
-import AiPanel from '../ai/AiPanel.vue'
 import RightDock from '../layout/RightDock.vue'
 import GlobalGraphView from '../knowledge/GlobalGraphView.vue'
 import { useDockStore } from '../../stores/dock'
@@ -19,14 +17,13 @@ import { Splitpanes, Pane } from 'splitpanes'
 import 'splitpanes/dist/splitpanes.css'
 
 const fileStore = useFileStore()
-const aiStore = useAiStore()
 const knowledge = useKnowledgeStore()
 const dockStore = useDockStore()
 defineProps<{ aiReady?: boolean }>()
 const emit = defineEmits<{ openAiSettings: [] }>()
 
-/** 全局图谱占满内容区；AI 面板叠在它之上时让位（与文档区同一套层叠规则） */
-const graphActive = computed(() => knowledge.graphTabActive && !aiStore.panelActive)
+/** 全局图谱占满内容区 */
+const graphActive = computed(() => knowledge.graphTabActive)
 const showPreview = computed(() => fileStore.effectiveEditorMode === 'split')
 const isIrMode = computed(() => fileStore.effectiveEditorMode === 'ir')
 const hasOpenFile = computed(() => fileStore.tabs.length > 0 && fileStore.activeTabId !== null)
@@ -71,7 +68,7 @@ function onPreviewScroll(ratio: number): void {
 
     <!-- 无文件打开时：显示欢迎页 -->
     <div
-      v-show="!hasOpenFile && !aiStore.panelActive && !graphActive"
+      v-show="!hasOpenFile && !graphActive"
       class="welcome-page"
     >
       <div class="welcome-content">
@@ -172,7 +169,7 @@ function onPreviewScroll(ratio: number): void {
     <!-- 有文件打开时：显示编辑器 -->
     <div
       v-if="hasOpenFile"
-      v-show="!aiStore.panelActive && !graphActive"
+      v-show="!graphActive"
       class="document-view"
     >
       <!-- HTML 预览切换悬浮按钮（仅 HTML 标签页显示，独立于 Markdown 模式体系） -->
@@ -262,18 +259,11 @@ function onPreviewScroll(ratio: number): void {
     <!-- 全局图谱：独立视图，占满内容区 -->
     <GlobalGraphView v-if="graphActive" />
 
-    <AiPanel
-      v-if="aiStore.panelOpen && aiStore.panelActive"
-      :ready="aiReady ?? false"
-      @open-settings="emit('openAiSettings')"
-    />
-
-    <!-- 右侧三合一停靠面板（反链 / 图谱 / AI）；全屏 AI 与全局图谱时让位 -->
+    <!-- 右侧三合一停靠面板（反链 / 图谱 / AI）；全局图谱时让位 -->
     <RightDock
-      v-if="hasOpenFile && dockStore.open && !aiStore.panelActive && !graphActive"
+      v-if="hasOpenFile && dockStore.open && !graphActive"
       :ready="aiReady ?? false"
       @open-settings="emit('openAiSettings')"
-      @expand-ai="aiStore.openPanel()"
     />
   </div>
 </template>

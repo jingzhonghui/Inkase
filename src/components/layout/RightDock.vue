@@ -6,16 +6,18 @@
  * 宽度与当前页签持久化在 dock store 中。
  */
 import { computed, onUnmounted, ref } from 'vue'
-import { IconLink, IconMaximize, IconMessageChatbot, IconTopologyStar3, IconX } from '@tabler/icons-vue'
-import { clampDockWidth, useDockStore, type DockTab } from '../../stores/dock'
+import { IconLink, IconMaximize, IconMessageChatbot, IconMinimize, IconTopologyStar3, IconX } from '@tabler/icons-vue'
+import { DOCK_MAX_WIDTH, clampDockWidth, useDockStore, type DockTab } from '../../stores/dock'
+import { useAiStore } from '../../stores/ai'
 import AiPanel from '../ai/AiPanel.vue'
 import BacklinksPanel from '../knowledge/BacklinksPanel.vue'
 import LocalGraphPanel from '../knowledge/LocalGraphPanel.vue'
 
 const props = defineProps<{ ready: boolean }>()
-const emit = defineEmits<{ openSettings: []; expandAi: [] }>()
+const emit = defineEmits<{ openSettings: [] }>()
 
 const dock = useDockStore()
+const aiStore = useAiStore()
 
 const tabs: ReadonlyArray<{ id: DockTab; label: string; icon: unknown }> = [
   { id: 'backlinks', label: '反链', icon: IconLink },
@@ -25,15 +27,15 @@ const tabs: ReadonlyArray<{ id: DockTab; label: string; icon: unknown }> = [
 
 /** 拖拽过程中的临时宽度（松手才落库，避免每次 mousemove 都写 localStorage） */
 const dragWidth = ref<number | null>(null)
-const panelWidth = computed(() => dragWidth.value ?? dock.width)
+const panelWidth = computed(() => dragWidth.value ?? (dock.wide ? DOCK_MAX_WIDTH : dock.width))
 
 let dragStartX = 0
 let dragStartWidth = 0
 
 function onResizeStart(event: MouseEvent): void {
   dragStartX = event.clientX
-  dragStartWidth = dock.width
-  dragWidth.value = dock.width
+  dragStartWidth = panelWidth.value
+  dragWidth.value = panelWidth.value
   window.addEventListener('mousemove', onResizeMove)
   window.addEventListener('mouseup', onResizeEnd)
   event.preventDefault()
@@ -55,6 +57,17 @@ onUnmounted(() => {
   window.removeEventListener('mousemove', onResizeMove)
   window.removeEventListener('mouseup', onResizeEnd)
 })
+
+/**
+ * 关闭面板
+ *
+ * AI 页签下要先给运行中的会话收尾（取消运行、清空待审批），
+ * 所以走 store 的 requestClose；其余页签直接收起即可。
+ */
+async function handleClose(): Promise<void> {
+  if (dock.activeTab === 'ai' && !(await aiStore.requestClose())) return
+  dock.close()
+}
 </script>
 
 <template>
@@ -91,11 +104,18 @@ onUnmounted(() => {
         v-if="dock.activeTab === 'ai'"
         type="button"
         class="dock-close"
-        aria-label="全屏 AI 助手"
+        :aria-label="dock.wide ? '恢复常规宽度' : '拉满面板宽度'"
+        :aria-pressed="dock.wide"
         data-testid="dock-ai-expand"
-        @click="emit('expandAi')"
+        @click="dock.toggleWide()"
       >
+        <IconMinimize
+          v-if="dock.wide"
+          :size="15"
+          :stroke-width="1.8"
+        />
         <IconMaximize
+          v-else
           :size="15"
           :stroke-width="1.8"
         />
@@ -106,7 +126,7 @@ onUnmounted(() => {
         :class="{ 'dock-close-pushed': dock.activeTab === 'ai' }"
         aria-label="关闭面板"
         data-testid="dock-close"
-        @click="dock.close()"
+        @click="handleClose"
       >
         <IconX
           :size="15"

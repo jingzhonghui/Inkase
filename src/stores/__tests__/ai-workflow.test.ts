@@ -201,18 +201,17 @@ describe('renderer AI workflow', () => {
     ])
   })
 
-  it('uses the same cancellation path when closing the active AI panel', async () => {
+  it('uses the same cancellation path when closing the AI dock panel', async () => {
     const ai = useAiStore()
     const { approval } = rendererReplace()
     ai.init()
-    ai.openPanel()
     emit({ type: 'run-started', runId: 'run-1' })
     emit({ type: 'text-delta', runId: 'run-1', text: 'partial' })
     ai.pendingApprovals.push(approval)
     vi.mocked(requestDialog).mockResolvedValue(0)
     electronAPI.cancelAiRun.mockResolvedValue({ success: true })
 
-    await ai.requestClosePanel()
+    await expect(ai.requestClose()).resolves.toBe(true)
     emit({ type: 'run-started', runId: 'run-2' })
     emit({ type: 'text-delta', runId: 'run-2', text: 'next' })
 
@@ -222,7 +221,5 @@ describe('renderer AI workflow', () => {
       '<!-- analysis -->\npartial\n<!-- end-analysis -->',
       'next'
     ])
-    expect(ai.panelOpen).toBe(false)
-    expect(ai.panelActive).toBe(false)
   })
 })

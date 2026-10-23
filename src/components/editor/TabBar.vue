@@ -1,20 +1,17 @@
 <script setup lang="ts">
 import { ref, reactive, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import {
-  IconMessageChatbot,
   IconTopologyStar3,
   IconX,
   type Icon
 } from '@tabler/icons-vue'
 import { useFileStore } from '../../stores/file'
-import { useAiStore } from '../../stores/ai'
 import { useKnowledgeStore } from '../../stores/knowledge'
 import type { TabInfo } from '../../stores/file'
 import { FILE_ICON_COMPONENTS, getFileIconKey, type FileIconKey } from '../../utils/file-icons'
 import Tooltip from '../common/Tooltip.vue'
 
 const fileStore = useFileStore()
-const aiStore = useAiStore()
 const knowledge = useKnowledgeStore()
 
 // 标签过多时，自动把当前活动标签滚动到可见区域
@@ -30,19 +27,11 @@ watch(
 )
 
 async function handleTabClick(tabId: string): Promise<void> {
-  aiStore.deactivatePanel()
   knowledge.deactivateGraphTab()
   await fileStore.setActiveTab(tabId)
 }
 
-/** AI 页签与全局图谱页签互斥：进入一个就把另一个的内容区让出去 */
-function activateAiTab(): void {
-  knowledge.deactivateGraphTab()
-  aiStore.activatePanel()
-}
-
 function handleGraphTabClick(): void {
-  aiStore.deactivatePanel()
   knowledge.activateGraphTab()
 }
 
@@ -63,17 +52,6 @@ function handleTabDblClick(tabId: string): Promise<void> {
     fileStore.pinActivePreviewTab()
   }
   return Promise.resolve()
-}
-
-function handleAiMiddleClick(event: MouseEvent): void {
-  if (event.button !== 1) return
-  event.preventDefault()
-  void aiStore.requestClosePanel()
-}
-
-function handleAiClose(event: MouseEvent): void {
-  event.stopPropagation()
-  void aiStore.requestClosePanel()
 }
 
 function handleMiddleClick(tabId: string, event: MouseEvent): void {
@@ -224,7 +202,7 @@ onUnmounted(() => {
 
 <template>
   <div
-    v-if="fileStore.tabs.length > 0 || aiStore.panelOpen || knowledge.graphTabOpen"
+    v-if="fileStore.tabs.length > 0 || knowledge.graphTabOpen"
     class="tab-bar"
   >
     <div
@@ -232,7 +210,7 @@ onUnmounted(() => {
       :key="tab.id"
       :data-tab-id="tab.id"
       class="tab"
-      :class="{ active: !aiStore.panelActive && !knowledge.graphTabActive && tab.id === fileStore.activeTabId, preview: tab.isPreview, dragging: dragTabId === tab.id }"
+      :class="{ active: !knowledge.graphTabActive && tab.id === fileStore.activeTabId, preview: tab.isPreview, dragging: dragTabId === tab.id }"
       draggable="true"
       @click="handleTabClick(tab.id)"
       @dblclick="handleTabDblClick(tab.id)"
@@ -282,52 +260,9 @@ onUnmounted(() => {
     </div>
 
     <div
-      v-if="aiStore.panelOpen"
-      class="tab ai-tab"
-      :class="{ active: aiStore.panelActive }"
-      data-testid="ai-tab"
-      @click="activateAiTab"
-      @mousedown="handleAiMiddleClick"
-    >
-      <IconMessageChatbot
-        class="tab-icon"
-        :size="16"
-        stroke="1.8"
-      />
-      <span class="tab-label">AI 助手</span>
-      <Tooltip
-        v-if="aiStore.pendingApprovals.length > 0"
-        content="等待审批"
-      >
-        <span
-          class="ai-status-marker approval"
-          data-testid="ai-approval-marker"
-        >!</span>
-      </Tooltip>
-      <Tooltip
-        v-else-if="aiStore.running"
-        content="正在生成"
-      >
-        <span
-          class="ai-status-marker running"
-          data-testid="ai-running-marker"
-        />
-      </Tooltip>
-      <Tooltip content="关闭 AI 助手">
-        <button
-          class="tab-close-btn"
-          data-testid="ai-tab-close"
-          @click="handleAiClose"
-        >
-          <IconX :size="14" />
-        </button>
-      </Tooltip>
-    </div>
-
-    <div
       v-if="knowledge.graphTabOpen"
       class="tab graph-tab"
-      :class="{ active: knowledge.graphTabActive && !aiStore.panelActive }"
+      :class="{ active: knowledge.graphTabActive }"
       data-testid="graph-tab"
       @click="handleGraphTabClick"
       @mousedown="handleGraphMiddleClick"
@@ -496,36 +431,6 @@ onUnmounted(() => {
   border-radius: 50%;
   background-color: var(--color-warning);
   flex-shrink: 0;
-}
-
-.ai-status-marker {
-  flex-shrink: 0;
-}
-
-.ai-status-marker.running {
-  width: 8px;
-  height: 8px;
-  border: 2px solid var(--color-primary);
-  border-right-color: transparent;
-  border-radius: 50%;
-  animation: ai-tab-spin 0.8s linear infinite;
-}
-
-.ai-status-marker.approval {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 15px;
-  height: 15px;
-  color: white;
-  background: var(--color-warning);
-  border-radius: 50%;
-  font-size: calc(var(--ui-font-size) - 3px);
-  font-weight: 700;
-}
-
-@keyframes ai-tab-spin {
-  to { transform: rotate(360deg); }
 }
 
 .graph-tab > .tooltip-trigger {

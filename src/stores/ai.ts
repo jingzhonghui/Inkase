@@ -39,10 +39,6 @@ function generateConversationId(): string {
  * 以及审批与主进程（preload AI API）的协调。
  */
 export const useAiStore = defineStore('ai', () => {
-  // ===== 面板 / 标签页状态 =====
-  const panelOpen = ref(false)
-  const panelActive = ref(false)
-
   // ===== 会话状态 =====
   const messages = ref<AiConversationMessage[]>([])
   const toolCalls = ref<ToolCallEntry[]>([])
@@ -203,23 +199,11 @@ export const useAiStore = defineStore('ai', () => {
     approvalMessageIds.clear()
   }
 
-  // ===== 标签页生命周期 =====
-
-  function openPanel(): void {
-    panelOpen.value = true
-    panelActive.value = true
-    useFileStore().persistSession()
-  }
-
-  function activatePanel(): void {
-    panelActive.value = true
-    useFileStore().persistSession()
-  }
-
-  function deactivatePanel(): void {
-    panelActive.value = false
-    useFileStore().persistSession()
-  }
+  // ===== 面板生命周期 =====
+  //
+  // AI 助手不再是占据内容区的伪标签页：它只住在右侧停靠区（见 RightDock.vue），
+  // 因此「打开/关闭」归 dock store 管。这里只保留「关闭前先收尾运行」这一条职责，
+  // 因为取消运行、清审批不属于 UI 层能安全处理的事。
 
   async function cancelRun(): Promise<boolean> {
     if (!activeRunId.value && pendingStartPromise) await pendingStartPromise
@@ -242,7 +226,13 @@ export const useAiStore = defineStore('ai', () => {
     return true
   }
 
-  async function requestClosePanel(): Promise<void> {
+  /**
+   * 关闭 AI 停靠面板前的收尾
+   *
+   * 运行中或有待审批时先征求同意：关闭意味着取消当前运行并清除待审批。
+   * 返回 true 表示可以关闭（调用方随后收起停靠区）。
+   */
+  async function requestClose(): Promise<boolean> {
     if (running.value || pendingStartPromise || pendingApprovals.value.length > 0) {
       const choice = await requestDialog({
         title: '关闭 AI 面板',
@@ -253,16 +243,14 @@ export const useAiStore = defineStore('ai', () => {
           { label: '关闭', value: 0, primary: true }
         ]
       })
-      if (choice !== 0) return
+      if (choice !== 0) return false
 
       if (!activeRunId.value && pendingStartPromise) await pendingStartPromise
-      if (!(await cancelRun())) return
+      if (!(await cancelRun())) return false
       discardAllApprovals()
     }
 
-    panelOpen.value = false
-    panelActive.value = false
-    useFileStore().persistSession()
+    return true
   }
 
   // ===== 会话记录 =====
@@ -722,8 +710,7 @@ export const useAiStore = defineStore('ai', () => {
             const fileStore = useFileStore()
             actualResult = await applyDocumentOperation(
               fileStore,
-              approval.execution.operation,
-              deactivatePanel
+              approval.execution.operation
             )
             if (approvalResolutions.get(approvalId) !== resolutionState) return
             resolutionState.result = actualResult
@@ -757,8 +744,6 @@ export const useAiStore = defineStore('ai', () => {
 
   return {
     // state
-    panelOpen,
-    panelActive,
     messages,
     toolCalls,
     activeRunId,
@@ -773,10 +758,7 @@ export const useAiStore = defineStore('ai', () => {
     titleSource,
     error,
     // actions
-    openPanel,
-    activatePanel,
-    deactivatePanel,
-    requestClosePanel,
+    requestClose,
     loadConversations,
     openConversation,
     newConversation,

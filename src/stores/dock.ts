@@ -37,12 +37,24 @@ export const useDockStore = defineStore('dock', () => {
   const open = ref(false)
   const activeTab = ref<DockTab>('backlinks')
   const width = ref(DOCK_DEFAULT_WIDTH)
+  /**
+   * 拉满模式
+   *
+   * 取代过去的「AI 全屏伪标签页」：面板本身不变、只是宽到上限，编辑器仍留在左侧。
+   * 这样大段对话有足够阅读空间，又不至于把正在写的东西挤出屏幕。
+   */
+  const wide = ref(false)
 
   function persist(): void {
     try {
       localStorage.setItem(
         DOCK_STORAGE_KEY,
-        JSON.stringify({ open: open.value, activeTab: activeTab.value, width: width.value })
+        JSON.stringify({
+          open: open.value,
+          activeTab: activeTab.value,
+          width: width.value,
+          wide: wide.value
+        })
       )
     } catch {
       // 忽略存储错误
@@ -56,10 +68,11 @@ export const useDockStore = defineStore('dock', () => {
       if (saved === null) return
       const parsed: unknown = JSON.parse(saved)
       if (typeof parsed !== 'object' || parsed === null) return
-      const state = parsed as { open?: unknown; activeTab?: unknown; width?: unknown }
+      const state = parsed as { open?: unknown; activeTab?: unknown; width?: unknown; wide?: unknown }
       if (typeof state.open === 'boolean') open.value = state.open
       if (isDockTab(state.activeTab)) activeTab.value = state.activeTab
       if (typeof state.width === 'number') width.value = clampDockWidth(state.width)
+      if (typeof state.wide === 'boolean') wide.value = state.wide
     } catch {
       // 忽略解析错误
     }
@@ -99,8 +112,16 @@ export const useDockStore = defineStore('dock', () => {
 
   function setWidth(value: number): void {
     width.value = clampDockWidth(value)
+    // 手动拖宽度即退出拉满：用户自己的选择优先
+    wide.value = false
     persist()
   }
 
-  return { open, activeTab, width, restore, toggle, show, close, setTab, setWidth }
+  /** 在「常规宽度」与「拉满」之间切换 */
+  function toggleWide(): void {
+    wide.value = !wide.value
+    persist()
+  }
+
+  return { open, activeTab, width, wide, restore, toggle, show, close, setTab, setWidth, toggleWide }
 })

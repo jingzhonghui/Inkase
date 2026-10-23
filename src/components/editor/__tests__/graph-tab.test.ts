@@ -6,7 +6,6 @@ import { mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import TabBar from '../TabBar.vue'
 import EditorPanel from '../EditorPanel.vue'
-import { useAiStore } from '../../../stores/ai'
 import { useFileStore } from '../../../stores/file'
 import { useKnowledgeStore } from '../../../stores/knowledge'
 
@@ -109,24 +108,17 @@ describe('global graph tab', () => {
     expect(wrapper.get(`[data-tab-id="${tab.id}"]`).classes()).not.toContain('active')
   })
 
-  it('keeps the AI tab and the graph tab mutually exclusive', async () => {
+  it('no longer renders an AI pseudo tab', async () => {
     const wrapper = mount(TabBar)
     const knowledge = useKnowledgeStore()
-    const aiStore = useAiStore()
     const fileStore = useFileStore()
     fileStore.createGeneratedDocument('文档', 'content', 'markdown')
-    aiStore.openPanel()
     knowledge.openGraphTab()
     await nextTick()
 
-    await wrapper.get('[data-testid="ai-tab"]').trigger('click')
-    expect(aiStore.panelActive).toBe(true)
-    expect(knowledge.graphTabActive).toBe(false)
-    expect(wrapper.get('[data-testid="graph-tab"]').classes()).not.toContain('active')
-
-    await wrapper.get('[data-testid="graph-tab"]').trigger('click')
-    expect(aiStore.panelActive).toBe(false)
-    expect(knowledge.graphTabActive).toBe(true)
+    // AI 只住在右侧停靠区，标签栏里只剩文件标签与全局图谱
+    expect(wrapper.find('[data-testid="ai-tab"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="graph-tab"]').exists()).toBe(true)
   })
 })
 

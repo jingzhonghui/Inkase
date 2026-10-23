@@ -1,4 +1,4 @@
-﻿import type { EditorMode } from './file'
+import type { EditorMode } from './file'
 
 const SESSION_STORAGE_KEY = 'inkase-session'
 
@@ -9,8 +9,6 @@ export interface SessionState {
   sidebarCollapsed: boolean
   sidebarWidth?: number
   editorMode: EditorMode
-  aiPanelOpen: boolean
-  aiPanelActive?: boolean
   aiActiveConversationId: string | null
   maxOpenTabs?: number
 }

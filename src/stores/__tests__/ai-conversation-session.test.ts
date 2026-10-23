@@ -60,7 +60,7 @@ describe('ai conversation workspace integration', () => {
     expect(electronApi.listAiConversations).toHaveBeenCalledWith(null)
   })
 
-  it('restores AI panel active state after reopen', async () => {
+  it('ignores legacy AI panel fields and leaves the dock to its own store', async () => {
     const { electronApi } = mockApp()
     electronApi.openFile.mockResolvedValue({
       success: true,
@@ -70,6 +70,7 @@ describe('ai conversation workspace integration', () => {
         format: 'markdown'
       }
     })
+    // 旧会话里还有 aiPanelOpen / aiPanelActive，恢复时必须能忽略而不报错
     vi.stubGlobal('localStorage', {
       getItem: vi.fn(() => JSON.stringify({
         aiPanelOpen: true,
@@ -84,35 +85,9 @@ describe('ai conversation workspace integration', () => {
 
     await fileStore.restoreSession()
 
-    expect(useAiStore().panelOpen).toBe(true)
-    expect(useAiStore().panelActive).toBe(true)
-  })
-
-  it('keeps AI panel open but not active when it was deactivated', async () => {
-    const { electronApi } = mockApp()
-    electronApi.openFile.mockResolvedValue({
-      success: true,
-      data: {
-        document: { version: 1, title: 'x', content: 'hi', assets: { images: [] }, settings: {} },
-        filePath: 'C:\\ws\\a.md',
-        format: 'markdown'
-      }
-    })
-    vi.stubGlobal('localStorage', {
-      getItem: vi.fn(() => JSON.stringify({
-        aiPanelOpen: true,
-        aiPanelActive: false,
-        openFilePaths: ['C:\\ws\\a.md'],
-        activeFilePath: 'C:\\ws\\a.md'
-      })),
-      setItem: vi.fn(),
-      removeItem: vi.fn()
-    })
-    const fileStore = useFileStore()
-
-    await fileStore.restoreSession()
-
-    expect(useAiStore().panelOpen).toBe(true)
-    expect(useAiStore().panelActive).toBe(false)
+    // AI store 不再持有面板状态，旧字段被安全丢弃
+    expect(useAiStore()).not.toHaveProperty('panelOpen')
+    expect(useAiStore()).not.toHaveProperty('panelActive')
+    expect(fileStore.activeTab?.fileInfo?.path).toBe('C:\\ws\\a.md')
   })
 })
