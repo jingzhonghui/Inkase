@@ -6,6 +6,7 @@ import { useKnowledgeStore } from '../../stores/knowledge'
 import RightDock from '../layout/RightDock.vue'
 import GlobalGraphView from '../knowledge/GlobalGraphView.vue'
 import AiWorkbench from '../ai/AiWorkbench.vue'
+import AiQuickAsk from '../ai/AiQuickAsk.vue'
 import { useDockStore } from '../../stores/dock'
 import SourceEditor from './SourceEditor.vue'
 import IrEditor from './IrEditor.vue'
@@ -168,6 +169,13 @@ function onPreviewScroll(ratio: number): void {
 
       <!-- 全局图谱：独立视图，占满内容区 -->
       <GlobalGraphView v-if="graphActive" />
+
+      <!-- 选中文本的快捷提问浮层（Teleport 到 body，不参与布局） -->
+      <AiQuickAsk
+        v-if="hasOpenFile && !graphActive"
+        :ready="aiReady ?? false"
+        @open-settings="emit('openAiSettings')"
+      />
 
       <!-- 右侧三合一停靠面板（反链 / 图谱 / AI）；全局图谱时让位 -->
       <RightDock
