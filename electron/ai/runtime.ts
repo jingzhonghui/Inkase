@@ -23,6 +23,7 @@ import type { WorkspaceSearchService } from '../workspace/workspace-search-servi
 import { createSourceAuthorizationContext } from './source-authorization'
 import { createDocumentTools } from './tools/document-tools'
 import { createKnowledgeTools } from './tools/knowledge-tools'
+import { createKnowledgeWriteTools } from './tools/knowledge-write-tools'
 import { createSourceAccessTools } from './tools/source-access-tools'
 import { createTimeTools } from './tools/time-tools'
 import { SYSTEM_PROMPT } from './prompts'
@@ -82,6 +83,7 @@ export class AiRuntime {
   ): void {
     const docTools = createDocumentTools(searchService)
     const knowledgeTools = createKnowledgeTools()
+    const knowledgeWriteTools = createKnowledgeWriteTools()
     const sourceTools = createSourceAccessTools(sourceAccessService)
     const timeTools = createTimeTools()
     const all: AnyToolDefinition[] = [
@@ -95,6 +97,9 @@ export class AiRuntime {
       knowledgeTools.graphOverview,
       knowledgeTools.findBrokenLinks,
       knowledgeTools.readAttachmentText,
+      knowledgeWriteTools.applyLinkEdits,
+      knowledgeWriteTools.applyTagEdits,
+      knowledgeWriteTools.writeMoc,
       timeTools.getCurrentDatetime,
       sourceTools.readWebUrl,
       sourceTools.readLocalFile,
@@ -119,7 +124,13 @@ export class AiRuntime {
 
     const sourceAuthorization = createSourceAuthorizationContext(input)
     const context: ToolExecutionContext = Object.freeze({
-      snapshot: input.snapshot,
+      // runId 由运行时生成，工具（写前快照）必须能拿到本次运行标识；
+      // conversationId 也只信任运行时入参，避免渲染层快照里的空值。
+      snapshot: {
+        ...input.snapshot,
+        runId,
+        conversationId: input.conversationId
+      },
       sourceAuthorization
     })
     const messages: AiConversationMessage[] = [

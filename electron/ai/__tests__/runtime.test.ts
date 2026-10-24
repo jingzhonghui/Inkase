@@ -327,6 +327,7 @@ describe('runtime approval flow', () => {
       'search_workspace', 'list_workspace_root', 'read_workspace_directory', 'read_workspace_file',
       'read_selected_text',
       'query_notes', 'expand_links', 'graph_overview', 'find_broken_links', 'read_attachment_text',
+      'apply_link_edits', 'apply_tag_edits', 'write_moc',
       'get_current_datetime', 'read_web_url', 'read_local_file',
       'replace_current_document', 'insert_into_current_document', 'create_document'
     ])

@@ -59,6 +59,11 @@ export const useSnapshotStore = defineStore('ai-snapshots', () => {
     }
   }
 
+  async function refresh(): Promise<void> {
+    loaded = false
+    await ensureLoaded()
+  }
+
   function reset(): void {
     availableRuns.value = []
     error.value = null
@@ -66,5 +71,5 @@ export const useSnapshotStore = defineStore('ai-snapshots', () => {
     loading = false
   }
 
-  return { availableRuns, error, has, markAvailable, ensureLoaded, rollback, reset }
+  return { availableRuns, error, has, markAvailable, ensureLoaded, refresh, rollback, reset }
 })

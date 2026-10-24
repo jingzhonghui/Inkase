@@ -515,6 +515,21 @@ export const useAiStore = defineStore('ai', () => {
           call.status = event.result.status === 'completed' || event.result.status === 'applied' ? 'completed' : 'failed'
           call.result = event.result
         }
+        // 主进程执行的写工具（批量链接/标签/索引页）在批准后异步落盘；
+        // 只有 tool-call-completed 才能确认结果，并在此刷新快照列表让回滚入口出现。
+        const approval = approvalHistory.value.find((item) => item.toolCallId === event.toolCallId)
+        if (
+          approval
+          && approval.decision?.status === 'approved'
+          && approval.effect === 'write'
+          && approval.outcome === undefined
+        ) {
+          approval.outcome = event.result.status === 'completed' ? 'applied' : event.result.status
+          if (approval.approvalTier === 'batch' && approval.outcome === 'applied') {
+            void useSnapshotStore().refresh()
+          }
+          persistConversation()
+        }
         break
       }
       case 'approval-required': {

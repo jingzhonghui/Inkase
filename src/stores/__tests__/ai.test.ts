@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { useAiStore } from '../ai'
+import { useSnapshotStore } from '../ai-snapshots'
 import { useFileStore } from '../file'
 import { createExecutionSnapshot } from '../../utils/ai/workspace-context'
 import * as workspaceContext from '../../utils/ai/workspace-context'
@@ -1218,6 +1219,32 @@ describe('ai store', () => {
       await store.resolveApproval('a1', { status: 'approved', scope: 'once' })
 
       expect(store.approvalHistory[0].outcome).toBe('applied')
+    })
+
+    it('records a completed main-process batch write and refreshes snapshots', async () => {
+      const store = useAiStore()
+      raiseApproval(store, makeApproval({
+        id: 'a1',
+        runId: 'r1',
+        toolName: 'apply_link_edits',
+        approvalTier: 'batch',
+        preview: {
+          type: 'batch',
+          title: '批量链接编辑',
+          files: [{ path: 'A.md', summary: '修改 1 处链接' }],
+          totalChanges: 1
+        }
+      }))
+      electronApi.resolveAiApproval.mockResolvedValue({ success: true })
+
+      await store.resolveApproval('a1', { status: 'approved', scope: 'once' })
+      expect(store.approvalHistory[0].outcome).toBeUndefined()
+
+      emit({ type: 'tool-call-completed', runId: 'r1', toolCallId: 'tc1', result: { status: 'completed' } })
+
+      expect(store.approvalHistory[0].outcome).toBe('applied')
+      expect(useSnapshotStore().has('r1')).toBe(false)
+      await vi.waitFor(() => expect(electronApi.listAiSnapshots).toHaveBeenCalled())
     })
 
     it('marks approvals still pending when the run ends as cancelled instead of dropping them', () => {
