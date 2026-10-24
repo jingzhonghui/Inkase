@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import type {
   ApprovalDecision,
   ApprovalTier,
@@ -7,6 +7,7 @@ import type {
   ToolExecutionResult
 } from '../../../shared/ai/types'
 import { useAiStore } from '../../stores/ai'
+import { useSnapshotStore } from '../../stores/ai-snapshots'
 import { approvalPreviewType, validApprovalPreview } from '../../utils/ai/approval-preview'
 import MarkdownDiffPreview from './approval/MarkdownDiffPreview.vue'
 import DocumentPreview from './approval/DocumentPreview.vue'
@@ -16,7 +17,14 @@ import LocalFileReadPreview from './approval/LocalFileReadPreview.vue'
 
 const props = defineProps<{ record: ConversationApprovalRecord }>()
 const store = useAiStore()
+const snapshots = useSnapshotStore()
 const resolving = ref(false)
+const rollingBack = ref(false)
+const rollbackError = ref<string | null>(null)
+
+onMounted(() => {
+  void snapshots.ensureLoaded()
+})
 
 /**
  * 折叠状态只取一次初值：等待批准的要摊开（否则用户看不见、点不到），
@@ -85,6 +93,22 @@ function outcomeText(outcome: ToolExecutionResult['status'] | undefined): string
 }
 
 const stateClass = computed(() => props.record.decision ? `is-${props.record.decision.status}` : 'is-pending')
+
+const canRollback = computed(() => props.record.decision?.status === 'approved'
+  && props.record.outcome === 'applied'
+  && snapshots.has(props.record.runId))
+
+async function rollbackRun(): Promise<void> {
+  if (rollingBack.value) return
+  rollingBack.value = true
+  rollbackError.value = null
+  try {
+    const restored = await snapshots.rollback(props.record.runId)
+    if (restored === 0 && snapshots.error) rollbackError.value = snapshots.error
+  } finally {
+    rollingBack.value = false
+  }
+}
 
 async function submit(allow: boolean, remember = false): Promise<void> {
   if (!pending.value || resolving.value || (allow && blocked.value)) return
@@ -168,6 +192,25 @@ async function submit(allow: boolean, remember = false): Promise<void> {
         >
           不支持的审批预览类型。为确保安全，此操作不能被允许。
         </p>
+      </div>
+
+      <div
+        v-if="canRollback"
+        class="approval__acts"
+      >
+        <button
+          type="button"
+          data-testid="approval-rollback"
+          class="approval__btn approval__btn--rollback"
+          :disabled="rollingBack"
+          @click="rollbackRun"
+        >
+          {{ rollingBack ? '回滚中…' : '回滚本次运行' }}
+        </button>
+        <span
+          v-if="rollbackError"
+          class="approval__hint approval__hint--error"
+        >{{ rollbackError }}</span>
       </div>
 
       <div
@@ -297,5 +340,7 @@ summary::-webkit-details-marker { display: none; }
 
 .approval__btn:hover:not(:disabled) { color: var(--color-text); }
 .approval__btn--ok { border-color: var(--color-primary); color: var(--color-primary); }
+.approval__btn--rollback { border-color: #d97706; color: #b45309; }
 .approval__btn:disabled { cursor: not-allowed; opacity: .55; }
+.approval__hint--error { color: #b91c1c; }
 </style>

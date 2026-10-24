@@ -8,6 +8,7 @@ import type { ConversationApprovalRecord } from '../../../../shared/ai/types'
 import AiApprovalCard from '../AiApprovalCard.vue'
 import AiApprovalGroup from '../AiApprovalGroup.vue'
 import { useAiStore } from '../../../stores/ai'
+import { useSnapshotStore } from '../../../stores/ai-snapshots'
 
 function approval(overrides: Partial<ConversationApprovalRecord> = {}): ConversationApprovalRecord {
   return {
@@ -259,6 +260,34 @@ describe('AI approval card', () => {
     })
 
     expect(wrapper.get('[data-testid="approval-state"]').text()).toContain('本次会话已记住')
+  })
+
+  it('offers rollback only for an applied run that still has a snapshot', async () => {
+    const snapshots = useSnapshotStore()
+    snapshots.markAvailable('run-1')
+    const rollback = vi.spyOn(snapshots, 'rollback').mockResolvedValue(1)
+    const wrapper = mount(AiApprovalCard, {
+      props: { record: approval({
+        decision: { status: 'approved', scope: 'once' },
+        decidedAt: 2,
+        outcome: 'applied'
+      }) }
+    })
+
+    const button = wrapper.get('[data-testid="approval-rollback"]')
+    expect(button.text()).toContain('回滚本次运行')
+    await button.trigger('click')
+    expect(rollback).toHaveBeenCalledWith('run-1')
+
+    const noSnapshot = mount(AiApprovalCard, {
+      props: { record: approval({
+        runId: 'run-2',
+        decision: { status: 'approved', scope: 'once' },
+        decidedAt: 2,
+        outcome: 'applied'
+      }) }
+    })
+    expect(noSnapshot.find('[data-testid="approval-rollback"]').exists()).toBe(false)
   })
 
   it('fails closed for an empty batch preview', () => {

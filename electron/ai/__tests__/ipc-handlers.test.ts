@@ -236,6 +236,10 @@ describe('registerAiHandlers', () => {
         AI.CONVERSATION.SAVE,
         AI.CONVERSATION.DELETE,
         AI.CONVERSATION.SUMMARIZE,
+        AI.SNAPSHOT.CREATE,
+        AI.SNAPSHOT.READ,
+        AI.SNAPSHOT.LIST,
+        AI.SNAPSHOT.ROLLBACK,
         AI.WORKSPACE.AUTHORIZE
       ].sort()
     )
@@ -246,7 +250,7 @@ describe('registerAiHandlers', () => {
 
   it('返回清理器并移除已注册的 handler', () => {
     const cleanup = registerAiHandlers(() => null)
-    expect(electronMocks.handlers.size).toBe(13)
+    expect(electronMocks.handlers.size).toBe(17)
 
     cleanup()
     expect(electronMocks.handlers.size).toBe(0)

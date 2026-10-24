@@ -160,6 +160,12 @@ export const IPC_CHANNELS = {
       DELETE: 'ai:conversation:delete',
       SUMMARIZE: 'ai:conversation:summarize'
     },
+    SNAPSHOT: {
+      CREATE: 'ai:snapshot:create',
+      READ: 'ai:snapshot:read',
+      LIST: 'ai:snapshot:list',
+      ROLLBACK: 'ai:snapshot:rollback'
+    },
     WORKSPACE: {
       AUTHORIZE: 'ai:workspace:authorize'
     },

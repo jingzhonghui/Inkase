@@ -14,6 +14,13 @@ import type {
   ConversationRecord,
   ToolExecutionResult
 } from '../shared/ai/types'
+import type {
+  SnapshotCreateInput,
+  SnapshotManifest,
+  SnapshotRestoreResult,
+  SnapshotRollbackInput,
+  SnapshotSummary
+} from '../shared/ai/snapshots'
 import type { ConflictChoice, EnableSyncOptions, SyncConfig, SyncResult, SyncStatusView } from './sync/types'
 import type { Graph, GraphLayer } from '../shared/knowledge/graph'
 import type {
@@ -259,6 +266,10 @@ export interface ElectronAPI {
   saveAiConversation: (root: string | null, record: ConversationRecord) => Promise<{ success: boolean; error?: string }>
   deleteAiConversation: (root: string | null, id: string) => Promise<{ success: boolean; error?: string }>
   summarizeAiConversation: (text: string) => Promise<{ success: boolean; data?: { title: string }; error?: string }>
+  createAiSnapshot: (input: SnapshotCreateInput) => Promise<{ success: boolean; data?: SnapshotManifest; error?: string }>
+  readAiSnapshot: (runId: string) => Promise<{ success: boolean; data?: SnapshotRestoreResult; error?: string }>
+  listAiSnapshots: () => Promise<{ success: boolean; data?: SnapshotSummary[]; error?: string }>
+  rollbackAiSnapshot: (input: SnapshotRollbackInput) => Promise<{ success: boolean; data?: SnapshotRestoreResult; error?: string }>
   authorizeWorkspaceRoot: (root: string | null) => Promise<{ success: boolean; error?: string }>
 
   // 知识库索引
@@ -459,6 +470,10 @@ const api: ElectronAPI = {
   saveAiConversation: (root, record) => ipcRenderer.invoke(IPC_CHANNELS.AI.CONVERSATION.SAVE, root, record),
   deleteAiConversation: (root, id) => ipcRenderer.invoke(IPC_CHANNELS.AI.CONVERSATION.DELETE, root, id),
   summarizeAiConversation: (text) => ipcRenderer.invoke(IPC_CHANNELS.AI.CONVERSATION.SUMMARIZE, text),
+  createAiSnapshot: (input) => ipcRenderer.invoke(IPC_CHANNELS.AI.SNAPSHOT.CREATE, input),
+  readAiSnapshot: (runId) => ipcRenderer.invoke(IPC_CHANNELS.AI.SNAPSHOT.READ, runId),
+  listAiSnapshots: () => ipcRenderer.invoke(IPC_CHANNELS.AI.SNAPSHOT.LIST),
+  rollbackAiSnapshot: (input) => ipcRenderer.invoke(IPC_CHANNELS.AI.SNAPSHOT.ROLLBACK, input),
   authorizeWorkspaceRoot: (root) => ipcRenderer.invoke(IPC_CHANNELS.AI.WORKSPACE.AUTHORIZE, root),
   onAiRunEvent: (callback) => {
     const handler = (_event: unknown, payload: AiRunEvent): void => callback(payload)

@@ -7,6 +7,7 @@ import { VercelAiSdkProvider, mapProviderError } from './provider'
 import { ToolRegistry } from './tool-registry'
 import { ApprovalManager } from './approval-manager'
 import { ConversationStore } from './conversation-store'
+import { SnapshotService } from './snapshot-service'
 import { generateConversationTitle } from './conversation-title'
 import {
   authorizeWorkspaceRoot,
@@ -23,6 +24,7 @@ import type {
   ConversationRecord,
   ToolExecutionResult
 } from '../../shared/ai/types'
+import type { SnapshotCreateInput } from '../../shared/ai/snapshots'
 import { aiRunInputSchema, approvalResolutionSchema, runIdSchema } from '../../shared/ai/contracts'
 import { z } from 'zod'
 
@@ -38,12 +40,36 @@ const aiConfigInputSchema = z.object({
   maxSteps: z.number().int().positive().max(100).optional()
 }).strict()
 
+const snapshotFileSchema = z.object({
+  path: z.string().min(1).nullable(),
+  documentId: z.string().min(1).optional(),
+  title: z.string(),
+  content: z.string(),
+  scope: z.enum(['memory', 'disk']),
+  existed: z.boolean().optional()
+}).strict()
+
+const snapshotCreateSchema = z.object({
+  runId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/),
+  conversationId: z.string(),
+  toolName: z.string().min(1),
+  files: z.array(snapshotFileSchema).min(1)
+}).strict()
+
+const snapshotRunIdSchema = snapshotCreateSchema.shape.runId
+
+const snapshotRollbackSchema = z.object({
+  runId: snapshotRunIdSchema,
+  keys: z.array(z.string()).optional()
+}).strict()
+
 let configService: AiConfigService | null = null
 let runtime: AiRuntime | null = null
 let runtimeConfigSnapshot: AiRuntimeConfig | null = null
 const sourceAccessService = new SourceAccessService()
 const searchService = new WorkspaceSearchService()
 const conversationStore = new ConversationStore()
+const snapshotService = new SnapshotService()
 const runOwners = new Map<string, number>()
 const approvalOwners = new Map<string, number>()
 const approvalRuns = new Map<string, string>()
@@ -147,6 +173,10 @@ export function registerAiHandlers(_getWindow: () => BrowserWindow | null): () =
     AI.CONVERSATION.SAVE,
     AI.CONVERSATION.DELETE,
     AI.CONVERSATION.SUMMARIZE,
+    AI.SNAPSHOT.CREATE,
+    AI.SNAPSHOT.READ,
+    AI.SNAPSHOT.LIST,
+    AI.SNAPSHOT.ROLLBACK,
     AI.WORKSPACE.AUTHORIZE
   ]
 
@@ -321,6 +351,47 @@ export function registerAiHandlers(_getWindow: () => BrowserWindow | null): () =
       const title = await generateConversationTitle(provider, config, text)
       if (!title) return { success: false, error: '无法生成会话标题' }
       return toResult({ title })
+    } catch (error) {
+      return { success: false, error: errorMessage(error) }
+    }
+  })
+
+  ipcMain.handle(AI.SNAPSHOT.CREATE, async (event, input: SnapshotCreateInput) => {
+    const root = getAuthorizedWorkspaceRoot(event.sender.id)
+    if (!root) return { success: false, error: '没有已授权的工作区' }
+    try {
+      return toResult(await snapshotService.create(root, snapshotCreateSchema.parse(input)))
+    } catch (error) {
+      return { success: false, error: errorMessage(error) }
+    }
+  })
+
+  ipcMain.handle(AI.SNAPSHOT.READ, async (event, runId: string) => {
+    const root = getAuthorizedWorkspaceRoot(event.sender.id)
+    if (!root) return { success: false, error: '没有已授权的工作区' }
+    try {
+      return toResult(await snapshotService.read(root, snapshotRunIdSchema.parse(runId)))
+    } catch (error) {
+      return { success: false, error: errorMessage(error) }
+    }
+  })
+
+  ipcMain.handle(AI.SNAPSHOT.LIST, async (event) => {
+    const root = getAuthorizedWorkspaceRoot(event.sender.id)
+    if (!root) return { success: false, error: '没有已授权的工作区' }
+    try {
+      return toResult(await snapshotService.list(root))
+    } catch (error) {
+      return { success: false, error: errorMessage(error) }
+    }
+  })
+
+  ipcMain.handle(AI.SNAPSHOT.ROLLBACK, async (event, input: unknown) => {
+    const root = getAuthorizedWorkspaceRoot(event.sender.id)
+    if (!root) return { success: false, error: '没有已授权的工作区' }
+    try {
+      const parsed = snapshotRollbackSchema.parse(input)
+      return toResult(await snapshotService.restore(root, parsed.runId, parsed.keys))
     } catch (error) {
       return { success: false, error: errorMessage(error) }
     }

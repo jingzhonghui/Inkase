@@ -12,6 +12,8 @@ import type {
   ToolExecutionResult
 } from '../../shared/ai/types'
 import { applyDocumentOperation, createExecutionSnapshot } from '../utils/ai/workspace-context'
+import { createSnapshotForApproval } from '../utils/ai/snapshot'
+import { useSnapshotStore } from './ai-snapshots'
 import { ANALYSIS_END_RE, ANALYSIS_START_RE, findIndex } from '../utils/ai/analysis-block'
 import { useFileStore } from './file'
 import { loadSessionState } from './session'
@@ -376,6 +378,7 @@ export const useAiStore = defineStore('ai', () => {
 
   async function loadConversations(root: string | null): Promise<void> {
     storageRoot.value = root
+    useSnapshotStore().reset()
     try {
       const result = await window.electronAPI.listAiConversations(root)
       if (!result.success || !result.data) return
@@ -723,6 +726,11 @@ export const useAiStore = defineStore('ai', () => {
             resolutionState.claimed = true
           }
           if (!actualResult) {
+            const snapshotRun = await createSnapshotForApproval(
+              approval,
+              activeConversationId.value ?? ''
+            )
+            if (snapshotRun) useSnapshotStore().markAvailable(snapshotRun)
             const fileStore = useFileStore()
             actualResult = await applyDocumentOperation(
               fileStore,

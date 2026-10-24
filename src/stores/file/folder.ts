@@ -163,11 +163,11 @@ export function useFolder(deps: FolderDeps) {
 
       const result = await window.electronAPI.readFolder(dirPath)
       if (result.success && result.data) {
-        openedFolderPath.value = dirPath
-        folderItems.value = result.data
         if (typeof window.electronAPI.authorizeWorkspaceRoot === 'function') {
           await window.electronAPI.authorizeWorkspaceRoot(dirPath)
         }
+        openedFolderPath.value = dirPath
+        folderItems.value = result.data
 
         // 同步更新 fileTree 根节点的子节点，使侧边栏文件树即时刷新；
         // 保留原有节点的展开状态与已加载的子节点，避免刷新后文件树收起

@@ -57,6 +57,9 @@ describe('ai store', () => {
       saveAiConversation: vi.fn(async () => ({ success: true })),
       deleteAiConversation: vi.fn(async () => ({ success: true })),
       summarizeAiConversation: vi.fn(async () => ({ success: true, data: { title: '标题' } })),
+      createAiSnapshot: vi.fn(),
+      listAiSnapshots: vi.fn(async () => ({ success: true, data: [] })),
+      rollbackAiSnapshot: vi.fn(),
       onAiRunEvent: vi.fn((cb: (event: AiRunEvent) => void) => {
         eventHandler = cb
         return () => {
@@ -776,6 +779,51 @@ describe('ai store', () => {
 
       expect(electronApi.resolveAiApproval).toHaveBeenCalledWith('a1', { status: 'rejected', reason: 'no' })
       expect(store.pendingApprovals).toEqual([])
+    })
+
+    it('snapshots the document before a renderer write', async () => {
+      const fileStore = useFileStore()
+      fileStore.openedFolderPath = 'C:/vault'
+      const tab = fileStore.createGeneratedDocument('标题', 'old', 'markdown')
+      const snap = createExecutionSnapshot(fileStore)
+      const store = useAiStore()
+      store.pendingApprovals.push(makeApproval({
+        id: 'a1',
+        runId: 'r1',
+        toolName: 'replace_current_document',
+        execution: {
+          location: 'renderer',
+          operation: { type: 'replace-document', target: snap.activeDocument!, content: 'new', reason: '' }
+        }
+      }))
+      electronApi.claimAiApproval.mockResolvedValue({ success: true })
+      electronApi.resolveAiApproval.mockResolvedValue({ success: true })
+      electronApi.createAiSnapshot.mockResolvedValue({
+        success: true,
+        data: {
+          version: 1,
+          runId: 'r1',
+          conversationId: '',
+          toolName: 'replace_current_document',
+          createdAt: 1,
+          files: []
+        }
+      })
+
+      await store.resolveApproval('a1', { status: 'approved', scope: 'once' })
+
+      expect(electronApi.createAiSnapshot).toHaveBeenCalledWith({
+        runId: 'r1',
+        conversationId: '',
+        toolName: 'replace_current_document',
+        files: [expect.objectContaining({
+          path: null,
+          documentId: tab!.id,
+          content: 'old',
+          scope: 'memory'
+        })]
+      })
+      expect(tab!.content).toBe('new')
     })
 
     it('claims an approved renderer approval before applying the operation', async () => {
