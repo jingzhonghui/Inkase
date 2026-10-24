@@ -132,6 +132,8 @@ export const IPC_CHANNELS = {
     NOTES: 'knowledge:notes',
     /** 首屏概览（计数 + 最近修改） */
     OVERVIEW: 'knowledge:overview',
+    /** 库健康巡检（孤立 / 断链 / 重复标题 / 未链接提及） */
+    HEALTH: 'knowledge:health',
     /** 把未链接提及改写为链接 */
     CONVERT_MENTION: 'knowledge:convertMention',
     /** 图谱（六层边，已过规模护栏） */

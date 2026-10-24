@@ -286,3 +286,46 @@ export interface KnowledgeOverview {
   brokenCount: number
   recent: RecentNote[]
 }
+
+/** 同名笔记（frontmatter title 优先，否则文件名） */
+export interface DuplicateTitleGroup {
+  /** 展示用标题（取组内第一条的原始大小写） */
+  title: string
+  /** 库内相对路径，按字典序排列 */
+  paths: string[]
+}
+
+/** 一条未链接提及（来源 + 目标 + 精确位置） */
+export interface UnlinkedMention {
+  /** 提及所在的来源文件 */
+  from: string
+  /** 被提及但尚未建链的目标笔记 */
+  targetPath: string
+  line: number
+  column: number
+  /** 正文中实际出现的文本 */
+  raw: string
+  /** 所在行上下文（已截断） */
+  text: string
+}
+
+/**
+ * 库健康巡检报告
+ *
+ * 计数是完整值，列表有上限（避免整库推给渲染层）；
+ * `truncated` 表示至少一个列表被截断。
+ */
+export interface KnowledgeHealth {
+  counts: {
+    isolated: number
+    broken: number
+    /** 重复标题的组数（不是笔记数） */
+    duplicateTitles: number
+    unlinkedMentions: number
+  }
+  isolated: string[]
+  broken: LinkRef[]
+  duplicates: DuplicateTitleGroup[]
+  unlinked: UnlinkedMention[]
+  truncated: boolean
+}

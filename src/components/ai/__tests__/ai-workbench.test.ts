@@ -8,7 +8,7 @@ import { useAiStore } from '../../../stores/ai'
 import { useDockStore } from '../../../stores/dock'
 import { useFileStore } from '../../../stores/file'
 import { useKnowledgeStore } from '../../../stores/knowledge'
-import type { LinkRef } from '../../../../shared/knowledge/types'
+import type { KnowledgeHealth, LinkRef } from '../../../../shared/knowledge/types'
 
 function brokenRef(overrides: Partial<LinkRef> = {}): LinkRef {
   return {
@@ -18,6 +18,18 @@ function brokenRef(overrides: Partial<LinkRef> = {}): LinkRef {
     line: 3,
     column: 1,
     status: 'missing',
+    ...overrides
+  }
+}
+
+function healthReport(overrides: Partial<KnowledgeHealth> = {}): KnowledgeHealth {
+  return {
+    counts: { isolated: 0, broken: 0, duplicateTitles: 0, unlinkedMentions: 0 },
+    isolated: [],
+    broken: [],
+    duplicates: [],
+    unlinked: [],
+    truncated: false,
     ...overrides
   }
 }
@@ -91,12 +103,19 @@ describe('AI workbench', () => {
     expect(openFile).toHaveBeenCalledWith('E:/vault/notes/a.md', { addToRecent: false })
   })
 
-  it('inspects isolated notes by opening the global graph with the orphan filter', async () => {
+  it('lists isolated notes in the health panel and keeps a graph entry', async () => {
     const knowledge = useKnowledgeStore()
+    knowledge.healthLoaded = true
+    knowledge.health = healthReport({
+      counts: { isolated: 1, broken: 0, duplicateTitles: 0, unlinkedMentions: 0 },
+      isolated: ['notes/orphan.md']
+    })
     const wrapper = mountWorkbench()
 
     await wrapper.get('[data-testid="status-isolated"]').trigger('click')
+    expect(wrapper.get('[data-testid="health-panel"]').text()).toContain('orphan')
 
+    await wrapper.get('[data-testid="health-graph"]').trigger('click')
     expect(knowledge.graphFilters.orphans).toBe('only')
     expect(knowledge.graphTabActive).toBe(true)
   })
@@ -113,6 +132,41 @@ describe('AI workbench', () => {
     await wrapper.get('.broken-item').trigger('click')
     expect(openFile).toHaveBeenCalledWith('E:/vault/notes/a.md', { addToRecent: false })
     expect(reveal).toHaveBeenCalledWith('E:/vault/notes/a.md', 3, 1)
+  })
+
+  it('inspects duplicate titles and unlinked mentions from the status line', async () => {
+    const knowledge = useKnowledgeStore()
+    knowledge.healthLoaded = true
+    knowledge.health = healthReport({
+      counts: { isolated: 0, broken: 0, duplicateTitles: 1, unlinkedMentions: 1 },
+      duplicates: [{ title: '同名', paths: ['notes/a.md', 'archive/a.md'] }],
+      unlinked: [{
+        from: 'notes/b.md',
+        targetPath: 'notes/a.md',
+        line: 5,
+        column: 3,
+        raw: '同名',
+        text: '这里提到同名'
+      }]
+    })
+    const fileStore = useFileStore()
+    const openFile = vi.spyOn(fileStore, 'openFile').mockResolvedValue(true)
+    const reveal = vi.spyOn(fileStore, 'requestReveal')
+    const wrapper = mountWorkbench()
+
+    expect(wrapper.get('[data-testid="vault-status"]').text()).toContain('重名 1')
+    expect(wrapper.get('[data-testid="vault-status"]').text()).toContain('未链接 1')
+
+    await wrapper.get('[data-testid="status-duplicates"]').trigger('click')
+    expect(wrapper.get('[data-testid="duplicate-group"]').text()).toContain('同名')
+    expect(wrapper.get('[data-testid="duplicate-group"]').text()).toContain('archive')
+
+    await wrapper.get('[data-testid="status-unlinked"]').trigger('click')
+    expect(wrapper.get('[data-testid="unlinked-item"]').text()).toContain('notes/b.md:5')
+
+    await wrapper.get('[data-testid="unlinked-item"]').trigger('click')
+    expect(openFile).toHaveBeenCalledWith('E:/vault/notes/b.md', { addToRecent: false })
+    expect(reveal).toHaveBeenCalledWith('E:/vault/notes/b.md', 5, 3)
   })
 
   it('sends from the big composer and opens the AI dock', async () => {

@@ -27,6 +27,7 @@ import type {
   BacklinkItem,
   IndexProgress,
   IndexStatus,
+  KnowledgeHealth,
   KnowledgeOverview,
   KnowledgeQuery,
   LinkRef,
@@ -283,6 +284,7 @@ export interface ElectronAPI {
   searchKnowledge: (query: KnowledgeQuery) => Promise<{ success: boolean; data?: SearchHit[]; error?: string }>
   listKnowledgeNotes: () => Promise<{ success: boolean; data?: NoteEntry[]; error?: string }>
   getKnowledgeOverview: () => Promise<{ success: boolean; data?: KnowledgeOverview; error?: string }>
+  getKnowledgeHealth: () => Promise<{ success: boolean; data?: KnowledgeHealth; error?: string }>
   convertMention: (
     request: MentionConversion
   ) => Promise<{ success: boolean; data?: MentionConversionResult; error?: string }>
@@ -492,6 +494,7 @@ const api: ElectronAPI = {
   searchKnowledge: (query) => ipcRenderer.invoke(IPC_CHANNELS.KNOWLEDGE.SEARCH, query),
   listKnowledgeNotes: () => ipcRenderer.invoke(IPC_CHANNELS.KNOWLEDGE.NOTES),
   getKnowledgeOverview: () => ipcRenderer.invoke(IPC_CHANNELS.KNOWLEDGE.OVERVIEW),
+  getKnowledgeHealth: () => ipcRenderer.invoke(IPC_CHANNELS.KNOWLEDGE.HEALTH),
   convertMention: (request) => ipcRenderer.invoke(IPC_CHANNELS.KNOWLEDGE.CONVERT_MENTION, request),
   resolveLinks: (targets, from) => ipcRenderer.invoke(IPC_CHANNELS.KNOWLEDGE.RESOLVE, targets, from),
   getKnowledgeGraph: (layers, options) =>

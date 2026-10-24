@@ -3,7 +3,7 @@
  * AI 工作台首屏（空状态）
  *
  * 设计文档 §5.8：只放四块——大输入框、动态快捷动作、一行库状态、最近修改。
- * 打开文件夹后，孤立/断链直接可点进巡检；没有配置 AI 时，动作会把人带去设置。
+ * 打开文件夹后，孤立/断链/重复标题/未链接提及都可点进巡检；没有配置 AI 时，动作会把人带去设置。
  */
 import { computed, ref } from 'vue'
 import {
@@ -14,7 +14,7 @@ import {
   IconRefresh,
   IconTopologyStar3
 } from '@tabler/icons-vue'
-import type { LinkRef } from '../../../shared/knowledge/types'
+import type { LinkRef, UnlinkedMention } from '../../../shared/knowledge/types'
 import { useAiStore } from '../../stores/ai'
 import { useDockStore } from '../../stores/dock'
 import { useFileStore } from '../../stores/file'
@@ -29,13 +29,15 @@ const dockStore = useDockStore()
 const fileStore = useFileStore()
 const knowledge = useKnowledgeStore()
 
-/** 断链巡检面板是否展开 */
-const brokenOpen = ref(false)
+type HealthCategory = 'isolated' | 'broken' | 'duplicates' | 'unlinked'
+
+/** 当前展开的巡检分类；null 表示收起 */
+const healthOpen = ref<HealthCategory | null>(null)
 
 /** 巡检列表最多展示的条数（其余用「共 N 处」提示） */
-const BROKEN_PREVIEW_LIMIT = 20
+const HEALTH_PREVIEW_LIMIT = 20
 
-type QuickActionId = 'orphans' | 'broken' | 'recent' | 'new' | 'open-folder'
+type QuickActionId = 'orphans' | 'broken' | 'duplicates' | 'unlinked' | 'recent' | 'new' | 'open-folder'
 
 interface QuickAction {
   id: QuickActionId
@@ -45,18 +47,88 @@ interface QuickAction {
 
 const hasVault = computed(() => knowledge.root !== null)
 const recent = computed(() => knowledge.overview.recent)
-const brokenPreview = computed(() => knowledge.unresolved.slice(0, BROKEN_PREVIEW_LIMIT))
+const health = computed(() => knowledge.health)
+
+/** 健康报告未载入时回退到 overview 的旧计数，避免首屏闪 0 */
+const counts = computed(() => {
+  if (knowledge.healthLoaded) return health.value.counts
+  return {
+    isolated: knowledge.overview.isolatedCount,
+    broken: knowledge.overview.brokenCount,
+    duplicateTitles: 0,
+    unlinkedMentions: 0
+  }
+})
+
+const brokenItems = computed<LinkRef[]>(() =>
+  knowledge.healthLoaded ? health.value.broken : knowledge.unresolved
+)
+const brokenPreview = computed(() => brokenItems.value.slice(0, HEALTH_PREVIEW_LIMIT))
+const isolatedPreview = computed(() => health.value.isolated.slice(0, HEALTH_PREVIEW_LIMIT))
+const duplicatePreview = computed(() => health.value.duplicates.slice(0, HEALTH_PREVIEW_LIMIT))
+const unlinkedPreview = computed(() => health.value.unlinked.slice(0, HEALTH_PREVIEW_LIMIT))
+
+const healthTitle = computed(() => {
+  switch (healthOpen.value) {
+    case 'isolated':
+      return '孤立笔记'
+    case 'broken':
+      return '断链'
+    case 'duplicates':
+      return '重复标题'
+    case 'unlinked':
+      return '未链接提及'
+    default:
+      return ''
+  }
+})
+
+const healthTotal = computed(() => {
+  switch (healthOpen.value) {
+    case 'isolated':
+      return counts.value.isolated
+    case 'broken':
+      return counts.value.broken
+    case 'duplicates':
+      return counts.value.duplicateTitles
+    case 'unlinked':
+      return counts.value.unlinkedMentions
+    default:
+      return 0
+  }
+})
+
+const healthListLength = computed(() => {
+  switch (healthOpen.value) {
+    case 'isolated':
+      return isolatedPreview.value.length
+    case 'broken':
+      return brokenPreview.value.length
+    case 'duplicates':
+      return duplicatePreview.value.length
+    case 'unlinked':
+      return unlinkedPreview.value.length
+    default:
+      return 0
+  }
+})
 
 /** 动态快捷动作：有问题先给问题，没有问题给日常动作 */
 const quickActions = computed<QuickAction[]>(() => {
   const actions: QuickAction[] = []
 
   if (hasVault.value) {
-    if (knowledge.overview.isolatedCount > 0) {
+    if (counts.value.isolated > 0) {
       actions.push({ id: 'orphans', label: '找出孤立笔记', icon: IconTopologyStar3 })
     }
-    if (knowledge.overview.brokenCount > 0) {
+    if (counts.value.broken > 0) {
       actions.push({ id: 'broken', label: '修复断链', icon: IconLink })
+    }
+    if (counts.value.duplicateTitles > 0) {
+      actions.push({ id: 'duplicates', label: '合并重复标题', icon: IconFile })
+    }
+    if (counts.value.unlinkedMentions > 0) {
+      actions.push({ id: 'unlinked', label: '补全未链接提及', icon: IconLink })
     }
     actions.push({ id: 'recent', label: '总结最近的改动', icon: IconRefresh })
     actions.push({ id: 'new', label: '新建笔记', icon: IconPlus })
@@ -94,10 +166,16 @@ async function runAction(id: QuickActionId): Promise<void> {
       await fileStore.openFolder()
       break
     case 'orphans':
-      inspectOrphans()
+      toggleHealth('isolated')
       break
     case 'broken':
-      brokenOpen.value = !brokenOpen.value
+      toggleHealth('broken')
+      break
+    case 'duplicates':
+      toggleHealth('duplicates')
+      break
+    case 'unlinked':
+      toggleHealth('unlinked')
       break
     case 'recent':
       askAboutRecent()
@@ -105,16 +183,15 @@ async function runAction(id: QuickActionId): Promise<void> {
   }
 }
 
-/** 孤立笔记：直接进全局图谱并只显示孤立节点 */
+/** 孤立笔记：在巡检面板列出，另提供进入图谱的入口 */
 function inspectOrphans(): void {
   knowledge.updateGraphFilters({ orphans: 'only' })
   knowledge.openGraphTab()
 }
 
-/** 断链：先用面板列出结果，用户再决定是否交给 AI */
-function toggleBroken(): void {
-  if (knowledge.overview.brokenCount === 0) return
-  brokenOpen.value = !brokenOpen.value
+/** 打开/切换巡检分类 */
+function toggleHealth(category: HealthCategory): void {
+  healthOpen.value = healthOpen.value === category ? null : category
 }
 
 function askAboutRecent(): void {
@@ -125,12 +202,43 @@ function askAboutRecent(): void {
   askAi(`总结这个知识库最近的改动，并指出值得继续推进的部分。\n最近修改：\n${noteList}`)
 }
 
-function askAboutBroken(): void {
-  const list = knowledge.unresolved
-    .slice(0, BROKEN_PREVIEW_LIMIT)
-    .map((ref) => `- ${ref.from}:${ref.line} ${ref.raw}`)
-    .join('\n')
-  askAi(`请检查这些断链，逐条给出修复建议（先不要改文件）。\n${list}`)
+function askAboutHealth(): void {
+  switch (healthOpen.value) {
+    case 'broken': {
+      const list = brokenItems.value
+        .slice(0, HEALTH_PREVIEW_LIMIT)
+        .map((ref) => `- ${ref.from}:${ref.line} ${ref.raw}`)
+        .join('\n')
+      askAi(`请检查这些断链，逐条给出修复建议（先不要改文件）。\n${list}`)
+      break
+    }
+    case 'isolated': {
+      const list = health.value.isolated
+        .slice(0, HEALTH_PREVIEW_LIMIT)
+        .map((path) => `- ${path}`)
+        .join('\n')
+      askAi(`这些笔记没有任何链接。请按主题分组，建议它们应该链接到哪些笔记。\n${list}`)
+      break
+    }
+    case 'duplicates': {
+      const list = health.value.duplicates
+        .slice(0, HEALTH_PREVIEW_LIMIT)
+        .map((group) => `- ${group.title}: ${group.paths.join(' / ')}`)
+        .join('\n')
+      askAi(`这些笔记的标题重复。请判断哪些应该合并、哪些需要改名，并给出具体方案。\n${list}`)
+      break
+    }
+    case 'unlinked': {
+      const list = health.value.unlinked
+        .slice(0, HEALTH_PREVIEW_LIMIT)
+        .map((item) => `- ${item.from}:${item.line} 提到「${item.raw}」，目标是 ${item.targetPath}`)
+        .join('\n')
+      askAi(`这些提及还没有建立链接。请逐条给出改写建议（保留原句）。\n${list}`)
+      break
+    }
+    default:
+      break
+  }
 }
 
 async function openRecent(path: string): Promise<void> {
@@ -144,6 +252,13 @@ async function openBroken(ref: LinkRef): Promise<void> {
   if (absPath === null) return
   await fileStore.openFile(absPath, { addToRecent: false })
   fileStore.requestReveal(absPath, ref.line, ref.column)
+}
+
+async function openMention(item: UnlinkedMention): Promise<void> {
+  const absPath = knowledge.resolveAbsolute(item.from)
+  if (absPath === null) return
+  await fileStore.openFile(absPath, { addToRecent: false })
+  fileStore.requestReveal(absPath, item.line, item.column)
 }
 
 function noteTitle(path: string): string {
@@ -231,22 +346,42 @@ function relativeTime(mtime: number): string {
           <button
             type="button"
             class="status-item status-action"
-            :disabled="knowledge.overview.isolatedCount === 0"
+            :disabled="counts.isolated === 0"
             data-testid="status-isolated"
-            @click="inspectOrphans"
+            @click="toggleHealth('isolated')"
           >
-            孤立 <strong>{{ knowledge.overview.isolatedCount }}</strong>
+            孤立 <strong>{{ counts.isolated }}</strong>
           </button>
           <span class="status-dot">·</span>
           <button
             type="button"
             class="status-item status-action"
-            :class="{ alert: knowledge.overview.brokenCount > 0 }"
-            :disabled="knowledge.overview.brokenCount === 0"
+            :class="{ alert: counts.broken > 0 }"
+            :disabled="counts.broken === 0"
             data-testid="status-broken"
-            @click="toggleBroken"
+            @click="toggleHealth('broken')"
           >
-            断链 <strong>{{ knowledge.overview.brokenCount }}</strong>
+            断链 <strong>{{ counts.broken }}</strong>
+          </button>
+          <span class="status-dot">·</span>
+          <button
+            type="button"
+            class="status-item status-action"
+            :disabled="counts.duplicateTitles === 0"
+            data-testid="status-duplicates"
+            @click="toggleHealth('duplicates')"
+          >
+            重名 <strong>{{ counts.duplicateTitles }}</strong>
+          </button>
+          <span class="status-dot">·</span>
+          <button
+            type="button"
+            class="status-item status-action"
+            :disabled="counts.unlinkedMentions === 0"
+            data-testid="status-unlinked"
+            @click="toggleHealth('unlinked')"
+          >
+            未链接 <strong>{{ counts.unlinkedMentions }}</strong>
           </button>
           <span
             v-if="knowledge.building"
@@ -266,41 +401,103 @@ function relativeTime(mtime: number): string {
       </div>
 
       <section
-        v-if="brokenOpen"
+        v-if="healthOpen"
         class="broken-panel"
-        data-testid="broken-list"
-        aria-label="断链清单"
+        :data-testid="healthOpen === 'broken' ? 'broken-list' : 'health-panel'"
+        :aria-label="`${healthTitle}清单`"
       >
         <header class="broken-head">
-          <strong>断链 {{ knowledge.unresolved.length }}</strong>
+          <strong>{{ healthTitle }} {{ healthTotal }}</strong>
           <button
             type="button"
             class="broken-close"
-            @click="brokenOpen = false"
+            @click="healthOpen = null"
           >
             收起
           </button>
         </header>
-        <button
-          v-for="(item, index) in brokenPreview"
-          :key="`${item.from}-${item.line}-${index}`"
-          type="button"
-          class="broken-item"
-          @click="openBroken(item)"
-        >
-          <span class="broken-source">{{ item.from }}:{{ item.line }}</span>
-          <code>{{ item.raw }}</code>
-        </button>
+
+        <template v-if="healthOpen === 'isolated'">
+          <button
+            v-for="path in isolatedPreview"
+            :key="path"
+            type="button"
+            class="broken-item"
+            data-testid="health-item"
+            @click="openRecent(path)"
+          >
+            <span class="broken-source">{{ noteFolder(path) }}</span>
+            <span>{{ noteTitle(path) }}</span>
+          </button>
+          <button
+            type="button"
+            class="broken-ask"
+            data-testid="health-graph"
+            @click="inspectOrphans"
+          >
+            在图谱中查看
+          </button>
+        </template>
+
+        <template v-else-if="healthOpen === 'broken'">
+          <button
+            v-for="(item, index) in brokenPreview"
+            :key="`${item.from}-${item.line}-${index}`"
+            type="button"
+            class="broken-item"
+            @click="openBroken(item)"
+          >
+            <span class="broken-source">{{ item.from }}:{{ item.line }}</span>
+            <code>{{ item.raw }}</code>
+          </button>
+        </template>
+
+        <template v-else-if="healthOpen === 'duplicates'">
+          <div
+            v-for="group in duplicatePreview"
+            :key="group.title"
+            class="health-group"
+            data-testid="duplicate-group"
+          >
+            <strong class="health-group-title">{{ group.title }}</strong>
+            <button
+              v-for="path in group.paths"
+              :key="path"
+              type="button"
+              class="broken-item health-item"
+              @click="openRecent(path)"
+            >
+              <span class="broken-source">{{ noteFolder(path) }}</span>
+              <span>{{ noteTitle(path) }}</span>
+            </button>
+          </div>
+        </template>
+
+        <template v-else>
+          <button
+            v-for="(item, index) in unlinkedPreview"
+            :key="`${item.from}-${item.line}-${item.column}-${index}`"
+            type="button"
+            class="broken-item"
+            data-testid="unlinked-item"
+            @click="openMention(item)"
+          >
+            <span class="broken-source">{{ item.from }}:{{ item.line }}</span>
+            <code>{{ item.raw }}</code>
+            <span class="health-target">→ {{ item.targetPath }}</span>
+          </button>
+        </template>
+
         <p
-          v-if="knowledge.unresolved.length > brokenPreview.length"
+          v-if="healthTotal > healthListLength"
           class="broken-more"
         >
-          还有 {{ knowledge.unresolved.length - brokenPreview.length }} 处未列出
+          还有 {{ healthTotal - healthListLength }} 处未列出
         </p>
         <button
           type="button"
           class="broken-ask"
-          @click="askAboutBroken"
+          @click="askAboutHealth"
         >
           让 AI 给出修复建议
         </button>
@@ -535,6 +732,38 @@ function relativeTime(mtime: number): string {
 .broken-item code {
   color: var(--color-text-secondary);
   font-family: var(--font-mono);
+  font-size: calc(var(--ui-font-size) - 2px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.health-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.health-group:last-of-type {
+  border-bottom: 0;
+}
+
+.health-group-title {
+  padding: 2px 8px;
+  color: var(--color-text);
+  font-size: calc(var(--ui-font-size) - 1px);
+}
+
+.health-item {
+  flex-direction: row;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.health-target {
+  color: var(--color-text-tertiary);
   font-size: calc(var(--ui-font-size) - 2px);
   overflow: hidden;
   text-overflow: ellipsis;

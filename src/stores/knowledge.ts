@@ -11,6 +11,7 @@ import {
 import type {
   BacklinkItem,
   IndexStatus,
+  KnowledgeHealth,
   KnowledgeOverview,
   KnowledgeQuery,
   LinkRef,
@@ -38,6 +39,18 @@ function idleOverview(): KnowledgeOverview {
   return { noteCount: 0, tagCount: 0, isolatedCount: 0, brokenCount: 0, recent: [] }
 }
 
+/** 空健康报告：索引未就绪时巡检面板显示零值 */
+function idleHealth(): KnowledgeHealth {
+  return {
+    counts: { isolated: 0, broken: 0, duplicateTitles: 0, unlinkedMentions: 0 },
+    isolated: [],
+    broken: [],
+    duplicates: [],
+    unlinked: [],
+    truncated: false
+  }
+}
+
 /**
  * 知识库索引 Store
  *
@@ -52,6 +65,10 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
   const unresolved = ref<LinkRef[]>([])
   /** 首屏概览：计数与最近修改（主进程一次算好） */
   const overview = ref<KnowledgeOverview>(idleOverview())
+  /** 库健康巡检：四类问题与列表（主进程一次算好） */
+  const health = ref<KnowledgeHealth>(idleHealth())
+  /** 健康报告是否已成功载入；未载入时首屏回退到 overview 的孤立/断链计数 */
+  const healthLoaded = ref(false)
   const loading = ref(false)
   const error = ref<string | null>(null)
   /** 进度事件退订函数 */
@@ -125,7 +142,7 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
       const res = await bridge.rebuildKnowledgeIndex()
       if (res.success && res.data) status.value = res.data
       else error.value = res.error ?? '索引重建失败'
-      await Promise.all([loadTags(), loadUnresolved(), loadOverview()])
+      await Promise.all([loadTags(), loadUnresolved(), loadOverview(), loadHealth()])
       if (backlinksPath.value !== null) await loadBacklinks(backlinksPath.value)
     } catch (cause) {
       error.value = cause instanceof Error ? cause.message : '索引重建失败'
@@ -177,6 +194,21 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
     }
     const res = await bridge.getKnowledgeOverview()
     if (res.success && res.data) overview.value = res.data
+  }
+
+  /** 拉取库健康巡检（孤立 / 断链 / 重复标题 / 未链接提及） */
+  async function loadHealth(): Promise<void> {
+    const bridge = api()
+    if (bridge === null || typeof bridge.getKnowledgeHealth !== 'function') {
+      health.value = idleHealth()
+      healthLoaded.value = false
+      return
+    }
+    const res = await bridge.getKnowledgeHealth()
+    if (res.success && res.data) {
+      health.value = res.data
+      healthLoaded.value = true
+    }
   }
 
   /** 某个标签下的笔记（含各自来源） */
@@ -357,7 +389,7 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
   /** 库内容发生变化（重命名/移动/外部修改）后刷新全部派生数据 */
   async function refreshAll(): Promise<void> {
     await refreshStatus()
-    await Promise.all([loadTags(), loadUnresolved(), loadNotes(), loadOverview()])
+    await Promise.all([loadTags(), loadUnresolved(), loadNotes(), loadOverview(), loadHealth()])
     if (backlinksPath.value !== null) await loadBacklinks(backlinksPath.value)
     // 图谱按需刷新：没打开过图谱页签就不必算
     if (graphLoaded.value) await loadGraph()
@@ -370,6 +402,8 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
     tags.value = []
     unresolved.value = []
     overview.value = idleOverview()
+    health.value = idleHealth()
+    healthLoaded.value = false
     notes.value = []
     graph.value = emptyGraph()
     graphLoaded.value = false
@@ -397,7 +431,7 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
           return
         }
         await ensureIndex()
-        await Promise.all([loadTags(), loadUnresolved(), loadNotes(), loadOverview()])
+        await Promise.all([loadTags(), loadUnresolved(), loadNotes(), loadOverview(), loadHealth()])
       },
       { immediate: true }
     )
@@ -454,6 +488,9 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
     loadTags,
     loadUnresolved,
     loadOverview,
+    loadHealth,
+    health,
+    healthLoaded,
     loadNotesByTag,
     search,
     resolveTargets,

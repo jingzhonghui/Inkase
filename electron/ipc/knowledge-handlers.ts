@@ -19,6 +19,7 @@ import {
 import type {
   BacklinkItem,
   IndexStatus,
+  KnowledgeHealth,
   KnowledgeOverview,
   KnowledgeQuery,
   LinkRef,
@@ -30,6 +31,7 @@ import type {
   TagNote
 } from '../../shared/knowledge/types'
 import { buildGraph } from '../knowledge/graph-service'
+import { buildHealth, emptyHealth } from '../knowledge/health'
 import { buildOverview, emptyOverview } from '../knowledge/overview'
 import { resolveRelPath } from '../knowledge/rel-path'
 import { searchKnowledge } from '../knowledge/search-service'
@@ -249,6 +251,16 @@ export function registerKnowledgeHandlers(_getWindow: () => BrowserWindow | null
       const root = requireRoot(event.sender.id)
       const index = peekKnowledgeService(root)?.getIndex() ?? null
       return toResult<KnowledgeOverview>(index === null ? emptyOverview() : buildOverview(index))
+    } catch (error) {
+      return fail(error)
+    }
+  })
+
+  ipcMain.handle(KNOWLEDGE.HEALTH, (event) => {
+    try {
+      const root = requireRoot(event.sender.id)
+      const index = peekKnowledgeService(root)?.getIndex() ?? null
+      return toResult<KnowledgeHealth>(index === null ? emptyHealth() : buildHealth(index))
     } catch (error) {
       return fail(error)
     }
