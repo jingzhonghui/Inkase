@@ -22,6 +22,7 @@ import type { SourceAccessService } from './source-access-service'
 import type { WorkspaceSearchService } from '../workspace/workspace-search-service'
 import { createSourceAuthorizationContext } from './source-authorization'
 import { createDocumentTools } from './tools/document-tools'
+import { createKnowledgeTools } from './tools/knowledge-tools'
 import { createSourceAccessTools } from './tools/source-access-tools'
 import { createTimeTools } from './tools/time-tools'
 import { SYSTEM_PROMPT } from './prompts'
@@ -80,6 +81,7 @@ export class AiRuntime {
     searchService: WorkspaceSearchService
   ): void {
     const docTools = createDocumentTools(searchService)
+    const knowledgeTools = createKnowledgeTools()
     const sourceTools = createSourceAccessTools(sourceAccessService)
     const timeTools = createTimeTools()
     const all: AnyToolDefinition[] = [
@@ -88,6 +90,11 @@ export class AiRuntime {
       docTools.readWorkspaceDirectory,
       docTools.readWorkspaceFile,
       docTools.readSelectedText,
+      knowledgeTools.queryNotes,
+      knowledgeTools.expandLinks,
+      knowledgeTools.graphOverview,
+      knowledgeTools.findBrokenLinks,
+      knowledgeTools.readAttachmentText,
       timeTools.getCurrentDatetime,
       sourceTools.readWebUrl,
       sourceTools.readLocalFile,

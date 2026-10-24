@@ -666,7 +666,7 @@ export class KnowledgeIndexService {
   ): RegExp | null {
     const names = new Set<string>()
 
-    for (const file of linkIndex.byPath) {
+    for (const file of linkIndex.byPath.values()) {
       const name = normalizeName(stripExtension(basenameOf(file)))
       if (name.length >= 2) names.add(name)
     }

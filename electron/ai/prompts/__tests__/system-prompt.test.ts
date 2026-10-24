@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { SYSTEM_PROMPT } from '../inkase'
 
 describe('SYSTEM_PROMPT source rules', () => {
-  it('contains 19 source-safe principles covering realtime workspace search', () => {
-    expect(SYSTEM_PROMPT.match(/^\d+\./gm)).toHaveLength(19)
+  it('contains 23 source-safe principles covering realtime workspace search and knowledge tools', () => {
+    expect(SYSTEM_PROMPT.match(/^\d+\./gm)).toHaveLength(23)
     expect(SYSTEM_PROMPT).toContain('list_workspace_root')
     expect(SYSTEM_PROMPT).toContain('read_workspace_directory')
     expect(SYSTEM_PROMPT).toContain('search_workspace')
@@ -11,6 +11,11 @@ describe('SYSTEM_PROMPT source rules', () => {
     expect(SYSTEM_PROMPT).toContain('read_web_url')
     expect(SYSTEM_PROMPT).toContain('read_local_file')
     expect(SYSTEM_PROMPT).toContain('get_current_datetime')
+    expect(SYSTEM_PROMPT).toContain('query_notes')
+    expect(SYSTEM_PROMPT).toContain('expand_links')
+    expect(SYSTEM_PROMPT).toContain('graph_overview')
+    expect(SYSTEM_PROMPT).toContain('find_broken_links')
+    expect(SYSTEM_PROMPT).toContain('read_attachment_text')
     expect(SYSTEM_PROMPT).toContain('优先调用 search_workspace')
     expect(SYSTEM_PROMPT).toContain('scope')
     expect(SYSTEM_PROMPT).toContain('literal')

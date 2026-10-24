@@ -310,7 +310,7 @@ describe('time tools', () => {
 })
 
 describe('runtime approval flow', () => {
-  it('registers exactly eight tools and pops approval for any valid URL', async () => {
+  it('registers the full built-in tool set and pops approval for any valid URL', async () => {
     const provider = new FakeProvider()
     const runtime = makeRuntime(provider)
     const input = makeRunInput(makeSnapshot())
@@ -325,7 +325,9 @@ describe('runtime approval flow', () => {
 
     expect(Object.keys(provider.captured!.tools)).toEqual([
       'search_workspace', 'list_workspace_root', 'read_workspace_directory', 'read_workspace_file',
-      'read_selected_text', 'get_current_datetime', 'read_web_url', 'read_local_file',
+      'read_selected_text',
+      'query_notes', 'expand_links', 'graph_overview', 'find_broken_links', 'read_attachment_text',
+      'get_current_datetime', 'read_web_url', 'read_local_file',
       'replace_current_document', 'insert_into_current_document', 'create_document'
     ])
     const web = provider.captured!.tools.read_web_url!

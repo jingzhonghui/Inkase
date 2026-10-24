@@ -15,8 +15,8 @@ import type { LinkResolution } from '../../shared/knowledge/types'
 
 /** 解析用的索引：三张查找表 + 去扩展名路径表 */
 export interface LinkIndex {
-  /** 归一后的库内相对路径 */
-  byPath: Set<string>
+  /** 归一后的库内相对路径 → 原始路径（保留大小写） */
+  byPath: Map<string, string>
   /** 归一后的去扩展名相对路径 → 路径列表 */
   byPathNoExt: Map<string, string[]>
   /** 归一后的 basename（去扩展名）→ 路径列表 */
@@ -62,7 +62,7 @@ function push(map: Map<string, string[]>, key: string, value: string): void {
  */
 export function buildLinkIndex(files: string[], aliases: Record<string, string[]> = {}): LinkIndex {
   const index: LinkIndex = {
-    byPath: new Set<string>(),
+    byPath: new Map<string, string>(),
     byPathNoExt: new Map<string, string[]>(),
     byBasename: new Map<string, string[]>(),
     byAlias: new Map<string, string[]>()
@@ -71,15 +71,14 @@ export function buildLinkIndex(files: string[], aliases: Record<string, string[]
   for (const file of files) {
     const normalized = normalizeName(file)
     if (normalized === '') continue
-    index.byPath.add(normalized)
-    push(index.byPathNoExt, stripExtension(normalized), normalized)
-    push(index.byBasename, stripExtension(basenameOf(normalized)), normalized)
+    index.byPath.set(normalized, file)
+    push(index.byPathNoExt, stripExtension(normalized), file)
+    push(index.byBasename, stripExtension(basenameOf(normalized)), file)
   }
 
   for (const [path, list] of Object.entries(aliases)) {
-    const normalizedPath = normalizeName(path)
     for (const alias of list) {
-      push(index.byAlias, normalizeName(alias), normalizedPath)
+      push(index.byAlias, normalizeName(alias), path)
     }
   }
 
@@ -104,14 +103,16 @@ export function resolveLink(target: string, index: LinkIndex, from?: string): Li
   const normalized = normalizeName(target)
 
   if (normalized === '') {
-    if (from !== undefined && from !== '' && index.byPath.has(normalizeName(from))) {
-      return { status: 'resolved', targetPath: normalizeName(from) }
+    if (from !== undefined && from !== '') {
+      const self = index.byPath.get(normalizeName(from))
+      if (self !== undefined) return { status: 'resolved', targetPath: self }
     }
     return { status: 'missing' }
   }
 
-  if (index.byPath.has(normalized)) {
-    return { status: 'resolved', targetPath: normalized }
+  const exact = index.byPath.get(normalized)
+  if (exact !== undefined) {
+    return { status: 'resolved', targetPath: exact }
   }
 
   const exactPathMatches = index.byPathNoExt.get(normalized)

@@ -66,4 +66,16 @@ describe('resolveLink', () => {
   it('handles an index with no files', () => {
     expect(resolveLink('anything', buildLinkIndex([]))).toEqual({ status: 'missing' })
   })
+
+  it('returns the original path casing for links and aliases', () => {
+    const mixed = buildLinkIndex(['Notes/A.md', 'notes/b.md'], { 'Notes/A.md': ['别名'] })
+
+    expect(resolveLink('notes/a', mixed)).toEqual({ status: 'resolved', targetPath: 'Notes/A.md' })
+    expect(resolveLink('NOTES/A.MD', mixed)).toEqual({ status: 'resolved', targetPath: 'Notes/A.md' })
+    expect(resolveLink('别名', mixed)).toEqual({ status: 'resolved', targetPath: 'Notes/A.md' })
+    expect(resolveLink('', mixed, 'Notes/A.md')).toEqual({
+      status: 'resolved',
+      targetPath: 'Notes/A.md'
+    })
+  })
 })

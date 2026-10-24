@@ -11,9 +11,10 @@
  * 索引解析器版本
  *
  * 解析逻辑发生不兼容变化时递增，用于让既有索引整体失效并全量重建。
- * 2：标签开始记录来源（行内 `#标签` / frontmatter `tags`）。
+ * 3：标签开始记录来源（行内 `#标签` / frontmatter `tags`）。
+ * 4：链接解析结果保留原始路径大小写（此前统一小写，与 files 键不一致）。
  */
-export const KNOWLEDGE_PARSER_VERSION = 3
+export const KNOWLEDGE_PARSER_VERSION = 4
 
 /** 库内节点类型（决定如何抽取正文） */
 export type NodeKind = 'md' | 'mdx' | 'office' | 'pdf' | 'image' | 'other'
