@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick } from 'vue'
+import { IconCalendar } from '@tabler/icons-vue'
+import { useDailyStore } from '../../stores/daily'
 import { useFileStore } from '../../stores/file'
 import { searchFiles, type SearchableFile, type FileSearchResult } from '../../utils/fuzzy'
 
@@ -16,8 +18,14 @@ const emit = defineEmits<{
 }>()
 
 const fileStore = useFileStore()
+const dailyStore = useDailyStore()
 
 const MAX_RESULTS = 50
+const DAILY_COMMAND_LABEL = '打开今天的每日笔记'
+
+type PaletteRow =
+  | { kind: 'command'; id: 'daily'; label: string }
+  | { kind: 'file'; result: FileSearchResult }
 
 const query = ref('')
 const allFiles = ref<SearchableFile[]>([])
@@ -25,6 +33,23 @@ const activeIndex = ref(0)
 const listRef = ref<HTMLElement | null>(null)
 
 const results = computed<FileSearchResult[]>(() => searchFiles(allFiles.value, query.value).slice(0, MAX_RESULTS))
+
+const commandMatches = computed(() => {
+  const value = query.value.trim().toLowerCase()
+  if (value === '') return true
+  return DAILY_COMMAND_LABEL.toLowerCase().includes(value)
+    || 'daily'.includes(value)
+    || 'today'.includes(value)
+    || '每日'.includes(value)
+    || '日记'.includes(value)
+})
+
+const rows = computed<PaletteRow[]>(() => {
+  const fileRows: PaletteRow[] = results.value.map((result) => ({ kind: 'file', result }))
+  return commandMatches.value
+    ? [{ kind: 'command', id: 'daily', label: DAILY_COMMAND_LABEL }, ...fileRows]
+    : fileRows
+})
 
 const showEmptyHint = computed(() => !fileStore.openedFolderPath)
 
@@ -56,8 +81,9 @@ watch(
   { immediate: true }
 )
 
-watch([query, results], () => {
-  activeIndex.value = 0
+watch([query, rows], () => {
+  // 空查询时把默认焦点留给第一个文件，避免 Ctrl+P 后回车误开每日笔记
+  activeIndex.value = query.value.trim() === '' && rows.value.length > 1 ? 1 : 0
 })
 
 function close(): void {
@@ -94,19 +120,28 @@ async function openResult(result: FileSearchResult): Promise<void> {
   }
 }
 
+async function runRow(row: PaletteRow): Promise<void> {
+  if (row.kind === 'command') {
+    close()
+    await dailyStore.openToday()
+    return
+  }
+  await openResult(row.result)
+}
+
 function onKeydown(event: KeyboardEvent): void {
   if (event.key === 'ArrowDown') {
     event.preventDefault()
-    if (results.value.length > 0) activeIndex.value = (activeIndex.value + 1) % results.value.length
+    if (rows.value.length > 0) activeIndex.value = (activeIndex.value + 1) % rows.value.length
     scrollToActive()
   } else if (event.key === 'ArrowUp') {
     event.preventDefault()
-    if (results.value.length > 0) activeIndex.value = (activeIndex.value - 1 + results.value.length) % results.value.length
+    if (rows.value.length > 0) activeIndex.value = (activeIndex.value - 1 + rows.value.length) % rows.value.length
     scrollToActive()
   } else if (event.key === 'Enter') {
     event.preventDefault()
-    const result = results.value[activeIndex.value]
-    if (result) void openResult(result)
+    const row = rows.value[activeIndex.value]
+    if (row) void runRow(row)
   } else if (event.key === 'Escape') {
     event.preventDefault()
     close()
@@ -137,38 +172,39 @@ function scrollToActive(): void {
           placeholder="输入文件名模糊搜索…"
           @keydown="onKeydown"
         >
-        <div
-          v-if="showEmptyHint"
-          class="quick-open-empty"
-        >
-          请先打开文件夹再搜索文件
-        </div>
-        <div
-          v-else-if="results.length === 0"
-          class="quick-open-empty"
-        >
-          无匹配文件
-        </div>
         <ul
-          v-else
+          v-if="rows.length > 0"
           ref="listRef"
           class="quick-open-list"
         >
           <li
-            v-for="(result, index) in results"
-            :key="result.file.path"
+            v-for="(row, index) in rows"
+            :key="row.kind === 'command' ? `command:${row.id}` : row.result.file.path"
             class="quick-open-item"
-            :class="{ 'is-active': index === activeIndex }"
+            :class="{ 'is-active': index === activeIndex, 'is-command': row.kind === 'command' }"
+            :data-testid="row.kind === 'command' ? 'quick-open-daily' : undefined"
             @mouseenter="activeIndex = index"
-            @click="openResult(result)"
+            @click="runRow(row)"
           >
-            <span class="quick-open-name">
+            <template v-if="row.kind === 'command'">
+              <IconCalendar
+                :size="15"
+                :stroke-width="1.8"
+                class="quick-open-command-icon"
+              />
+              <span class="quick-open-name">{{ row.label }}</span>
+              <span class="quick-open-hint">命令</span>
+            </template>
+            <span
+              v-else
+              class="quick-open-name"
+            >
               <template
-                v-for="(chunk, i) in highlightText(result).text"
+                v-for="(chunk, i) in highlightText(row.result).text"
                 :key="i"
               >
                 <mark
-                  v-if="highlightText(result).matched[i]"
+                  v-if="highlightText(row.result).matched[i]"
                   class="quick-open-hl"
                 >{{ chunk }}</mark>
                 <template v-else>{{ chunk }}</template>
@@ -176,6 +212,18 @@ function scrollToActive(): void {
             </span>
           </li>
         </ul>
+        <div
+          v-if="showEmptyHint"
+          class="quick-open-empty"
+        >
+          请先打开文件夹再搜索文件
+        </div>
+        <div
+          v-else-if="rows.length === 0"
+          class="quick-open-empty"
+        >
+          无匹配文件
+        </div>
         <div class="quick-open-footer">
           <span>↑↓ 选择</span>
           <span>Enter 打开</span>
@@ -245,6 +293,25 @@ function scrollToActive(): void {
 .quick-open-item.is-active {
   background: var(--color-primary-light);
   color: var(--color-primary);
+}
+
+.quick-open-item.is-command {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid var(--color-border);
+  border-radius: 0;
+}
+
+.quick-open-command-icon {
+  flex: none;
+  color: var(--color-primary);
+}
+
+.quick-open-hint {
+  margin-left: auto;
+  color: var(--color-text-tertiary);
+  font-size: calc(var(--ui-font-size) - 2px);
 }
 
 .quick-open-name {

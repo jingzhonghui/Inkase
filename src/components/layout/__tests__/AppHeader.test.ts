@@ -5,6 +5,7 @@ import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import AppHeader from '../AppHeader.vue'
 import { useFileStore } from '../../../stores/file'
+import { useDailyStore } from '../../../stores/daily'
 import { useSyncStore } from '../../../stores/sync'
 import { dialogState, resolveDialogRequest } from '../../../utils/dialog'
 
@@ -79,6 +80,49 @@ describe('AppHeader 最近文件操作', () => {
   })
 })
 
+describe('AppHeader 每日笔记设置', () => {
+  afterEach(() => {
+    document.body.innerHTML = ''
+  })
+
+  it('edits and saves daily note directory, filename and template', async () => {
+    const wrapper = mountHeader()
+
+    const viewMenu = wrapper.findAll('.menu-item').find((item) => item.text() === '视图')!
+    await viewMenu.trigger('click')
+    await wrapper.vm.$nextTick()
+    const settingsEntry = [...document.querySelectorAll<HTMLElement>('.menu-dropdown .menu-entry')]
+      .find((entry) => entry.textContent?.includes('设置'))
+    expect(settingsEntry).toBeTruthy()
+    settingsEntry!.click()
+    await wrapper.vm.$nextTick()
+
+    const rows = [...document.querySelectorAll<HTMLElement>('.settings-row')]
+    const rowFor = (label: string): HTMLElement => rows.find((row) => row.textContent?.includes(label))!
+    const directory = rowFor('每日笔记目录').querySelector('input')!
+    const filename = rowFor('每日笔记文件名').querySelector('input')!
+    const template = rowFor('每日笔记模板').querySelector('textarea')!
+    directory.value = 'journal'
+    directory.dispatchEvent(new Event('input', { bubbles: true }))
+    filename.value = 'YYYYMMDD'
+    filename.dispatchEvent(new Event('input', { bubbles: true }))
+    template.value = '# {{date}} 日记'
+    template.dispatchEvent(new Event('input', { bubbles: true }))
+    await wrapper.vm.$nextTick()
+
+    const save = [...document.querySelectorAll<HTMLButtonElement>('.settings-actions button')]
+      .find((button) => button.textContent?.trim() === '完成')!
+    save.click()
+    await wrapper.vm.$nextTick()
+
+    expect(useDailyStore().config).toMatchObject({
+      directory: 'journal',
+      filenamePattern: 'YYYYMMDD',
+      template: '# {{date}} 日记'
+    })
+  })
+})
+
 describe('AppHeader 快速打开（Ctrl+P）', () => {
   const originalElectronAPI = window.electronAPI
 
@@ -109,7 +153,7 @@ describe('AppHeader 快速打开（Ctrl+P）', () => {
     await wrapper.vm.$nextTick()
 
     expect((window.electronAPI as { searchFiles: ReturnType<typeof vi.fn> }).searchFiles).toHaveBeenCalledWith('C:/ws')
-    expect(document.body.querySelectorAll('.quick-open-item').length).toBe(1)
+    expect(document.body.querySelectorAll('.quick-open-item:not(.is-command)').length).toBe(1)
   })
 
   it('未打开文件夹时 Ctrl+P 弹出提示', async () => {
@@ -152,7 +196,7 @@ describe('AppHeader 快速打开（Ctrl+P）', () => {
     await wrapper.vm.$nextTick()
 
     expect((window.electronAPI as { searchFiles: ReturnType<typeof vi.fn> }).searchFiles).toHaveBeenCalledWith('C:/ws')
-    expect(document.body.querySelectorAll('.quick-open-item').length).toBe(1)
+    expect(document.body.querySelectorAll('.quick-open-item:not(.is-command)').length).toBe(1)
   })
 })
 

@@ -5,6 +5,7 @@ import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { nextTick } from 'vue'
 import QuickOpenPalette from '../QuickOpenPalette.vue'
+import { useDailyStore } from '../../../stores/daily'
 import { useFileStore } from '../../../stores/file'
 
 const FILES = [
@@ -64,7 +65,7 @@ describe('QuickOpenPalette', () => {
     await nextTick()
 
     expect(searchFilesMock).toHaveBeenCalledWith('C:/ws')
-    const items = document.body.querySelectorAll('.quick-open-item')
+    const items = document.body.querySelectorAll('.quick-open-item:not(.is-command)')
     expect(items.length).toBe(3)
   })
 
@@ -122,7 +123,26 @@ describe('QuickOpenPalette', () => {
     pressKey('ArrowUp')
     pressKey('ArrowUp')
     await nextTick()
+    expect(activeAt()).toContain('打开今天的每日笔记')
+
+    pressKey('ArrowUp')
+    await nextTick()
     expect(activeAt()).toContain('app.ts')
+  })
+
+  it('opens the daily note command from the palette', async () => {
+    const { wrapper } = mountPalette()
+    const daily = useDailyStore()
+    const openToday = vi.spyOn(daily, 'openToday').mockResolvedValue(true)
+    await nextTick()
+    await nextTick()
+
+    document.body.querySelector<HTMLElement>('[data-testid="quick-open-daily"]')!
+      .dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await nextTick()
+
+    expect(openToday).toHaveBeenCalled()
+    expect(wrapper.emitted('close')).toBeTruthy()
   })
 
   it('opens a file on click', async () => {
@@ -130,7 +150,7 @@ describe('QuickOpenPalette', () => {
     await nextTick()
     await nextTick()
 
-    const item = document.body.querySelectorAll('.quick-open-item')[2]
+    const item = document.body.querySelectorAll('.quick-open-item:not(.is-command)')[2]
     item.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     await nextTick()
 
@@ -162,7 +182,7 @@ describe('QuickOpenPalette', () => {
     await nextTick()
     await nextTick()
 
-    const items = document.body.querySelectorAll('.quick-open-item')
+    const items = document.body.querySelectorAll('.quick-open-item:not(.is-command)')
     expect(items.length).toBe(1)
     expect(items[0].textContent).toBe('docs/guide.md')
   })

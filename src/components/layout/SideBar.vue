@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref } from 'vue'
 import {
+  IconCalendar,
   IconChevronsLeft,
   IconChevronsRight,
   IconFile,
@@ -12,9 +13,11 @@ import OutlinePanel from '../sidebar/OutlinePanel.vue'
 import TagPanel from '../knowledge/TagPanel.vue'
 import SearchPanel from '../knowledge/SearchPanel.vue'
 import Tooltip from '../common/Tooltip.vue'
+import { useDailyStore } from '../../stores/daily'
 import { useFileStore } from '../../stores/file'
 
 const fileStore = useFileStore()
+const dailyStore = useDailyStore()
 
 /** 侧栏当前标签：文件浏览器 / 搜索 / 标签 / 大纲 */
 const activeTab = ref<'files' | 'search' | 'tags' | 'outline'>('files')
@@ -102,6 +105,11 @@ onUnmounted(stopResize)
 function openFolder(): void {
   fileStore.openFolder()
 }
+
+/** 每日笔记：不存在时按设置创建，已存在则直接打开 */
+function openDaily(): void {
+  void dailyStore.openToday()
+}
 </script>
 
 <template>
@@ -137,6 +145,15 @@ function openFolder(): void {
           @click="openFolder"
         >
           <IconFolder />
+        </button>
+      </Tooltip>
+      <Tooltip content="每日笔记">
+        <button
+          class="collapsed-btn"
+          data-testid="sidebar-daily-collapsed"
+          @click="openDaily"
+        >
+          <IconCalendar />
         </button>
       </Tooltip>
       <div class="collapsed-divider" />
@@ -187,6 +204,17 @@ function openFolder(): void {
         >
           大纲
         </button>
+        <Tooltip content="每日笔记">
+          <button
+            class="sidebar-daily-btn"
+            type="button"
+            aria-label="打开每日笔记"
+            data-testid="sidebar-daily"
+            @click="openDaily"
+          >
+            <IconCalendar />
+          </button>
+        </Tooltip>
         <Tooltip content="收起侧边栏">
           <button
             class="sidebar-collapse-btn"
@@ -276,6 +304,22 @@ function openFolder(): void {
 .sidebar-collapse-btn {
   width: 28px;
   height: 28px;
+  margin-left: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  color: var(--color-text-secondary);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color 0.2s, background-color 0.2s;
+}
+
+.sidebar-daily-btn {
+  width: 28px;
+  height: 28px;
   margin-left: auto;
   display: flex;
   align-items: center;
@@ -287,6 +331,16 @@ function openFolder(): void {
   border-radius: var(--radius-sm);
   cursor: pointer;
   transition: color 0.2s, background-color 0.2s;
+}
+
+.sidebar-daily-btn:hover {
+  color: var(--color-text);
+  background-color: var(--color-bg-secondary);
+}
+
+.sidebar-daily-btn svg {
+  width: 16px;
+  height: 16px;
 }
 
 .sidebar-collapse-btn:hover {

@@ -7,6 +7,7 @@ import { useUpdateStore } from '../../stores/update'
 import { useSyncStore } from '../../stores/sync'
 import { useDockStore } from '../../stores/dock'
 import { useKnowledgeStore } from '../../stores/knowledge'
+import { useDailyStore } from '../../stores/daily'
 import {
   useAppearanceStore,
   MIN_UI_FONT_SIZE,
@@ -31,6 +32,7 @@ const updateStore = useUpdateStore()
 const dockStore = useDockStore()
 const syncStore = useSyncStore()
 const knowledgeStore = useKnowledgeStore()
+const dailyStore = useDailyStore()
 const appearanceStore = useAppearanceStore()
 const isMaximized = ref(false)
 const quickOpenVisible = ref(false)
@@ -251,6 +253,9 @@ const settingsOpen = ref(false)
 const settingsCompressEnabled = ref(true)
 const settingsCompressQuality = ref(85)
 const settingsMaxTabs = ref(20)
+const settingsDailyDirectory = ref('daily')
+const settingsDailyFilename = ref('YYYY-MM-DD')
+const settingsDailyTemplate = ref('# {{date}}\n\n')
 const settingsUiFontSize = ref(appearanceStore.uiFontSize)
 const settingsEditorFontSize = ref(appearanceStore.editorFontSize)
 const settingsEditorFontFamily = ref('')
@@ -610,6 +615,9 @@ function openSettings(): void {
   settingsCompressEnabled.value = fileStore.imageCompressSettings.enabled
   settingsCompressQuality.value = fileStore.imageCompressSettings.quality
   settingsMaxTabs.value = fileStore.maxOpenTabs
+  settingsDailyDirectory.value = dailyStore.config.directory
+  settingsDailyFilename.value = dailyStore.config.filenamePattern
+  settingsDailyTemplate.value = dailyStore.config.template
   settingsUiFontSize.value = appearanceStore.uiFontSize
   settingsEditorFontSize.value = appearanceStore.editorFontSize
   settingsEditorFontFamily.value = appearanceStore.editorFontFamily
@@ -622,7 +630,20 @@ function openSettings(): void {
   settingsOpen.value = true
 }
 
-function saveSettings(): void {
+async function saveSettings(): Promise<void> {
+  const dailySaved = dailyStore.updateConfig({
+    directory: settingsDailyDirectory.value,
+    filenamePattern: settingsDailyFilename.value,
+    template: settingsDailyTemplate.value
+  })
+  if (!dailySaved) {
+    await requestDialog({
+      title: '每日笔记设置无效',
+      message: dailyStore.error ?? '请检查目录与文件名格式',
+      buttons: [{ label: '知道了', value: 0, primary: true }]
+    })
+    return
+  }
   fileStore.setImageCompressSettings({
     enabled: settingsCompressEnabled.value,
     quality: settingsCompressQuality.value
@@ -1155,6 +1176,52 @@ onUnmounted(() => {
                 :min="MIN_UI_FONT_SIZE"
                 :max="MAX_UI_FONT_SIZE"
               >
+            </label>
+
+            <label class="settings-row settings-row-stack">
+              <span>
+                <strong>每日笔记目录</strong>
+                <small>相对库根的目录；留空表示库根，不存在时会自动创建</small>
+              </span>
+              <input
+                v-model="settingsDailyDirectory"
+                class="settings-number"
+                type="text"
+                placeholder="daily"
+                spellcheck="false"
+              >
+            </label>
+
+            <label class="settings-row settings-row-stack">
+              <span>
+                <strong>每日笔记文件名</strong>
+                <small>支持 YYYY / MM / DD / HH / mm / ss，自动补 .md</small>
+              </span>
+              <input
+                v-model="settingsDailyFilename"
+                class="settings-number"
+                type="text"
+                placeholder="YYYY-MM-DD"
+                spellcheck="false"
+              >
+            </label>
+
+            <label class="settings-row settings-row-stack">
+              <span>
+                <strong>每日笔记模板</strong>
+                <small>
+                  新建时写入；支持
+                  <code v-pre>{{date}}</code>
+                  <code v-pre>{{time}}</code>
+                  <code v-pre>{{title}}</code>
+                </small>
+              </span>
+              <textarea
+                v-model="settingsDailyTemplate"
+                class="settings-textarea"
+                rows="5"
+                spellcheck="false"
+              />
             </label>
 
             <div class="settings-theme">
@@ -1938,6 +2005,34 @@ onUnmounted(() => {
   background-color: var(--color-bg-primary);
   color: var(--color-text);
   font-size: var(--ui-font-size);
+}
+
+.settings-row-stack .settings-number {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.settings-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  min-height: 88px;
+  padding: 6px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-bg-primary);
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: calc(var(--ui-font-size) - 1px);
+  line-height: 1.5;
+}
+
+.settings-row small code {
+  padding: 0 3px;
+  border-radius: 3px;
+  background: var(--color-bg-tertiary);
+  font-family: var(--font-mono);
+  font-size: calc(var(--ui-font-size) - 2px);
 }
 
 .font-control {
