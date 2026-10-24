@@ -2,6 +2,21 @@ import type { ApprovalPreview } from '../../../shared/ai/types'
 
 export type ApprovalPreviewType = ApprovalPreview['type'] | 'unsupported'
 
+function isNonNegativeNumber(value: unknown): boolean {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0
+}
+
+function isBatchFile(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false
+  const file = value as Record<string, unknown>
+  return typeof file.path === 'string'
+    && file.path.length > 0
+    && typeof file.summary === 'string'
+    && (file.additions === undefined || isNonNegativeNumber(file.additions))
+    && (file.deletions === undefined || isNonNegativeNumber(file.deletions))
+    && (file.diff === undefined || typeof file.diff === 'string')
+}
+
 /**
  * 校验来自主进程的审批预览。
  *
@@ -18,6 +33,15 @@ export function validApprovalPreview(preview: unknown): ApprovalPreview | null {
   if (value.type === 'document'
     && typeof value.title === 'string'
     && typeof value.content === 'string') return preview as ApprovalPreview
+  if (value.type === 'batch'
+    && typeof value.title === 'string'
+    && (value.description === undefined || typeof value.description === 'string')
+    && Array.isArray(value.files)
+    && value.files.length > 0
+    && value.files.every(isBatchFile)
+    && (value.totalChanges === undefined || isNonNegativeNumber(value.totalChanges))) {
+    return preview as ApprovalPreview
+  }
   if (value.type === 'network-request'
     && typeof value.method === 'string'
     && typeof value.url === 'string'
@@ -37,6 +61,7 @@ export function approvalPreviewType(preview: ApprovalPreview | null): ApprovalPr
   switch (preview.type) {
     case 'markdown-diff': return 'markdown-diff'
     case 'document': return 'document'
+    case 'batch': return 'batch'
     case 'network-request': return 'network-request'
     case 'local-file-read': return 'local-file-read'
     default: {

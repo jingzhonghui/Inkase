@@ -205,7 +205,7 @@ export function createDocumentTools(searchService: WorkspaceSearchService): Docu
       effect: 'write',
       approval: 'always',
       riskLevel: 'high',
-      supportsRememberDecision: false
+      supportsRememberDecision: true
     },
     execution: 'renderer',
     createRendererOperation: async (input, context) => {
@@ -241,7 +241,7 @@ export function createDocumentTools(searchService: WorkspaceSearchService): Docu
       effect: 'write',
       approval: 'always',
       riskLevel: 'high',
-      supportsRememberDecision: false
+      supportsRememberDecision: true
     },
     execution: 'renderer',
     createRendererOperation: async (input, context) => {

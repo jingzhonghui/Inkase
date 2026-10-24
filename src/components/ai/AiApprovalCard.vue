@@ -1,10 +1,16 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import type { ConversationApprovalRecord, ToolExecutionResult } from '../../../shared/ai/types'
+import type {
+  ApprovalDecision,
+  ApprovalTier,
+  ConversationApprovalRecord,
+  ToolExecutionResult
+} from '../../../shared/ai/types'
 import { useAiStore } from '../../stores/ai'
 import { approvalPreviewType, validApprovalPreview } from '../../utils/ai/approval-preview'
 import MarkdownDiffPreview from './approval/MarkdownDiffPreview.vue'
 import DocumentPreview from './approval/DocumentPreview.vue'
+import BatchApprovalPreview from './approval/BatchApprovalPreview.vue'
 import NetworkRequestPreview from './approval/NetworkRequestPreview.vue'
 import LocalFileReadPreview from './approval/LocalFileReadPreview.vue'
 
@@ -38,9 +44,18 @@ const RISK_LABELS: Record<ConversationApprovalRecord['riskLevel'], string> = {
   critical: '严重风险'
 }
 
-const meta = computed(() => [EFFECT_LABELS[props.record.effect], RISK_LABELS[props.record.riskLevel]]
-  .filter(Boolean)
-  .join(' · '))
+const TIER_LABELS: Record<ApprovalTier, string> = {
+  auto: '自动',
+  confirm: '逐次审批',
+  batch: '批量审批'
+}
+
+const meta = computed(() => {
+  const tier = props.record.approvalTier ? TIER_LABELS[props.record.approvalTier] : ''
+  return [tier, EFFECT_LABELS[props.record.effect], RISK_LABELS[props.record.riskLevel]]
+    .filter(Boolean)
+    .join(' · ')
+})
 
 const pending = computed(() => props.record.decision === undefined)
 
@@ -48,7 +63,10 @@ const pending = computed(() => props.record.decision === undefined)
 const verdict = computed(() => {
   const decision = props.record.decision
   if (!decision) return '等待批准'
-  if (decision.status === 'approved') return outcomeText(props.record.outcome)
+  if (decision.status === 'approved') {
+    const base = outcomeText(props.record.outcome)
+    return decision.scope === 'session' ? `${base} · 本次会话已记住` : base
+  }
   if (decision.status === 'rejected') return decision.reason ? `已拒绝 · ${decision.reason}` : '已拒绝'
   if (decision.status === 'expired') return '已过期'
   return '已取消'
@@ -68,14 +86,16 @@ function outcomeText(outcome: ToolExecutionResult['status'] | undefined): string
 
 const stateClass = computed(() => props.record.decision ? `is-${props.record.decision.status}` : 'is-pending')
 
-async function submit(allow: boolean): Promise<void> {
+async function submit(allow: boolean, remember = false): Promise<void> {
   if (!pending.value || resolving.value || (allow && blocked.value)) return
   resolving.value = true
   try {
-    await store.resolveApproval(
-      props.record.id,
-      allow ? { status: 'approved', scope: 'once' } : { status: 'rejected' }
-    )
+    const decision: ApprovalDecision = !allow
+      ? { status: 'rejected' }
+      : remember
+        ? { status: 'approved', scope: 'session', toolName: props.record.toolName }
+        : { status: 'approved', scope: 'once' }
+    await store.resolveApproval(props.record.id, decision)
   } finally {
     resolving.value = false
   }
@@ -128,6 +148,10 @@ async function submit(allow: boolean): Promise<void> {
           v-else-if="preview?.type === 'document'"
           v-bind="preview"
         />
+        <BatchApprovalPreview
+          v-else-if="preview?.type === 'batch'"
+          v-bind="preview"
+        />
         <NetworkRequestPreview
           v-else-if="preview?.type === 'network-request'"
           v-bind="preview"
@@ -159,6 +183,16 @@ async function submit(allow: boolean): Promise<void> {
           @click="submit(true)"
         >
           {{ resolving ? '处理中…' : '允许本次' }}
+        </button>
+        <button
+          v-if="!blocked && record.supportsRememberDecision && record.approvalTier !== 'batch'"
+          type="button"
+          data-testid="approval-allow-session"
+          class="approval__btn"
+          :disabled="resolving"
+          @click="submit(true, true)"
+        >
+          本会话自动批准此类
         </button>
         <button
           type="button"
@@ -246,6 +280,7 @@ summary::-webkit-details-marker { display: none; }
 
 .approval__acts {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   padding-top: 10px;

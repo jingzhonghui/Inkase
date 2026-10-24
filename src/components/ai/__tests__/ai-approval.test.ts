@@ -220,6 +220,96 @@ describe('AI approval card', () => {
     expect(wrapper.get('[data-testid="approval-allow"]').exists()).toBe(true)
   })
 
+  it('offers session-wide approval only when the tool supports it', () => {
+    const supported = mount(AiApprovalCard, {
+      props: { record: approval({ supportsRememberDecision: true, approvalTier: 'confirm' }) }
+    })
+    const unsupported = mount(AiApprovalCard, {
+      props: { record: approval({ supportsRememberDecision: false }) }
+    })
+
+    expect(supported.get('[data-testid="approval-allow-session"]').text()).toContain('本会话')
+    expect(supported.get('.approval__meta').text()).toContain('逐次审批')
+    expect(unsupported.find('[data-testid="approval-allow-session"]').exists()).toBe(false)
+  })
+
+  it('submits a session-scoped decision with the tool name', async () => {
+    const store = useAiStore()
+    const resolve = vi.spyOn(store, 'resolveApproval').mockResolvedValue()
+    const wrapper = mount(AiApprovalCard, {
+      props: { record: approval({ supportsRememberDecision: true }) }
+    })
+
+    await wrapper.get('[data-testid="approval-allow-session"]').trigger('click')
+
+    expect(resolve).toHaveBeenCalledWith('approval-1', {
+      status: 'approved',
+      scope: 'session',
+      toolName: 'replace_document'
+    })
+  })
+
+  it('reports that a session-wide approval was remembered', () => {
+    const wrapper = mount(AiApprovalCard, {
+      props: { record: approval({
+        decision: { status: 'approved', scope: 'session', toolName: 'replace_document' },
+        decidedAt: 2,
+        outcome: 'applied'
+      }) }
+    })
+
+    expect(wrapper.get('[data-testid="approval-state"]').text()).toContain('本次会话已记住')
+  })
+
+  it('fails closed for an empty batch preview', () => {
+    const wrapper = mount(AiApprovalCard, {
+      props: { record: approval({
+        approvalTier: 'batch',
+        supportsRememberDecision: true,
+        preview: { type: 'batch', title: '空批量', files: [] }
+      }) }
+    })
+
+    expect(wrapper.get('[data-testid="unsupported-preview"]').text()).toContain('不能被允许')
+    expect(wrapper.find('[data-testid="approval-allow"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="approval-allow-session"]').exists()).toBe(false)
+  })
+
+  it('renders a batch checklist with per-file summaries and diffs', () => {
+    const wrapper = mount(AiApprovalCard, {
+      props: { record: approval({
+        approvalTier: 'batch',
+        supportsRememberDecision: true,
+        preview: {
+          type: 'batch',
+          title: '修复断链',
+          description: '涉及 2 个文件',
+          totalChanges: 3,
+          files: [
+            {
+              path: 'notes/a.md',
+              summary: '替换 2 处链接',
+              additions: 2,
+              deletions: 2,
+              diff: '@@ -1 +1 @@\n-[[旧]]\n+[[新]]'
+            },
+            { path: 'notes/b.md', summary: '插入 1 处链接', additions: 1 }
+          ]
+        }
+      }) }
+    })
+
+    const preview = wrapper.get('[data-testid="batch-preview"]')
+    expect(preview.text()).toContain('2 个文件')
+    expect(preview.text()).toContain('3 处变更')
+    expect(preview.text()).toContain('notes/a.md')
+    expect(preview.text()).toContain('替换 2 处链接')
+    expect(preview.get('[data-testid="batch-file-diff"]').text()).toContain('[[旧]]')
+    expect(wrapper.get('.approval__meta').text()).toContain('批量审批')
+    // 批量操作只批准一次，不提供「本会话自动批准」
+    expect(wrapper.find('[data-testid="approval-allow-session"]').exists()).toBe(false)
+  })
+
   it('folds open while waiting so the request can be acted on', () => {
     const wrapper = mount(AiApprovalCard, { props: { record: approval() } })
 

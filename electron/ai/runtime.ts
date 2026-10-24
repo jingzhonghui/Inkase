@@ -15,7 +15,7 @@ import {
   type LlmProvider,
   type ProviderTool
 } from './provider'
-import { evaluateToolPolicy } from './policy-engine'
+import { resolveToolApprovalTier } from './policy-engine'
 import { ApprovalManager } from './approval-manager'
 import { ToolRegistry, type ToolExecutionContext, type ToolDefinition } from './tool-registry'
 import type { SourceAccessService } from './source-access-service'
@@ -271,7 +271,8 @@ export class AiRuntime {
     emit: (event: AiRunEvent) => void,
     callAbort: AbortController
   ): Promise<ToolExecutionResult> {
-    const needsApproval = evaluateToolPolicy(def.policy)
+    const approvalTier = resolveToolApprovalTier(def.policy)
+    const needsApproval = approvalTier !== 'auto'
 
     if (!needsApproval) {
       if (def.execution === 'main') {
@@ -312,6 +313,8 @@ export class AiRuntime {
       reason: reason || undefined,
       effect: def.policy.effect,
       riskLevel: def.policy.riskLevel,
+      approvalTier,
+      supportsRememberDecision: def.policy.supportsRememberDecision,
       preview,
       execution,
       createdAt: Date.now(),

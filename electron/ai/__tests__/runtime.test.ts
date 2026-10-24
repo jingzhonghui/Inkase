@@ -450,6 +450,8 @@ describe('runtime approval flow', () => {
     expect(approvalEvent.type).toBe('approval-required')
 
     const req = approvalEvent.approval
+    expect(req.approvalTier).toBe('confirm')
+    expect(req.supportsRememberDecision).toBe(true)
     expect(req.preview).toEqual({
       type: 'markdown-diff',
       title: '测试文档',

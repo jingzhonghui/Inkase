@@ -630,6 +630,75 @@ describe('ai store', () => {
   })
 
   describe('resolveApproval', () => {
+    it('remembers a session approval and auto-resolves later calls for the same tool', async () => {
+      const store = useAiStore()
+      store.init()
+      electronApi.resolveAiApproval.mockResolvedValue({ success: true })
+      emit({ type: 'run-started', runId: 'r1' })
+      emit({
+        type: 'approval-required',
+        runId: 'r1',
+        approval: makeApproval({
+          id: 'a1',
+          supportsRememberDecision: true,
+          execution: { location: 'main' }
+        })
+      })
+
+      await store.resolveApproval('a1', {
+        status: 'approved',
+        scope: 'session',
+        toolName: 'edit_document'
+      })
+      expect(store.pendingApprovals).toEqual([])
+
+      emit({
+        type: 'approval-required',
+        runId: 'r1',
+        approval: makeApproval({
+          id: 'a2',
+          toolCallId: 'tc2',
+          supportsRememberDecision: true,
+          execution: { location: 'main' }
+        })
+      })
+
+      await vi.waitFor(() => expect(electronApi.resolveAiApproval).toHaveBeenCalledTimes(2))
+      await vi.waitFor(() => expect(store.pendingApprovals).toEqual([]))
+      expect(electronApi.resolveAiApproval.mock.calls[1][1]).toEqual({
+        status: 'approved',
+        scope: 'session',
+        toolName: 'edit_document'
+      })
+    })
+
+    it('does not carry session approvals into a new conversation', async () => {
+      const store = useAiStore()
+      store.init()
+      electronApi.resolveAiApproval.mockResolvedValue({ success: true })
+      emit({ type: 'run-started', runId: 'r1' })
+      emit({
+        type: 'approval-required',
+        runId: 'r1',
+        approval: makeApproval({ id: 'a1', supportsRememberDecision: true, execution: { location: 'main' } })
+      })
+      await store.resolveApproval('a1', {
+        status: 'approved',
+        scope: 'session',
+        toolName: 'edit_document'
+      })
+
+      store.newConversation()
+      emit({
+        type: 'approval-required',
+        runId: 'r1',
+        approval: makeApproval({ id: 'a2', supportsRememberDecision: true, execution: { location: 'main' } })
+      })
+
+      expect(store.pendingApprovals).toHaveLength(1)
+      expect(electronApi.resolveAiApproval).toHaveBeenCalledTimes(1)
+    })
+
     it('approves a main approval without claiming or returning a renderer result', async () => {
       const store = useAiStore()
       const apply = vi.spyOn(workspaceContext, 'applyDocumentOperation')

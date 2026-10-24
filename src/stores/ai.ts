@@ -81,6 +81,8 @@ export const useAiStore = defineStore('ai', () => {
   const approvalResolutions = new Map<string, ApprovalResolutionState>()
   /** 审批 → 承载它的助手消息 id（ToolApprovalRequest 由主进程构造，不含此信息） */
   const approvalMessageIds = new Map<string, string>()
+  /** 本会话内已记住的工具名；只在当前会话有效，切换会话即清空 */
+  const sessionApprovedTools = new Set<string>()
 
   function nextId(prefix: string): string {
     idCounter += 1
@@ -150,6 +152,8 @@ export const useAiStore = defineStore('ai', () => {
       reason: request.reason,
       effect: request.effect,
       riskLevel: request.riskLevel,
+      approvalTier: request.approvalTier,
+      supportsRememberDecision: request.supportsRememberDecision === true,
       preview: JSON.parse(JSON.stringify(request.preview)),
       createdAt: request.createdAt,
       messageId
@@ -318,6 +322,7 @@ export const useAiStore = defineStore('ai', () => {
     messages.value = []
     toolCalls.value = []
     approvalHistory.value = []
+    sessionApprovedTools.clear()
     discardAllApprovals()
     idCounter = 0
   }
@@ -331,6 +336,7 @@ export const useAiStore = defineStore('ai', () => {
         return
       }
       const record = result.data
+      sessionApprovedTools.clear()
       activeConversationId.value = record.id
       conversationTitle.value = record.title
       conversationCreatedAt.value = record.createdAt
@@ -518,6 +524,16 @@ export const useAiStore = defineStore('ai', () => {
         // 立刻写进会话记录，卡片从「等待批准」就地变成「已允许/已拒绝」
         approvalHistory.value.push(toApprovalRecord(event.approval, message.id))
         persistConversation()
+        // 本会话已记住这类操作：不再让用户点第二次，但仍走同一套执行/落库链路
+        if (event.approval.supportsRememberDecision
+          && event.approval.approvalTier !== 'batch'
+          && sessionApprovedTools.has(event.approval.toolName)) {
+          void resolveApproval(event.approval.id, {
+            status: 'approved',
+            scope: 'session',
+            toolName: event.approval.toolName
+          })
+        }
         break
       }
       case 'run-completed':
@@ -730,6 +746,12 @@ export const useAiStore = defineStore('ai', () => {
       }
 
       if (approvalResolutions.get(approvalId) !== resolutionState) return
+      if (resolutionState.decision.status === 'approved'
+        && resolutionState.decision.scope === 'session'
+        && approval.supportsRememberDecision
+        && approval.approvalTier !== 'batch') {
+        sessionApprovedTools.add(resolutionState.decision.toolName)
+      }
       approvalResolutions.delete(approvalId)
       pendingApprovals.value = pendingApprovals.value.filter((item) => item.id !== approvalId)
       settleApprovalRecord(approval, resolutionState.decision, resolutionState.result?.status)

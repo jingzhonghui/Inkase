@@ -96,9 +96,11 @@ export interface LocalFileReadResult extends LocalFileInspection {
   truncated: boolean
 }
 
+export type ApprovalTier = 'auto' | 'confirm' | 'batch'
+
 export interface ToolPolicy {
   effect: 'read' | 'network' | 'write' | 'external-action' | 'dangerous'
-  approval: 'never' | 'always' | 'policy'
+  approval: 'never' | 'always' | 'policy' | 'batch'
   riskLevel: 'low' | 'medium' | 'high' | 'critical'
   supportsRememberDecision: boolean
 }
@@ -161,9 +163,27 @@ export type ApprovedDocumentOperation =
       reason: string
     }
 
+export interface BatchApprovalFile {
+  /** 工作区相对路径；批量操作不跨库 */
+  path: string
+  /** 该文件的变更摘要，例如「替换 3 处链接」 */
+  summary: string
+  additions?: number
+  deletions?: number
+  /** 可展开的 unified diff；大文件可以省略，仅保留摘要 */
+  diff?: string
+}
+
 export type ApprovalPreview =
   | { type: 'markdown-diff'; title: string; before: string; after: string }
   | { type: 'document'; title: string; content: string }
+  | {
+      type: 'batch'
+      title: string
+      description?: string
+      files: BatchApprovalFile[]
+      totalChanges?: number
+    }
   | {
       type: 'network-request'
       method: string
@@ -182,6 +202,7 @@ export type ApprovalPreview =
 
 export type ApprovalDecision =
   | { status: 'approved'; scope: 'once' }
+  | { status: 'approved'; scope: 'session'; toolName: string }
   | { status: 'rejected'; reason?: string }
   | { status: 'cancelled' }
   | { status: 'expired' }
@@ -200,6 +221,10 @@ export interface ToolApprovalRequest {
   reason?: string
   effect: ToolPolicy['effect']
   riskLevel: ToolPolicy['riskLevel']
+  /** 审批档位；旧请求缺省时按逐次处理 */
+  approvalTier?: ApprovalTier
+  /** 是否允许「本次会话自动批准此类」 */
+  supportsRememberDecision?: boolean
   preview: ApprovalPreview
   execution: { location: 'main' } | { location: 'renderer'; operation: ApprovedDocumentOperation }
   createdAt: number
@@ -252,6 +277,10 @@ export interface ConversationApprovalRecord {
   reason?: string
   effect: ToolPolicy['effect']
   riskLevel: ToolPolicy['riskLevel']
+  /** 审批档位；旧会话缺省时按逐次处理 */
+  approvalTier?: ApprovalTier
+  /** 是否允许「本次会话自动批准此类」 */
+  supportsRememberDecision?: boolean
   preview: ApprovalPreview
   createdAt: number
   /** 未判定时缺省，表示仍在等待用户操作 */
