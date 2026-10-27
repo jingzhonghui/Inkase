@@ -1,10 +1,23 @@
 name: Website
 
-# 只在 website/ 或其部署链路变化时重新部署。
-# 发版触发的部署走 release.yml → deploy-site.yml，不依赖 release 事件链：
-# 用仓库默认 GITHUB_TOKEN 造成的 release 事件不会触发新的工作流运行
-# （GitHub 的防递归规则），而可复用工作流是 job 调用，不受该限制影响。
+# 两种触发方式：
+#   1. push 到 master 且改动落在 website/ 或其部署链路里；
+#   2. Release 工作流跑完之后（workflow_run）。
+#
+# 为什么发版走 workflow_run，而不是让 release.yml 直接 job 调用 deploy-site.yml：
+#   github-pages 环境的 Deployment branches and tags 只放行默认分支，tag 触发的运行
+#   一律被拒（"Tag vX.Y.Z is not allowed to deploy to github-pages"）。job 调用不换
+#   ref，所以那条路必然失败；workflow_run 的运行跑在默认分支上（github.ref 为
+#   refs/heads/master），环境规则自然满足。
+#   另外 workflow_run 由 runner 侧事件触发，不受「GITHUB_TOKEN 造成的 release 事件
+#   不会触发新工作流」的防递归限制，因此不需要额外的 PAT。
+#   版本号本来就在 deploy-site.yml 里用 gh release view 现查，不依赖跑在 tag 上。
 on:
+  workflow_run:
+    workflows:
+      - Release
+    types:
+      - completed
   push:
     branches:
       - master
@@ -23,6 +36,9 @@ permissions:
 jobs:
   deploy:
     name: Deploy website
+    # workflow_run 在 Release 失败/取消时也会触发，这里只放行成功的运行；
+    # 其它触发方式（push / 手动）不受影响。
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     uses: ./.github/workflows/deploy-site.yml
     permissions:
       contents: read
