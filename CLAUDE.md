@@ -88,8 +88,9 @@ electron/
 │   ├── workspace-search-service.ts # ripgrep 全文搜索
 │   ├── rg-resolver.ts # rg 二进制定位
 │   └── mdx-content-search.ts # MDX 内容搜索
-└── clipboard/
-    └── file-clipboard.ts # 系统文件剪切板集成
+├── clipboard/
+│   └── file-clipboard.ts # 系统文件剪切板集成
+└── diagram/          # 图表：自托管 draw.io webapp（inkase-drawio:// 协议托管 + 能力探测）
 
 src/
 ├── main.ts           # Vue 入口，挂载 Pinia
@@ -114,6 +115,7 @@ src/
 │   │   ├── PreviewPanel.vue  # 预览面板（markdown-it + Shiki 高亮 + KaTeX）
 │   │   ├── TabBar.vue        # 多标签页栏
 │   │   ├── FindReplacePanel.vue # 查找替换面板
+│   │   ├── DiagramEditor.vue # 图表（.drawio）：iframe 套自托管 draw.io，走 embed 协议
 │   │   ├── PdfViewer.vue / ImageViewer.vue / HtmlPreview.vue # 附件查看器
 │   │   └── ai/        # AI 面板组件（AiPanel、AiSettingsDialog、会话侧栏、消息列表、审批对话框、工具调用卡片等）
 │   ├── common/       # 通用组件（QuickOpenPalette、Tooltip、ConfirmDialog、EditorContextMenu、FileDropOverlay）
@@ -127,6 +129,7 @@ src/
 │   ├── formatters/                    # 代码格式化（Prettier standalone，按扩展名懒加载 parser；供纯文本源码右键菜单「格式化文档」/ Shift+Alt+F）
 │   ├── ai/                            # AI 消息解析等工具
 │   ├── mindmap/                       # 思维导图（schema 解析/序列化、viewport 画布尺寸、context-menu 菜单项）
+│   ├── diagram/                       # 图表（embed 协议桥接、保存前冲刷登记表）
 │   └── prosemirror/                   # ProseMirror 工具集
 │       ├── index.ts                   # 统一导出
 │       ├── schema.ts                  # Schema 定义（节点 + 标记，含 math_inline/block）
@@ -224,6 +227,21 @@ map.inkmind (ZIP)
 - **富内容**：节点支持 `image`（包内 `assets/images/…`）、`attachments`（包内 `assets/files/…`，单节点上限 10 个、单个 50MB）、`icons`、`tags`、`href`，文档支持 `arrows`（关系线）与 `summaries`（概要），schema 版本 2。渲染层映射集中在 `src/utils/mindmap/adapter.ts`，校验与限额在 `src/utils/mindmap/rich-content.ts`；图标以字形（⭐🚩❓❗✅）交给渲染库、文件里仍存名字，因为 mind-elixir 把 `icons` 当纯文本输出——两边进出必须走 `iconsFromElixir` / `writeIconsToElixir`，直接往 `icons` 里塞名字会让画布显示「star」这个单词；附件不在渲染库的数据结构里，借节点 `metadata` 带一圈再回读
 - **右键菜单与附件卡片**：图标是一级入口 + 二级菜单，点一下就地切换**并关闭菜单**（图标可叠加：重新右键再选，二级菜单里已选项带勾选态；`refresh()` 会清掉选中态，所以关菜单前记住 id、切完用 `restoreSelection` 选回来），不弹输入面板；只有标签/链接需要面板校验。附件在画布上渲染成节点下方的卡片（字形 + 文件名 + 大小），卡片是**注入进 `me-tpc` 的 DOM**，渲染库每轮重绘都会重建节点元素，所以挂在 `scheduleMeasure()` 里重画（与分支配色、查找标记同一处）；卡片参与节点高度，整图由渲染库自己的 flex 布局重排。卡片左键打开、右键出「打开 / 另存为 / 移除」。`P1`/`P2`/`P3` 自动套用优先级配色（预设定义在 `shared/mindmap/document.ts`，供 XMind 互转共用）
 - **AI 生成导图**：`create_mindmap` / `update_mindmap`（`electron/ai/tools/document-tools.ts`）只收 Markdown 大纲，由 `markdownToMindMapJson` 转成 JSON——不让模型手写 `.inkmind`，避免 id/括号出错产出打不开的文件。`update_mindmap` 复用 `replace-document` 操作，自带 revision/哈希冲突检测；会整体覆盖，因此丢失节点富内容，工具描述里限定了使用场景。与标题同名的一级标题会被剥掉，避免中心主题下多挂一个同名节点
+
+### 图表（`.drawio`）
+
+第四种文档格式，与导图相反：**不做容器**，文件就是 draw.io 自己的一整份 mxfile XML（UTF-8 文本），`format: 'diagram'`。这样 `.drawio` 能和外部工具、Git diff、issue 附件直接互通，代价是没有「资源随文件走」的能力（draw.io 的图片本来就是内嵌 base64 或外链）。
+
+- **编辑器不是自己写的**：`src/components/editor/DiagramEditor.vue` 用一个 iframe 套住**自托管的 draw.io webapp**，双方只走官方的 embed 协议（`?embed=1&proto=json`）。draw.io 是强耦合单体，拆到最后只剩 mxGraph 内核，重造轮子的工作量在 spike 里量到 53–72 人日，且形状库、导出、撤销栈全都要自己补。iframe 换来的是完整功能，代价是 +45MB 磁盘 / +7.6MB 安装包
+- **协议托管**：`electron/diagram/protocol.ts` 用自定义协议 `inkase-drawio://app/...` 服务 `resources/drawio`（dev 走仓库目录，prod 走 `process.resourcesPath/drawio`），不占端口、不监听回环；响应头里注入严格 CSP（**不需要 `unsafe-eval`**，已实测）。注册分两步：`registerDiagramSchemePrivileges()` 在 app ready **之前**声明 standard/secure 特权，`registerDiagramProtocol()` 在 ready 之后挂文件服务——顺序错了协议直接不工作
+- **webapp 不入库**：`resources/drawio` 是 45MB / 767 文件，`pnpm run fetch:drawio`（`scripts/fetch-drawio.mjs`）从 npm 拉 `@guowenzhang/dsh-drawioedit` 解包得到，`.gitignore` 忽略、`electron-builder.yml` 用 `extraResources` 打包。`eslint.config.mjs` 也把它排除，否则 lint 会被这堆压缩产物淹掉
+- **桥接**：`src/utils/diagram/bridge.ts` 只管收发消息与请求配对，不碰 Pinia。三个实测得来的约束写在代码里：`format:'xml'` 的导出结果在 `payload.xml` 而非 `data`；一次编辑会连发**两条** autosave（第一条是中间态），所以按去抖合并、取最后一条；`EditorUi` 是闭包变量挂不到 `window`，任何程序化操作只能走用户输入或协议
+- **真相在 store**：`tab.content` 是唯一真相，画布是它的视图。改动经 autosave 回写；只有**不是自己写**的变更（重新打开、外部改文件、AI 改正文）才回灌给 iframe，否则「写回 → 监听到变化 → 再加载」会活锁。回灌会记在 `loadChain` 上，保存前冲刷要等它，否则会把装载前的旧模型写进文件
+- **保存前冲刷**：draw.io 的 autosave 是异步且去抖的，`Ctrl+S` 读的是 `tab.content`，刚拖完框就保存会丢最后一次改动。`src/utils/diagram/flush.ts` 是一张「标签 id → 冲刷函数」的登记表，`saveFile`/`saveAsFile` 写盘前按需冲一次；图表编辑器挂载时登记、卸载时先 `flushPendingAutosave()` 再注销
+- **快捷键跨域问题**：画布在跨域 iframe 里，那里的 keydown 不会冒泡到页面，`Ctrl+S` 会「按了没反应」。`electron/main.ts` 用 `webContents.on('before-input-event')` 统一拦截保存快捷键，`preventDefault()` 之后转 `app:shortcut` 给渲染层——`preventDefault` 保证这次按键只被处理一次，不会重复保存
+- **导出**：工具栏的 SVG/PNG 走协议 `export`，拿回 data URL 后解码，复用 `exportMindMapImage`（`FILE.EXPORT_IMAGE`）写盘。注意 SVG 里 `html=1` 的标签是 `<foreignObject>`，部分外部渲染器不认
+- **计数**：状态栏对图表显示「图元」而不是「字数」（`countDiagramCells` 数 `<mxCell>` 再减掉每页两个根 cell）
+- **组件缺失时**：`diagram:info` 告诉渲染层 webapp 是否就位；缺了就显示「运行 `pnpm run fetch:drawio`」的空状态，而不是白屏
 
 ### IPC 通信模式
 

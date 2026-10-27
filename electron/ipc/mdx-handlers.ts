@@ -17,6 +17,12 @@ import { saveMdx, validateFilePath } from '../mdx/writer'
 import { importAndSaveAsMdx } from '../mdx/import'
 import { exportMdxFile } from '../mdx/export'
 import { addRecentFile as addRecent } from './file-handlers'
+import {
+  DIAGRAM_EXTENSION,
+  DIAGRAM_FILE_FILTER_NAME,
+  isDiagramPath,
+  isDiagramPayload
+} from '../../shared/diagram/document'
 import { clearRecoveryData } from '../recovery'
 import type { RecoverySnapshot } from '../recovery'
 import {
@@ -161,6 +167,7 @@ export function registerMdxHandlers(): void {
           filters: [
             { name: 'Inkase 文档', extensions: ['mdx'] },
             { name: 'Inkase 思维导图', extensions: ['inkmind'] },
+            { name: DIAGRAM_FILE_FILTER_NAME, extensions: ['drawio'] },
             { name: 'Markdown 文件', extensions: ['md'] },
             { name: '所有文件', extensions: ['*'] }
           ]
@@ -246,6 +253,33 @@ export function registerMdxHandlers(): void {
             largeFileWarning,
             // 包里图片/附件的落点，渲染层据此拼可加载 URL
             assetMap: archive.assetMap
+          }
+        }
+      }
+
+      // 图表：原生 .drawio 文本，整份交给渲染层里自托管的 draw.io 渲染
+      if (isDiagramPath(targetPath)) {
+        const buf = fs.readFileSync(targetPath)
+        if (buf.includes(0)) {
+          return { success: false, error: '图表文件损坏（包含二进制内容）' }
+        }
+        const content = buf.toString('utf-8')
+        if (!isDiagramPayload(content)) {
+          return { success: false, error: '不是有效的 draw.io 图表文件' }
+        }
+        const document = createMdxDocument(
+          path.basename(targetPath, path.extname(targetPath)),
+          content
+        )
+        if (addToRecent) addRecent(targetPath)
+        return {
+          success: true,
+          data: {
+            document,
+            filePath: targetPath,
+            format: 'diagram',
+            isNew: false,
+            largeFileWarning
           }
         }
       }
@@ -352,19 +386,31 @@ export function registerMdxHandlers(): void {
         // 新建但尚未落盘的文档没有路径可推断格式（尤其是思维导图，
         // 若不显式传入就会按 Markdown 存成 .mdx），因此优先采用调用方声明的格式。
         const explicitFormat =
-          format === 'mindmap' || format === 'markdown' || format === 'mdx' ? format : undefined
+          format === 'mindmap' || format === 'markdown' || format === 'mdx' || format === 'diagram'
+            ? format
+            : undefined
         const sourceIsMindMap =
           explicitFormat === 'mindmap' ||
           (explicitFormat === undefined &&
             !!sourcePath &&
             path.extname(sourcePath).toLowerCase() === '.inkmind')
+        const sourceIsDiagram =
+          explicitFormat === 'diagram' ||
+          (explicitFormat === undefined && isDiagramPath(sourcePath))
         const sourceIsMarkdown =
           !sourceIsMindMap &&
+          !sourceIsDiagram &&
           (explicitFormat === 'markdown' ||
             (explicitFormat === undefined &&
               !!sourcePath &&
               path.extname(sourcePath).toLowerCase() === '.md'))
-        const sourceExtension = sourceIsMindMap ? '.inkmind' : sourceIsMarkdown ? '.md' : '.mdx'
+        const sourceExtension = sourceIsMindMap
+          ? '.inkmind'
+          : sourceIsDiagram
+            ? DIAGRAM_EXTENSION
+            : sourceIsMarkdown
+              ? '.md'
+              : '.mdx'
         const defaultName = (title || path.basename(sourcePath || '', path.extname(sourcePath || '')) || '未命名文档') + sourceExtension
         const result = await dialog.showSaveDialog(window!, {
           defaultPath: defaultName,
@@ -373,10 +419,15 @@ export function registerMdxHandlers(): void {
                 { name: 'Inkase 思维导图', extensions: ['inkmind'] },
                 { name: '所有文件', extensions: ['*'] }
               ]
-            : [
-                { name: 'Inkase 文档', extensions: ['mdx'] },
-                { name: 'Markdown 文件', extensions: ['md'] }
-              ]
+            : sourceIsDiagram
+              ? [
+                  { name: DIAGRAM_FILE_FILTER_NAME, extensions: ['drawio'] },
+                  { name: '所有文件', extensions: ['*'] }
+                ]
+              : [
+                  { name: 'Inkase 文档', extensions: ['mdx'] },
+                  { name: 'Markdown 文件', extensions: ['md'] }
+                ]
         })
 
         if (result.canceled || !result.filePath) {
@@ -387,13 +438,20 @@ export function registerMdxHandlers(): void {
         // 先补扩展名，再按**最终**路径判定目标类型：
         // 否则用户只输入文件名时会误用 .mdx 的校验器而报「扩展名必须是 .mdx」
         const lowerTarget = targetPath.toLowerCase()
-        if (!lowerTarget.endsWith('.md') && !lowerTarget.endsWith('.inkmind')) {
+        if (
+          !lowerTarget.endsWith('.md') &&
+          !lowerTarget.endsWith('.inkmind') &&
+          !lowerTarget.endsWith(DIAGRAM_EXTENSION)
+        ) {
           targetPath += sourceExtension
         }
 
         const finalTarget = targetPath.toLowerCase()
-        // .md 与 .inkmind 都不走 MDX 的 ZIP 校验：前者是纯文本，后者是自己的容器格式
-        const isTextTarget = finalTarget.endsWith('.md') || finalTarget.endsWith('.inkmind')
+        // .md / .inkmind / .drawio 都不走 MDX 的 ZIP 校验：前两者与图表都是自己的载体
+        const isTextTarget =
+          finalTarget.endsWith('.md') ||
+          finalTarget.endsWith('.inkmind') ||
+          finalTarget.endsWith(DIAGRAM_EXTENSION)
         const validation = isTextTarget
           ? { valid: !/[<>:"|?*]/.test(path.basename(targetPath)), error: '文件名包含非法字符' }
           : validateFilePath(targetPath)
@@ -422,6 +480,13 @@ export function registerMdxHandlers(): void {
 
         // Markdown 目标：直接写字符串
         if (finalTarget.endsWith('.md')) {
+          fs.writeFileSync(targetPath, document.content, 'utf-8')
+          if (addToRecent) addRecent(targetPath)
+          return { success: true, data: targetPath }
+        }
+
+        // .drawio 是纯文本（mxfile XML），与 Markdown 同一条落盘路径
+        if (finalTarget.endsWith(DIAGRAM_EXTENSION)) {
           fs.writeFileSync(targetPath, document.content, 'utf-8')
           if (addToRecent) addRecent(targetPath)
           return { success: true, data: targetPath }

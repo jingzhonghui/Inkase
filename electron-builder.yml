@@ -35,6 +35,12 @@ extraResources:
     to: rg
     filter:
       - '**/*'
+  # 图表编辑器：自托管的 draw.io webapp（`pnpm run fetch:drawio` 生成）
+  # 打进 resources/drawio，主进程用 inkase-drawio:// 协议托管
+  - from: resources/drawio
+    to: drawio
+    filter:
+      - '**/*'
 win:
   artifactName: '${productName}-${arch}-${version}.${ext}'
   target:

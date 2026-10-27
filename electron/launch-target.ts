@@ -11,7 +11,7 @@ export interface LaunchTarget {
 type InspectTarget = (target: string) => LaunchTargetKind | null
 
 /** 可作为文档直接打开的扩展名（文件夹不受限制） */
-const DOCUMENT_EXTENSIONS = ['.md', '.mdx', '.inkmind']
+const DOCUMENT_EXTENSIONS = ['.md', '.mdx', '.inkmind', '.drawio']
 
 function inspectTarget(target: string): LaunchTargetKind | null {
   try {

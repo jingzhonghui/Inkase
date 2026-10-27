@@ -20,6 +20,12 @@ import 'splitpanes/dist/splitpanes.css'
  */
 const MindMapEditor = defineAsyncComponent(() => import('./MindMapEditor.vue'))
 
+/**
+ * 图表编辑器同样按需加载：它本体只有一个 iframe，
+ * 但配套的桥接/图标/工具栏没必要进首屏。
+ */
+const DiagramEditor = defineAsyncComponent(() => import('./DiagramEditor.vue'))
+
 const fileStore = useFileStore()
 const aiStore = useAiStore()
 defineProps<{ aiReady?: boolean }>()
@@ -31,6 +37,7 @@ const hasOpenFile = computed(() => fileStore.tabs.length > 0 && fileStore.active
 const isImageTab = computed(() => fileStore.activeTab?.fileInfo?.format === 'image')
 const isPdfTab = computed(() => fileStore.activeTab?.fileInfo?.format === 'pdf')
 const isMindMapTab = computed(() => fileStore.activeTab?.fileInfo?.format === 'mindmap')
+const isDiagramTab = computed(() => fileStore.activeTab?.fileInfo?.format === 'diagram')
 const isPlainTextTab = computed(() => fileStore.effectiveEditorMode === 'plain')
 const isHtmlTab = computed(() => fileStore.isHtmlFile)
 const isHtmlPreviewOn = computed(() => isHtmlTab.value && fileStore.htmlPreviewActive)
@@ -206,12 +213,17 @@ function onPreviewScroll(ratio: number): void {
         :key="fileStore.activeTabId || 'mindmap-editor'"
       />
 
+      <!-- 图表（.drawio）：iframe 套自托管 draw.io，走 embed 协议 -->
+      <DiagramEditor
+        v-else-if="isDiagramTab"
+        :key="fileStore.activeTabId || 'diagram-editor'"
+      />
+
       <!-- PDF 文件：只读查看 -->
       <PdfViewer
         v-else-if="isPdfTab"
         :key="fileStore.activeTabId || 'pdf-viewer'"
       />
-
       <!-- HTML 文件预览态：浏览器式渲染（右上角按钮切换源码/预览） -->
       <HtmlPreview
         v-else-if="isHtmlPreviewOn"

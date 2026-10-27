@@ -15,6 +15,11 @@ import { registerMindMapHandlers } from './ipc/mindmap-handlers'
 import { registerPdfHandlers } from './ipc/pdf-handlers'
 import { registerPreviewProtocol, registerPreviewSchemePrivileges } from './ipc/preview-protocol'
 import {
+  registerDiagramProtocol,
+  registerDiagramSchemePrivileges
+} from './diagram/protocol'
+import { registerDiagramHandlers } from './diagram/handlers'
+import {
   hadAbnormalExit,
   markAppRunning,
   readRecoverySnapshot,
@@ -55,6 +60,8 @@ if (process.env.APPIMAGE) {
 
 // privileged scheme 注册必须在 app ready 之前（协议处理器在 whenReady 中注册）
 registerPreviewSchemePrivileges()
+// draw.io webapp 走自己的协议：同样要在 ready 之前声明特权
+registerDiagramSchemePrivileges()
 
 let mainWindow: BrowserWindow | null = null
 const pendingOpenTargets: LaunchTarget[] = []
@@ -157,6 +164,24 @@ function createWindow(): void {
     }
   })
   mainWindow = win
+
+  /**
+   * 保存快捷键的兜底转发。
+   *
+   * 图表编辑时焦点在 draw.io 的 iframe 里（跨域），keydown 不会冒泡到页面，
+   * 渲染层的监听收不到 Ctrl+S，用户会觉得「按了没反应」。
+   * 这里在 webContents 层统一拦截：preventDefault 之后页面不会再收到这次按键，
+   * 因此渲染层只经由 IPC 处理一次，不会重复保存。
+   */
+  win.webContents.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown' || input.alt) return
+    const primary = process.platform === 'darwin' ? input.meta : input.control
+    if (!primary || input.key.toLowerCase() !== 's') return
+    event.preventDefault()
+    if (!win.isDestroyed()) {
+      win.webContents.send(IPC_CHANNELS.APP.SHORTCUT, input.shift ? 'save-as' : 'save')
+    }
+  })
 
   let saveTimer: ReturnType<typeof setTimeout> | null = null
   const persistWindowState = (): void => {
@@ -340,8 +365,14 @@ async function bootstrap(): Promise<void> {
     // 注册思维导图格式互通（XMind）handlers
     registerMindMapHandlers()
 
+    // 注册图表（draw.io webapp）能力探测 handlers
+    registerDiagramHandlers()
+
     // 注册 HTML 预览协议 handlers
     registerPreviewProtocol()
+
+    // 注册 draw.io webapp 协议 handlers（图表编辑器用 iframe 加载它）
+    registerDiagramProtocol()
 
     // 注册同步 IPC handlers
     registerSyncHandlers(syncEngine, () => mainWindow)

@@ -15,6 +15,7 @@ import {
 } from '../clipboard/file-clipboard'
 import { dedupeTopLevelPaths } from '../../shared/fs/dedupe'
 import { createEmptyMindMapText } from '../../shared/mindmap/document'
+import { createEmptyDiagramXml } from '../../shared/diagram/document'
 import { writeArchive } from '../mindmap/inkmind-archive'
 
 /** 最近文件列表上限 */
@@ -426,6 +427,14 @@ export function registerFileHandlers(): void {
             createEmptyMindMapText(name.replace(/\.inkmind$/i, ''))
           )
           if (!created.ok) return { success: false, error: created.error }
+        } else if (ext === '.drawio') {
+          // 图表是纯文本 mxfile：写一份空图，页名用文件名，
+          // 避免落到下面的「普通文件」分支写出空文件——那样打开就是一片坏图
+          fs.writeFileSync(
+            fullPath,
+            createEmptyDiagramXml(name.replace(/\.drawio$/i, '')),
+            'utf-8'
+          )
         } else {
           // 普通的 .md 文件
           fs.writeFileSync(fullPath, '', 'utf-8')

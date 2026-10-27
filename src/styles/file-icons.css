@@ -11,6 +11,7 @@
 [data-file-icon='markdown'] { --file-icon-color: #519aba; }
 [data-file-icon='pdf'] { --file-icon-color: #e5252a; }
 [data-file-icon='image'] { --file-icon-color: #a074c4; }
+[data-file-icon='diagram'] { --file-icon-color: #f08705; }
 [data-file-icon='svg'] { --file-icon-color: #ffb13b; }
 [data-file-icon='archive'] { --file-icon-color: #d97706; }
 

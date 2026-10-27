@@ -6,6 +6,7 @@ import { requestDialog } from '../../utils/dialog'
 import { validateWindowsFolderName, validateWindowsFileName } from '../../utils/windows-filename'
 import { dedupeTopLevelPaths } from '../../../shared/fs/dedupe'
 import { MINDMAP_EXTENSION } from '../../types/mindmap'
+import { DIAGRAM_EXTENSION } from '../../../shared/diagram/document'
 import FileTreeItem from './FileTreeItem.vue'
 
 const fileStore = useFileStore()
@@ -322,6 +323,7 @@ function onEmptyContextMenu(event: MouseEvent): void {
         contextSubmenu('新建', [
           { label: '文件', action: () => promptCreateFile(folderPath) },
           { label: '思维导图', action: () => promptCreateMindMap(folderPath) },
+          { label: '图表', action: () => promptCreateDiagram(folderPath) },
           { label: '文件夹', action: () => promptCreateFolder(folderPath) }
         ]),
         importSubmenu,
@@ -401,6 +403,7 @@ function onFolderContextMenu(event: MouseEvent, node: FileTreeNode): void {
     contextSubmenu('新建', [
       { label: '文件', action: () => promptCreateFile(node.path) },
       { label: '思维导图', action: () => promptCreateMindMap(node.path) },
+      { label: '图表', action: () => promptCreateDiagram(node.path) },
       { label: '文件夹', action: () => promptCreateFolder(node.path) }
     ]),
     contextSubmenu('导入', [
@@ -604,6 +607,12 @@ async function promptCreateFile(dirPath: string): Promise<void> {
  */
 async function promptCreateMindMap(dirPath: string): Promise<void> {
   const name = await openCreateFileDialog(`未命名导图${MINDMAP_EXTENSION}`)
+  if (!name) return
+  await fileStore.createFile(dirPath, name)
+}
+
+async function promptCreateDiagram(dirPath: string): Promise<void> {
+  const name = await openCreateFileDialog(`未命名图表${DIAGRAM_EXTENSION}`)
   if (!name) return
   await fileStore.createFile(dirPath, name)
 }

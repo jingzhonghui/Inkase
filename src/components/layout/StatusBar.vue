@@ -16,6 +16,12 @@ const effectiveMode = computed<EditorMode>(() =>
 /** 当前标签是否为思维导图（不属于编辑模式体系，只做展示） */
 const isMindMapActive = computed(() => fileStore.activeTab?.fileInfo?.format === 'mindmap')
 
+/** 当前标签是否为图表：内容是一坨 XML，字数统计对它没意义（store 里换成了图元数） */
+const isDiagramActive = computed(() => fileStore.activeTab?.fileInfo?.format === 'diagram')
+
+/** 计数标签名：图表统计的是图元个数 */
+const countLabel = computed(() => (isDiagramActive.value ? '图元' : '字数'))
+
 onMounted(async () => {
   try {
     appVersion.value = await window.electronAPI.getVersion()
@@ -107,7 +113,7 @@ const modeTooltip = computed(() => `${modeLabel.value} (点击切换)`)
 <template>
   <footer class="status-bar">
     <div class="status-left">
-      <span class="status-item">字数: {{ fileStore.wordCount }}</span>
+      <span class="status-item">{{ countLabel }}: {{ fileStore.wordCount }}</span>
       <span class="status-separator">|</span>
       <span class="status-item">文件大小: {{ fileSize }}</span>
       <span class="status-separator">|</span>

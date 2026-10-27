@@ -58,6 +58,9 @@ docs/superpowers/
 *.tsbuildinfo
 dist-build
 
+# draw.io webapp（45MB 第三方资源，构建前用 pnpm run fetch:drawio 拉取）
+resources/drawio/
+
 # 教程 PDF 生成工具与截图（本地保留，不入库）
 scripts/build-guide.py
 scripts/guide-images/

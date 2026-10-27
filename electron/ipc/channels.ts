@@ -57,6 +57,10 @@ export const IPC_CHANNELS = {
     OPEN_ASSET: 'mindmap:openAsset',
     SAVE_ASSET_AS: 'mindmap:saveAssetAs'
   },
+  DIAGRAM: {
+    /** 自托管 draw.io webapp 是否就位（渲染层据此决定挂 iframe 还是提示缺组件） */
+    INFO: 'diagram:info'
+  },
   APP: {
     PING: 'ping',
     GET_VERSION: 'app:getVersion',
@@ -64,6 +68,14 @@ export const IPC_CHANNELS = {
     GET_USER_GUIDE_PATH: 'app:getUserGuidePath',
     CONFIRM_CLOSE: 'app:confirm-close',
     CLOSE_CONFIRMED: 'app:close-confirmed',
+    /**
+     * 主进程转发的快捷键（当前只有保存/另存为）。
+     *
+     * 图表编辑时焦点在 draw.io 的 iframe 里，跨域导致 keydown 不会冒泡到页面，
+     * 渲染层自己的监听收不到 Ctrl+S；改由 webContents 的 before-input-event
+     * 统一拦截再转过来，保证画布里按保存也有效。
+     */
+    SHORTCUT: 'app:shortcut',
     RECOVERY_STATUS: 'recovery:status',
     RECOVERY_READ: 'recovery:read',
     RECOVERY_WRITE: 'recovery:write',

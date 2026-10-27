@@ -1,7 +1,13 @@
 import { computed, ref, watch } from 'vue'
 import { defineStore } from 'pinia'
-import { isEditableTextFormat, isMindMapFormat } from '../../types/mdx'
+import { isEditableTextFormat, isDiagramFormat, isMindMapFormat } from '../../types/mdx'
 import { createEmptyMindMap, MINDMAP_EXTENSION } from '../../types/mindmap'
+import {
+  DIAGRAM_EXTENSION,
+  createEmptyDiagramXml,
+  countDiagramCells
+} from '../../../shared/diagram/document'
+import { flushDiagramEdits } from '../../utils/diagram/flush'
 import { markdownToMindMapJson } from '../../../shared/mindmap/markdown'
 import { extractMindMapOutline } from '../../../shared/mindmap/outline'
 import { parseMindMap, countMindMapText, serializeMindMap } from '../../utils/mindmap/schema'
@@ -148,6 +154,11 @@ export const useFileStore = defineStore('file', () => {
       wordCount.value = parsed.ok ? countMindMapText(parsed.document.root) : 0
       return
     }
+    // 图表是 mxfile XML：字符数没有意义，改成统计图元个数（`<mxCell>` / `<UserObject>`）
+    if (isDiagramFormat(activeTab.value?.fileInfo?.format)) {
+      wordCount.value = countDiagramCells(text)
+      return
+    }
     wordCount.value = text.replace(/\s/g, '').length
   }
 
@@ -167,20 +178,26 @@ export const useFileStore = defineStore('file', () => {
         const result = await window.electronAPI.clearRecovery()
         if (!result.success) throw new Error(result.error || '清理恢复快照失败')
       } else {
-        const result = await window.electronAPI.writeRecovery({
-          version: 1,
-          createdAt: new Date().toISOString(),
-          activeTabId: activeTabId.value,
-          tabs: dirtyTabs.map((tab) => ({
-            id: tab.id,
-            filePath: tab.fileInfo?.path || null,
-            fileName: tab.fileInfo?.name || '未命名.mdx',
-            format: tab.fileInfo?.format || 'mdx',
-            content: tab.content,
-            document: tab.document,
-            modifiedAt: new Date().toISOString()
-          }))
-        })
+        // tabs 是响应式数组，取出来的 tab / document 都是 Proxy，结构化克隆不认，
+        // 直接过 IPC 会抛「An object could not be cloned」——关闭未命名标签时就撞这条。
+        // 快照本来就按 JSON 落盘，先转成纯数据，不会有信息损失。
+        const snapshot = JSON.parse(
+          JSON.stringify({
+            version: 1,
+            createdAt: new Date().toISOString(),
+            activeTabId: activeTabId.value,
+            tabs: dirtyTabs.map((tab) => ({
+              id: tab.id,
+              filePath: tab.fileInfo?.path || null,
+              fileName: tab.fileInfo?.name || '未命名.mdx',
+              format: tab.fileInfo?.format || 'mdx',
+              content: tab.content,
+              document: tab.document,
+              modifiedAt: new Date().toISOString()
+            }))
+          })
+        )
+        const result = await window.electronAPI.writeRecovery(snapshot)
         if (!result.success) throw new Error(result.error || '写入恢复快照失败')
       }
     } finally {
@@ -512,6 +529,50 @@ export const useFileStore = defineStore('file', () => {
     }
   }
 
+  /**
+   * 新建图表。
+   *
+   * 与思维导图同理：内容是一段 XML 文本，本地生成即可，首次保存时走「另存为」。
+   * 空白页模板来自 `shared/diagram/document.ts`，与 draw.io 自己新建时一致。
+   */
+  async function newDiagram(): Promise<boolean> {
+    isLoading.value = true
+    error.value = null
+
+    try {
+      if (tabs.value.length >= maxOpenTabs.value) {
+        await requestDialog({
+          title: '已达标签上限',
+          message: `最多同时打开 ${maxOpenTabs.value} 个标签，请先关闭一些标签。`,
+          buttons: [{ label: '知道了', value: 0, primary: true }]
+        })
+        return false
+      }
+
+      const content = createEmptyDiagramXml()
+      const tab = tabState.createTab()
+      tab.excludeFromRecent = true
+      tab.document = createMdxDocument('未命名图表', content)
+      tab.content = content
+      tab.fileInfo = {
+        path: '',
+        name: `未命名图表${DIAGRAM_EXTENSION}`,
+        modified: false,
+        format: 'diagram'
+      }
+      activeTabId.value = tab.id
+      useAiStore().deactivatePanel()
+      stateVersion.value++
+      updateWordCount()
+      return true
+    } catch (err) {
+      error.value = err instanceof Error ? err.message : '新建图表失败'
+      return false
+    } finally {
+      isLoading.value = false
+    }
+  }
+
   async function openFile(
     filePath?: string,
     options?: {
@@ -520,8 +581,7 @@ export const useFileStore = defineStore('file', () => {
       preview?: boolean
       excludeFromRecent?: boolean
     }
-  ): Promise<boolean> {
-    isLoading.value = true
+  ): Promise<boolean> {    isLoading.value = true
     error.value = null
 
     try {
@@ -595,9 +655,11 @@ export const useFileStore = defineStore('file', () => {
           (result.data.format as DocumentFormat) ||
           (fPath.toLowerCase().endsWith('.inkmind')
             ? 'mindmap'
-            : fPath.toLowerCase().endsWith('.md')
-              ? 'markdown'
-              : 'mdx')
+            : fPath.toLowerCase().endsWith(DIAGRAM_EXTENSION)
+              ? 'diagram'
+              : fPath.toLowerCase().endsWith('.md')
+                ? 'markdown'
+                : 'mdx')
         const isReadOnlyMedia = !isEditableTextFormat(format)
         tab.document = doc
         tab.content = isReadOnlyMedia ? '' : doc.content
@@ -661,6 +723,11 @@ export const useFileStore = defineStore('file', () => {
         return false
       }
 
+      // 图表改动经 autosave 异步回传，写盘前先让编辑器把最新模型同步进来
+      if (tab.fileInfo?.format === 'diagram') {
+        await flushDiagramEdits(tab.id)
+      }
+
       const savedContent = tab.content
       const filePath = tab.fileInfo?.path
       const isInWorkspace = !!(
@@ -718,18 +785,24 @@ export const useFileStore = defineStore('file', () => {
         return false
       }
 
+      if (tab.fileInfo?.format === 'diagram') {
+        await flushDiagramEdits(tab.id)
+      }
+
       const savedContent = tab.content
       const result = await window.electronAPI.saveAsFile(
         savedContent,
         tab.document.metadata.title,
         tab.fileInfo?.path || undefined,
         tab.excludeFromRecent !== true,
-        // 新建的思维导图还没有路径，必须显式告知格式，否则会被存成 .mdx
+        // 新建的思维导图/图表还没有路径，必须显式告知格式，否则会被存成 .mdx
         tab.fileInfo?.format === 'mindmap'
           ? 'mindmap'
-          : tab.fileInfo?.format === 'markdown'
-            ? 'markdown'
-            : 'mdx'
+          : tab.fileInfo?.format === 'diagram'
+            ? 'diagram'
+            : tab.fileInfo?.format === 'markdown'
+              ? 'markdown'
+              : 'mdx'
       )
 
       if (result.success && result.data) {
@@ -737,9 +810,11 @@ export const useFileStore = defineStore('file', () => {
         externalWatch.markExternalHandled(savePath)
         const savedFormat: DocumentFormat = savePath.toLowerCase().endsWith('.inkmind')
           ? 'mindmap'
-          : savePath.toLowerCase().endsWith('.md')
-            ? 'markdown'
-            : 'mdx'
+          : savePath.toLowerCase().endsWith(DIAGRAM_EXTENSION)
+            ? 'diagram'
+            : savePath.toLowerCase().endsWith('.md')
+              ? 'markdown'
+              : 'mdx'
         if (tab.fileInfo) {
           tab.fileInfo.path = savePath
           tab.fileInfo.name = savePath.split(/[/\\]/).pop() || '未命名.mdx'
@@ -1617,6 +1692,7 @@ export const useFileStore = defineStore('file', () => {
     init,
     newFile,
     newMindMap,
+    newDiagram,
     openFile,
     saveFile,
     saveAsFile,

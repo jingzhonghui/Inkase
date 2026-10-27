@@ -119,6 +119,7 @@ const fileMenu = computed<MenuItem[]>(() => {
     children: [
       { kind: 'item', label: '文件', action: 'new', shortcut: 'Ctrl+N' },
       { kind: 'item', label: '思维导图', action: 'new-mindmap', shortcut: 'Ctrl+Shift+N' },
+      { kind: 'item', label: '图表', action: 'new-diagram', shortcut: 'Ctrl+Shift+D' },
       {
         kind: 'item',
         label: '由当前笔记生成',
@@ -159,7 +160,7 @@ const fileMenu = computed<MenuItem[]>(() => {
     kind: 'submenu',
     label: '导出',
     children: [
-      { kind: 'item', label: 'Markdown', action: 'export-md', disabled: isMindMapActiveTab.value },
+      { kind: 'item', label: 'Markdown', action: 'export-md', disabled: isCanvasDocumentActiveTab.value },
       {
         kind: 'item',
         label: 'XMind 文件',
@@ -186,12 +187,12 @@ const fileMenu = computed<MenuItem[]>(() => {
         disabled: !isMindMapActiveTab.value
       },
       { kind: 'divider' },
-      { kind: 'item', label: 'PDF', action: 'export-pdf', disabled: isMindMapActiveTab.value },
+      { kind: 'item', label: 'PDF', action: 'export-pdf', disabled: isCanvasDocumentActiveTab.value },
       {
         kind: 'item',
         label: '批量 PDF',
         action: 'export-batch-pdf',
-        disabled: isMindMapActiveTab.value
+        disabled: isCanvasDocumentActiveTab.value
       }
     ]
   }
@@ -235,21 +236,21 @@ const editMenu = computed<MenuItem[]>(() => [
     label: '剪切',
     action: 'cut',
     shortcut: 'Ctrl+X',
-    disabled: isMindMapActiveTab.value
+    disabled: isCanvasDocumentActiveTab.value
   },
   {
     kind: 'item',
     label: '复制',
     action: 'copy',
     shortcut: 'Ctrl+C',
-    disabled: isMindMapActiveTab.value
+    disabled: isCanvasDocumentActiveTab.value
   },
   {
     kind: 'item',
     label: '粘贴',
     action: 'paste',
     shortcut: 'Ctrl+V',
-    disabled: isMindMapActiveTab.value
+    disabled: isCanvasDocumentActiveTab.value
   },
   { kind: 'divider' },
   {
@@ -263,7 +264,7 @@ const editMenu = computed<MenuItem[]>(() => [
     label: '替换',
     action: 'replace',
     shortcut: 'Ctrl+H',
-    disabled: isMindMapActiveTab.value
+    disabled: isCanvasDocumentActiveTab.value
   }
 ])
 
@@ -272,6 +273,14 @@ const effectiveMode = computed<EditorMode>(() => fileStore.effectiveEditorMode)
 
 /** 当前标签是否为思维导图（无 Markdown 正文，部分菜单项对它不适用） */
 const isMindMapActiveTab = computed(() => fileStore.activeTab?.fileInfo?.format === 'mindmap')
+
+/** 当前标签是否为图表（画布在 iframe 里，Markdown 的文本菜单同样不适用） */
+const isDiagramActiveTab = computed(() => fileStore.activeTab?.fileInfo?.format === 'diagram')
+
+/** 画布类文档（导图 / 图表）：没有 Markdown 文本选区，文本编辑菜单一律置灰 */
+const isCanvasDocumentActiveTab = computed(
+  () => isMindMapActiveTab.value || isDiagramActiveTab.value
+)
 
 /**
  * 能否把当前笔记转成导图：需要有可编辑的文本内容。
@@ -377,6 +386,7 @@ const helpMenu: MenuItem[] = [
 const shortcuts = [
   { keys: 'Ctrl+N', label: '新建文件' },
   { keys: 'Ctrl+Shift+N', label: '新建思维导图' },
+  { keys: 'Ctrl+Shift+D', label: '新建图表' },
   { keys: 'Ctrl+O', label: '打开文件' },
   { keys: 'Ctrl+P', label: '快速打开文件' },
   { keys: 'Ctrl+S', label: '保存文件' },
@@ -600,6 +610,9 @@ async function runMenuItem(item: MenuItem): Promise<void> {
       break
     case 'new-mindmap':
       await newMindMap()
+      break
+    case 'new-diagram':
+      await fileStore.newDiagram()
       break
     case 'open':
       await openFile()
@@ -983,20 +996,28 @@ function handleKeydown(event: KeyboardEvent): void {
 
   if (!event.ctrlKey) return
 
-  if (event.key === 'n') {
+  // 带 Shift 时 event.key 是大写（Ctrl+Shift+N 得到 'N'），统一小写后再比较，
+  // 否则 Ctrl+Shift+N / Ctrl+Shift+S / Ctrl+Shift+D 这类组合永远匹配不上。
+  const key = event.key.toLowerCase()
+
+  if (key === 'n') {
     event.preventDefault()
     if (event.shiftKey) {
       newMindMap()
     } else {
       newFile()
     }
-  } else if (event.key === 'o') {
+  } else if (key === 'd' && event.shiftKey) {
+    // Ctrl+Shift+D：新建图表（D = diagram），与 Ctrl+Shift+N 的新建导图并列
+    event.preventDefault()
+    void fileStore.newDiagram()
+  } else if (key === 'o') {
     event.preventDefault()
     openFile()
-  } else if (event.key === 'p') {
+  } else if (key === 'p') {
     event.preventDefault()
     void openQuickOpen()
-  } else if (event.key === 's') {
+  } else if (key === 's') {
     event.preventDefault()
     if (event.shiftKey) {
       saveAsFile()
@@ -1011,6 +1032,7 @@ function handleKeydown(event: KeyboardEvent): void {
 
 let removeMaximizedListener: (() => void) | null = null
 let removeUnmaximizedListener: (() => void) | null = null
+let removeShortcutListener: (() => void) | null = null
 
 onMounted(async () => {
   window.addEventListener('keydown', handleKeydown)
@@ -1036,6 +1058,16 @@ onMounted(async () => {
     window.electronAPI?.onWindowUnmaximized(() => {
       isMaximized.value = false
     }) ?? null
+
+  // 保存快捷键由主进程统一拦截后转发：图表画布在跨域 iframe 里，
+  // 那里的 keydown 到不了页面，只有这条通道能让 Ctrl+S 仍然有效。
+  // 用 `?.` 保护方法本身：单测与旧版 preload 上没有 onAppShortcut，
+  // 只判 electronAPI 是否存在会让这里直接抛 TypeError。
+  removeShortcutListener =
+    window.electronAPI?.onAppShortcut?.((shortcut) => {
+      if (shortcut === 'save-as') void saveAsFile()
+      else void saveFile()
+    }) ?? null
 })
 
 onUnmounted(() => {
@@ -1048,12 +1080,17 @@ onUnmounted(() => {
   window.removeEventListener('inkase:quick-open', handleQuickOpenEvent)
   removeMaximizedListener?.()
   removeUnmaximizedListener?.()
+  removeShortcutListener?.()
 })
 </script>
 
 <template>
   <header class="app-header">
-    <img src="../../assets/logo.svg" alt="M+" class="logo-icon" />
+    <img
+      src="../../assets/logo.svg"
+      alt="M+"
+      class="logo-icon"
+    >
 
     <nav class="menu-bar">
       <div
@@ -1080,7 +1117,10 @@ onUnmounted(() => {
           :class="{ active: syncStore.panelOpen }"
           @click="syncStore.togglePanel()"
         >
-          <IconRefresh class="icon" :class="{ spinning: syncStore.syncing }" />
+          <IconRefresh
+            class="icon"
+            :class="{ spinning: syncStore.syncing }"
+          />
         </button>
       </Tooltip>
 
@@ -1096,26 +1136,50 @@ onUnmounted(() => {
       </Tooltip>
 
       <Tooltip :content="themeStore.isDark ? '切换到浅色主题' : '切换到深色主题'">
-        <button class="icon-btn" @click="toggleTheme">
-          <IconSun v-if="themeStore.isDark" class="icon" />
-          <IconMoon v-else class="icon" />
+        <button
+          class="icon-btn"
+          @click="toggleTheme"
+        >
+          <IconSun
+            v-if="themeStore.isDark"
+            class="icon"
+          />
+          <IconMoon
+            v-else
+            class="icon"
+          />
         </button>
       </Tooltip>
 
       <div class="window-controls">
         <Tooltip content="最小化">
-          <button class="window-btn" @click="handleMinimize">
+          <button
+            class="window-btn"
+            @click="handleMinimize"
+          >
             <IconMinus :size="14" />
           </button>
         </Tooltip>
         <Tooltip :content="isMaximized ? '还原' : '最大化'">
-          <button class="window-btn" @click="handleMaximize">
-            <IconCopy v-if="isMaximized" :size="14" />
-            <IconSquare v-else :size="14" />
+          <button
+            class="window-btn"
+            @click="handleMaximize"
+          >
+            <IconCopy
+              v-if="isMaximized"
+              :size="14"
+            />
+            <IconSquare
+              v-else
+              :size="14"
+            />
           </button>
         </Tooltip>
         <Tooltip content="关闭">
-          <button class="window-btn close" @click="handleClose">
+          <button
+            class="window-btn close"
+            @click="handleClose"
+          >
             <IconX :size="14" />
           </button>
         </Tooltip>
@@ -1129,19 +1193,38 @@ onUnmounted(() => {
         :style="{ left: menuPosition.left + 'px', top: menuPosition.top + 'px' }"
         @click.stop
       >
-        <template v-for="(item, index) in currentMenuItems" :key="index">
-          <div v-if="item.kind === 'divider'" class="menu-divider" />
+        <template
+          v-for="(item, index) in currentMenuItems"
+          :key="index"
+        >
+          <div
+            v-if="item.kind === 'divider'"
+            class="menu-divider"
+          />
           <div
             v-else-if="item.kind === 'submenu'"
             class="menu-entry has-sub"
             :class="{ disabled: item.disabled }"
           >
             <span>{{ item.label }}</span>
-            <IconChevronRight class="sub-indicator" :size="12" />
+            <IconChevronRight
+              class="sub-indicator"
+              :size="12"
+            />
             <div class="submenu">
-              <template v-for="(sub, subIndex) in item.children" :key="subIndex">
-                <div v-if="sub.kind === 'divider'" class="menu-divider" />
-                <Tooltip v-else block :content="sub.payload || ''">
+              <template
+                v-for="(sub, subIndex) in item.children"
+                :key="subIndex"
+              >
+                <div
+                  v-if="sub.kind === 'divider'"
+                  class="menu-divider"
+                />
+                <Tooltip
+                  v-else
+                  block
+                  :content="sub.payload || ''"
+                >
                   <div
                     class="menu-entry"
                     :class="{ disabled: sub.disabled || sub.action === 'none' }"
@@ -1150,21 +1233,36 @@ onUnmounted(() => {
                     @click="runMenuItem(sub)"
                   >
                     <span class="menu-entry-label">
-                      <span v-if="sub.icon" class="menu-icon">
-                        <IconFolder v-if="sub.icon === 'folder'" :size="14" />
-                        <IconFile v-else-if="sub.icon === 'file'" :size="14" />
+                      <span
+                        v-if="sub.icon"
+                        class="menu-icon"
+                      >
+                        <IconFolder
+                          v-if="sub.icon === 'folder'"
+                          :size="14"
+                        />
+                        <IconFile
+                          v-else-if="sub.icon === 'file'"
+                          :size="14"
+                        />
                       </span>
-                      <span v-if="sub.checked !== undefined" class="menu-check">{{
+                      <span
+                        v-if="sub.checked !== undefined"
+                        class="menu-check"
+                      >{{
                         sub.checked ? '✓' : ''
                       }}</span>
                       {{ sub.label }}
                     </span>
                     <!-- 二级菜单里的条目同样要显示快捷键，否则挪进子菜单的 Ctrl+N 会「消失」 -->
-                    <span v-if="sub.shortcut" class="shortcut">{{ sub.shortcut }}</span>
+                    <span
+                      v-if="sub.shortcut"
+                      class="shortcut"
+                    >{{ sub.shortcut }}</span>
                     <button
                       v-if="
                         (sub.action === 'recent-file' || sub.action === 'recent-folder') &&
-                        hoveredRecentPath === sub.payload
+                          hoveredRecentPath === sub.payload
                       "
                       class="recent-remove"
                       :aria-label="`从最近文件移除 ${sub.label}`"
@@ -1184,17 +1282,27 @@ onUnmounted(() => {
             @click="runMenuItem(item)"
           >
             <span class="menu-entry-label">
-              <span v-if="item.checked !== undefined" class="menu-check">{{
+              <span
+                v-if="item.checked !== undefined"
+                class="menu-check"
+              >{{
                 item.checked ? '✓' : ''
               }}</span>
               {{ item.label }}
             </span>
-            <span v-if="item.shortcut" class="shortcut">{{ item.shortcut }}</span>
+            <span
+              v-if="item.shortcut"
+              class="shortcut"
+            >{{ item.shortcut }}</span>
           </div>
         </template>
       </div>
 
-      <div v-if="settingsOpen" class="settings-overlay" @mousedown.self="settingsOpen = false">
+      <div
+        v-if="settingsOpen"
+        class="settings-overlay"
+        @mousedown.self="settingsOpen = false"
+      >
         <section class="settings-dialog">
           <h2>设置</h2>
 
@@ -1204,7 +1312,10 @@ onUnmounted(() => {
                 <strong>图片自动压缩</strong>
                 <small>插入图片时自动压缩以减小文档体积</small>
               </span>
-              <input v-model="settingsCompressEnabled" type="checkbox" />
+              <input
+                v-model="settingsCompressEnabled"
+                type="checkbox"
+              >
             </label>
 
             <label class="settings-row">
@@ -1219,7 +1330,7 @@ onUnmounted(() => {
                   min="1"
                   max="100"
                   :disabled="!settingsCompressEnabled"
-                />
+                >
                 <output>{{ settingsCompressQuality }}</output>
               </span>
             </label>
@@ -1235,7 +1346,7 @@ onUnmounted(() => {
                 type="number"
                 min="1"
                 max="100"
-              />
+              >
             </label>
 
             <label class="settings-row">
@@ -1249,7 +1360,7 @@ onUnmounted(() => {
                 type="number"
                 :min="MIN_EDITOR_FONT_SIZE"
                 :max="MAX_EDITOR_FONT_SIZE"
-              />
+              >
             </label>
 
             <label class="settings-row">
@@ -1277,7 +1388,7 @@ onUnmounted(() => {
                   class="settings-number font-custom-input"
                   type="text"
                   placeholder="如 '字体名', sans-serif"
-                />
+                >
               </span>
             </label>
 
@@ -1306,7 +1417,7 @@ onUnmounted(() => {
                   class="settings-number font-custom-input"
                   type="text"
                   placeholder="如 '字体名', monospace"
-                />
+                >
               </span>
             </label>
 
@@ -1322,7 +1433,7 @@ onUnmounted(() => {
                   :min="MIN_EDITOR_LINE_HEIGHT"
                   :max="MAX_EDITOR_LINE_HEIGHT"
                   step="0.1"
-                />
+                >
                 <output>{{ settingsEditorLineHeight.toFixed(1) }}</output>
               </span>
             </label>
@@ -1338,7 +1449,7 @@ onUnmounted(() => {
                 type="number"
                 :min="MIN_UI_FONT_SIZE"
                 :max="MAX_UI_FONT_SIZE"
-              />
+              >
             </label>
 
             <div class="settings-theme">
@@ -1362,8 +1473,20 @@ onUnmounted(() => {
           </div>
 
           <div class="settings-actions">
-            <button type="button" class="secondary" @click="settingsOpen = false">取消</button>
-            <button type="button" class="primary" @click="saveSettings">完成</button>
+            <button
+              type="button"
+              class="secondary"
+              @click="settingsOpen = false"
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              class="primary"
+              @click="saveSettings"
+            >
+              完成
+            </button>
           </div>
         </section>
       </div>
@@ -1383,7 +1506,7 @@ onUnmounted(() => {
               placeholder="https://example.com"
               autofocus
               @keydown.enter="confirmInsertLink"
-            />
+            >
           </label>
           <label>
             <span>显示文本</span>
@@ -1392,10 +1515,16 @@ onUnmounted(() => {
               type="text"
               placeholder="可选，默认使用选中文本"
               @keydown.enter="confirmInsertLink"
-            />
+            >
           </label>
           <div class="settings-actions">
-            <button type="button" class="secondary" @click="linkDialogOpen = false">取消</button>
+            <button
+              type="button"
+              class="secondary"
+              @click="linkDialogOpen = false"
+            >
+              取消
+            </button>
             <button
               type="button"
               class="primary"
@@ -1423,7 +1552,7 @@ onUnmounted(() => {
               placeholder="URL 或相对路径"
               autofocus
               @keydown.enter="confirmInsertImage"
-            />
+            >
           </label>
           <label>
             <span>替代文本</span>
@@ -1432,13 +1561,23 @@ onUnmounted(() => {
               type="text"
               placeholder="可选"
               @keydown.enter="confirmInsertImage"
-            />
+            >
           </label>
-          <button type="button" class="local-file-button" @click="selectImageFile">
+          <button
+            type="button"
+            class="local-file-button"
+            @click="selectImageFile"
+          >
             选择本地图片
           </button>
           <div class="settings-actions">
-            <button type="button" class="secondary" @click="imageDialogOpen = false">取消</button>
+            <button
+              type="button"
+              class="secondary"
+              @click="imageDialogOpen = false"
+            >
+              取消
+            </button>
             <button
               type="button"
               class="primary"
@@ -1451,37 +1590,72 @@ onUnmounted(() => {
         </section>
       </div>
 
-      <div v-if="shortcutsOpen" class="help-overlay" @mousedown.self="shortcutsOpen = false">
+      <div
+        v-if="shortcutsOpen"
+        class="help-overlay"
+        @mousedown.self="shortcutsOpen = false"
+      >
         <section class="help-dialog shortcuts-dialog">
           <h2>快捷键速查</h2>
           <div class="shortcuts-grid">
-            <div v-for="shortcut in shortcuts" :key="shortcut.keys" class="shortcut-row">
+            <div
+              v-for="shortcut in shortcuts"
+              :key="shortcut.keys"
+              class="shortcut-row"
+            >
               <kbd>{{ shortcut.keys }}</kbd>
               <span>{{ shortcut.label }}</span>
             </div>
           </div>
           <div class="settings-actions">
-            <button type="button" class="primary" @click="shortcutsOpen = false">确定</button>
+            <button
+              type="button"
+              class="primary"
+              @click="shortcutsOpen = false"
+            >
+              确定
+            </button>
           </div>
         </section>
       </div>
 
-      <div v-if="aboutOpen" class="help-overlay" @mousedown.self="aboutOpen = false">
+      <div
+        v-if="aboutOpen"
+        class="help-overlay"
+        @mousedown.self="aboutOpen = false"
+      >
         <section class="help-dialog about-dialog">
-          <img src="../../assets/logo.svg" alt="Inkase" class="about-logo" />
+          <img
+            src="../../assets/logo.svg"
+            alt="Inkase"
+            class="about-logo"
+          >
           <h2>Inkase</h2>
-          <p class="about-version">版本 {{ appVersion }}</p>
+          <p class="about-version">
+            版本 {{ appVersion }}
+          </p>
           <p>一款以自包含 .mdx 文件格式为核心的轻量级文档工作台。</p>
-          <p class="about-copyright">Copyright © 2026 Inkase Team</p>
+          <p class="about-copyright">
+            Copyright © 2026 Inkase Team
+          </p>
           <div class="settings-actions">
-            <button type="button" class="primary" @click="aboutOpen = false">确定</button>
+            <button
+              type="button"
+              class="primary"
+              @click="aboutOpen = false"
+            >
+              确定
+            </button>
           </div>
         </section>
       </div>
     </teleport>
 
     <SyncPanel v-if="syncStore.panelOpen" />
-    <QuickOpenPalette :visible="quickOpenVisible" @close="quickOpenVisible = false" />
+    <QuickOpenPalette
+      :visible="quickOpenVisible"
+      @close="quickOpenVisible = false"
+    />
   </header>
 </template>
 

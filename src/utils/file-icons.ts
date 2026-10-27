@@ -18,6 +18,7 @@ import {
   IconBrandSwift,
   IconBrandTypescript,
   IconBrandVue,
+  IconChartDots,
   IconCoffee,
   IconFile,
   IconFileCode,
@@ -55,6 +56,7 @@ export type FileIconKey =
   | 'folder'
   | 'markdown'
   | 'mindmap'
+  | 'diagram'
   | 'pdf'
   | 'image'
   | 'svg'
@@ -104,6 +106,7 @@ export const FILE_ICON_COMPONENTS: Record<FileIconKey, Icon> = {
   folder: IconFolder,
   markdown: IconMarkdown,
   mindmap: IconSitemap,
+  diagram: IconChartDots,
   pdf: IconFileTypePdf,
   image: IconPhoto,
   svg: IconFileTypeSvg,
@@ -154,6 +157,7 @@ const EXTENSION_TO_KEY: Record<string, FileIconKey> = {
   md: 'markdown',
   mdx: 'markdown',
   inkmind: 'mindmap',
+  drawio: 'diagram',
   markdown: 'markdown',
   pdf: 'pdf',
   png: 'image',

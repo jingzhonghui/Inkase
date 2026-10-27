@@ -33,7 +33,9 @@ export default [
       'docs/**',
       'out/**',
       'node_modules/**',
-      'public/vditor/dist/**'
+      'public/vditor/dist/**',
+      // 第三方随包资源：自托管的 draw.io webapp（`pnpm run fetch:drawio` 生成，45MB 压缩产物）
+      'resources/drawio/**'
     ]
   }
 ]

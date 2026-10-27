@@ -85,7 +85,7 @@ export interface MdxDocument {
   settings: MdxSettings
 }
 
-export type DocumentFormat = 'mdx' | 'markdown' | 'image' | 'pdf' | 'mindmap'
+export type DocumentFormat = 'mdx' | 'markdown' | 'image' | 'pdf' | 'mindmap' | 'diagram'
 
 /** 只有 Markdown 文档格式支持编辑和保存；新增格式默认按只读处理。 */
 export function isEditableMarkdownFormat(format?: DocumentFormat | null): boolean {
@@ -100,9 +100,17 @@ export function isMindMapFormat(format?: DocumentFormat | null): boolean {
   return format === 'mindmap'
 }
 
-/** 内容可编辑并可通过文本通道写盘的格式（Markdown + 思维导图） */
+/**
+ * 图表格式（`.drawio`）：内容是一段 mxfile XML，由自托管的 draw.io 画布编辑；
+ * 与思维导图一样属于「可编辑文本」，但完全没有 Markdown 语义。
+ */
+export function isDiagramFormat(format?: DocumentFormat | null): boolean {
+  return format === 'diagram'
+}
+
+/** 内容可编辑并可通过文本通道写盘的格式（Markdown + 思维导图 + 图表） */
 export function isEditableTextFormat(format?: DocumentFormat | null): boolean {
-  return isEditableMarkdownFormat(format) || isMindMapFormat(format)
+  return isEditableMarkdownFormat(format) || isMindMapFormat(format) || isDiagramFormat(format)
 }
 
 /** MDX 文件操作结果 */

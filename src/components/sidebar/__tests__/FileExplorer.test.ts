@@ -198,7 +198,7 @@ describe('FileExplorer 空白区右键菜单', () => {
         .querySelectorAll('.context-menu-item.has-sub')[0]
         .querySelectorAll('.context-submenu .context-menu-item')
     ).map((el) => el.textContent?.trim())
-    expect(newItems).toEqual(['文件', '思维导图', '文件夹'])
+    expect(newItems).toEqual(['文件', '思维导图', '图表', '文件夹'])
     expect(submenuItem('导入', 'Markdown')).toBeTruthy()
     expect(submenuItem('导入', 'Word 文档')).toBeTruthy()
   })
@@ -319,6 +319,20 @@ describe('FileExplorer 新建文件对话框（后缀自由输入）', () => {
     await fillAndConfirm('笔记')
 
     expect(createFile).toHaveBeenCalledWith('C:/workspace', '笔记')
+  })
+
+  it('creates a diagram from 新建 ▸ 图表 with a .drawio suffix prefilled', async () => {
+    const { wrapper, fileStore } = mountExplorer()
+    const createFile = vi.spyOn(fileStore, 'createFile').mockResolvedValue(true)
+    await wrapper.find('.file-list').trigger('contextmenu', { clientX: 10, clientY: 10 })
+    submenuItem('新建', '图表')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await nextTick()
+
+    const input = document.body.querySelector<HTMLInputElement>('.dialog-input')
+    expect(input?.value).toBe('未命名图表.drawio')
+
+    await fillAndConfirm('接口设计.drawio')
+    expect(createFile).toHaveBeenCalledWith('C:/workspace', '接口设计.drawio')
   })
 
   it('keeps the dialog open and reports an invalid name', async () => {

@@ -10,6 +10,7 @@
     "format": "prettier --write .",
     "icons": "node scripts/build-icons.mjs",
     "site:version": "node scripts/stamp-site-version.mjs",
+    "fetch:drawio": "node scripts/fetch-drawio.mjs",
     "prepare:rg:win": "node scripts/prepare-rg.mjs --target win --arch x64",
     "prepare:rg:mac": "node scripts/prepare-rg.mjs --target mac --arch x64 && node scripts/prepare-rg.mjs --target mac --arch arm64",
     "prepare:rg:linux": "node scripts/prepare-rg.mjs --target linux --arch x64",

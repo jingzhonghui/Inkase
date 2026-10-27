@@ -74,7 +74,7 @@ export interface MdxOpenResult {
 }
 
 /** 「另存为」时可显式告知的文档格式（用于尚未落盘的新文档） */
-export type SaveAsFormat = 'mdx' | 'markdown' | 'mindmap'
+export type SaveAsFormat = 'mdx' | 'markdown' | 'mindmap' | 'diagram'
 
 export interface PdfSource {
   filePath: string
@@ -152,6 +152,17 @@ export interface ElectronAPI {
     format: 'png' | 'svg',
     data: Uint8Array
   ) => Promise<{ success: boolean; data?: string; error?: string }>
+  /**
+   * 图表编辑器依赖的 draw.io webapp 是否就位。
+   *
+   * 打包后它在 `process.resourcesPath/drawio`，渲染层自己拼不出这个路径，
+   * 所以由主进程回答；缺失时渲染层给出「运行 pnpm run fetch:drawio」的提示。
+   */
+  getDiagramSupport: () => Promise<{
+    success: boolean
+    data?: { available: boolean; root: string; scheme: string; host: string }
+    error?: string
+  }>
   getRecentFiles: () => Promise<{ success: boolean; data?: RecentItem[]; error?: string }>
   addRecentFile: (
     filePath: string,
@@ -364,6 +375,13 @@ export interface ElectronAPI {
   clearRecovery: () => Promise<{ success: boolean; error?: string }>
   getOpenTargets: () => Promise<LaunchTarget[]>
   onOpenTargets: (callback: (targets: LaunchTarget[]) => void) => () => void
+  /**
+   * 主进程转发的快捷键（保存 / 另存为）。
+   *
+   * 图表画布在跨域 iframe 里，页面收不到那里的 keydown，所以保存快捷键
+   * 由主进程统一拦截后转过来；返回值是取消订阅函数。
+   */
+  onAppShortcut: (callback: (shortcut: 'save' | 'save-as') => void) => () => void
 
   // 文件系统
   revealInExplorer: (filePath: string) => Promise<{ success: boolean; error?: string }>
@@ -475,6 +493,7 @@ const api: ElectronAPI = {
   closeFile: (filePath?) => ipcRenderer.invoke(IPC_CHANNELS.FILE.CLOSE, filePath),
   exportMindMapImage: (title, format, data) =>
     ipcRenderer.invoke(IPC_CHANNELS.FILE.EXPORT_IMAGE, title, format, data),
+  getDiagramSupport: () => ipcRenderer.invoke(IPC_CHANNELS.DIAGRAM.INFO),
   getRecentFiles: () => ipcRenderer.invoke(IPC_CHANNELS.FILE.RECENT),
   addRecentFile: (filePath, type) =>
     ipcRenderer.invoke(IPC_CHANNELS.FILE.RECENT_ADD, filePath, type),
@@ -578,6 +597,11 @@ const api: ElectronAPI = {
     const handler = (_event: unknown, targets: LaunchTarget[]): void => callback(targets)
     ipcRenderer.on(IPC_CHANNELS.APP.OPEN_TARGETS, handler)
     return () => ipcRenderer.removeListener(IPC_CHANNELS.APP.OPEN_TARGETS, handler)
+  },
+  onAppShortcut: (callback) => {
+    const handler = (_event: unknown, shortcut: 'save' | 'save-as'): void => callback(shortcut)
+    ipcRenderer.on(IPC_CHANNELS.APP.SHORTCUT, handler)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.APP.SHORTCUT, handler)
   },
 
   // 文件系统
