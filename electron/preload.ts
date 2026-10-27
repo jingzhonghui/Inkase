@@ -14,7 +14,14 @@ import type {
   ConversationRecord,
   ToolExecutionResult
 } from '../shared/ai/types'
-import type { ConflictChoice, EnableSyncOptions, SyncConfig, SyncResult, SyncStatusView } from './sync/types'
+import type {
+  ConflictChoice,
+  EnableSyncOptions,
+  SyncConfig,
+  SyncResult,
+  SyncStatusView
+} from './sync/types'
+import type { XmindImportWarnings } from '../shared/mindmap/xmind'
 
 export type { UpdateInfoPayload }
 
@@ -54,12 +61,20 @@ export interface ImageAssetInfo {
 export interface MdxOpenResult {
   document: MdxDocument
   filePath?: string
-  format?: 'mdx' | 'markdown' | 'image' | 'pdf'
+  format?: 'mdx' | 'markdown' | 'image' | 'pdf' | 'mindmap'
   isNew?: boolean
   largeFileWarning?: boolean
   imageDataUrl?: string
   pdfBase64?: string
+  /**
+   * 思维导图容器（format='mindmap'）的资源映射：包内路径 → 解压后的绝对路径。
+   * 渲染层据此把 `assets/images/x.png` 换成可加载的 URL。
+   */
+  assetMap?: Record<string, string>
 }
+
+/** 「另存为」时可显式告知的文档格式（用于尚未落盘的新文档） */
+export type SaveAsFormat = 'mdx' | 'markdown' | 'mindmap'
 
 export interface PdfSource {
   filePath: string
@@ -94,12 +109,54 @@ export interface FolderImportResult {
 export interface ElectronAPI {
   // 文件操作
   newFile: () => Promise<{ success: boolean; data?: MdxOpenResult; error?: string }>
-  openFile: (filePath?: string, addToRecent?: boolean) => Promise<{ success: boolean; data?: MdxOpenResult; error?: string }>
-  saveFile: (content?: string, title?: string, filePath?: string, addToRecent?: boolean) => Promise<{ success: boolean; data?: unknown; error?: string }>
-  saveAsFile: (content: string, title?: string, filePath?: string, addToRecent?: boolean) => Promise<{ success: boolean; data?: string; error?: string }>
+  openFile: (
+    filePath?: string,
+    addToRecent?: boolean
+  ) => Promise<{ success: boolean; data?: MdxOpenResult; error?: string }>
+  saveFile: (
+    content?: string,
+    title?: string,
+    filePath?: string,
+    addToRecent?: boolean
+  ) => Promise<{ success: boolean; data?: unknown; error?: string }>
+  saveAsFile: (
+    content: string,
+    title?: string,
+    filePath?: string,
+    addToRecent?: boolean,
+    /**
+     * 当前文档格式。
+     * 新建但尚未落盘的思维导图没有路径可推断扩展名，必须显式告知主进程，
+     * 否则会按 Markdown 处理、把导图存成 `.mdx`（ZIP）。
+     */
+    format?: SaveAsFormat
+  ) => Promise<{
+    success: boolean
+    data?: string
+    error?: string
+    /**
+     * 思维导图另存为后新容器的资源映射（包内路径 → 解压后的绝对路径）。
+     * 新容器的图片/附件都在这里，渲染层据此刷新标签的资源表。
+     */
+    assetMap?: Record<string, string>
+  }>
   closeFile: (filePath?: string) => Promise<{ success: boolean; error?: string }>
+  /**
+   * 导出图片（思维导图 PNG / SVG）。
+   *
+   * 与 `saveAsFile` 的区别：写的是二进制、且不登记最近文件——
+   * 图片是一次性产物，不该挤进「最近文件」。
+   */
+  exportMindMapImage: (
+    title: string | undefined,
+    format: 'png' | 'svg',
+    data: Uint8Array
+  ) => Promise<{ success: boolean; data?: string; error?: string }>
   getRecentFiles: () => Promise<{ success: boolean; data?: RecentItem[]; error?: string }>
-  addRecentFile: (filePath: string, type?: 'file' | 'folder') => Promise<{ success: boolean; error?: string }>
+  addRecentFile: (
+    filePath: string,
+    type?: 'file' | 'folder'
+  ) => Promise<{ success: boolean; error?: string }>
   removeRecentFile: (filePath: string) => Promise<{ success: boolean; error?: string }>
   clearRecentFiles: () => Promise<{ success: boolean; error?: string }>
 
@@ -114,35 +171,154 @@ export interface ElectronAPI {
   // MDX 操作
   readMdx: (filePath: string) => Promise<{ success: boolean; data?: unknown; error?: string }>
   writeMdx: (filePath: string, data: unknown) => Promise<{ success: boolean; error?: string }>
-  importMd: (filePath?: string, targetPath?: string) => Promise<{ success: boolean; data?: MdxOpenResult; error?: string }>
-  importDocx: (docxFilePath?: string, targetPath?: string) => Promise<{ success: boolean; data?: MdxOpenResult; error?: string }>
-  importFolder: (sourceFolder?: string, targetFolder?: string) => Promise<{ success: boolean; data?: unknown; error?: string }>
-  exportMd: (filePath: string, outputDir?: string) => Promise<{ success: boolean; data?: unknown; error?: string }>
-  addImage: (filename: string, mimeType: string, data: ArrayBuffer, options?: ImageCompressOptions, filePath?: string) => Promise<{ success: boolean; data?: unknown; error?: string }>
-  getImage: (imagePath: string, filePath?: string) => Promise<{ success: boolean; data?: { buffer: Uint8Array | number[] | { type: string; data: number[] }; mimeType: string }; error?: string }>
+  importMd: (
+    filePath?: string,
+    targetPath?: string
+  ) => Promise<{ success: boolean; data?: MdxOpenResult; error?: string }>
+  importDocx: (
+    docxFilePath?: string,
+    targetPath?: string
+  ) => Promise<{ success: boolean; data?: MdxOpenResult; error?: string }>
+  importFolder: (
+    sourceFolder?: string,
+    targetFolder?: string
+  ) => Promise<{ success: boolean; data?: unknown; error?: string }>
+  exportMd: (
+    filePath: string,
+    outputDir?: string
+  ) => Promise<{ success: boolean; data?: unknown; error?: string }>
+  /** 导入 XMind：转成本地 `.inkmind` 并返回路径（不覆盖同名文件） */
+  importXmind: (
+    filePath?: string,
+    targetFolder?: string
+  ) => Promise<{
+    success: boolean
+    data?: { filePath: string; warnings: XmindImportWarnings; warningsSummary: string[] }
+    error?: string
+  }>
+  /** 导出 XMind：`content` 是当前导图的 `.inkmind` 文本 */
+  exportXmind: (
+    title: string,
+    content: string
+  ) => Promise<{ success: boolean; data?: string; error?: string }>
+  /**
+   * 插入节点资源（图片或附件）。
+   *
+   * 文件被写进导图容器的临时解压目录：`src` 是落盘进 `map.json` 的包内路径，
+   * `absolutePath` 供渲染层立刻显示，`mime` 决定附件卡片图标。
+   */
+  addMindMapAsset: (
+    documentPath: string,
+    kind: 'image' | 'file',
+    sourcePath?: string
+  ) => Promise<{
+    success: boolean
+    data?: { src: string; absolutePath: string; name: string; size: number; mime: string }
+    error?: string
+  }>
+  /** 用系统默认程序打开容器内的附件 */
+  openMindMapAsset: (
+    absolutePath: string
+  ) => Promise<{ success: boolean; error?: string }>
+  /** 把容器内的附件另存到用户选的位置 */
+  saveMindMapAssetAs: (
+    absolutePath: string,
+    suggestedName?: string
+  ) => Promise<{ success: boolean; data?: string; error?: string }>
+  addImage: (
+    filename: string,
+    mimeType: string,
+    data: ArrayBuffer,
+    options?: ImageCompressOptions,
+    filePath?: string
+  ) => Promise<{ success: boolean; data?: unknown; error?: string }>
+  getImage: (
+    imagePath: string,
+    filePath?: string
+  ) => Promise<{
+    success: boolean
+    data?: { buffer: Uint8Array | number[] | { type: string; data: number[] }; mimeType: string }
+    error?: string
+  }>
   removeAsset: (assetId: string, filePath?: string) => Promise<{ success: boolean; error?: string }>
-  listAssets: (filePath?: string) => Promise<{ success: boolean; data?: { images: ImageAssetInfo[]; attachments: MdxAttachmentAsset[]; all: unknown[] }; error?: string }>
-  addAttachment: (filename: string, mimeType: string, data: ArrayBuffer, filePath?: string) => Promise<{ success: boolean; data?: unknown; error?: string }>
-  getAttachment: (attachmentPath: string, filePath?: string) => Promise<{ success: boolean; data?: { buffer: Uint8Array | number[] | { type: string; data: number[] }; mimeType: string }; error?: string }>
-  restoreRecoveryAssets: (filePath: string, document: unknown, assetData: Record<string, string>) => Promise<{ success: boolean; error?: string }>
+  listAssets: (filePath?: string) => Promise<{
+    success: boolean
+    data?: { images: ImageAssetInfo[]; attachments: MdxAttachmentAsset[]; all: unknown[] }
+    error?: string
+  }>
+  addAttachment: (
+    filename: string,
+    mimeType: string,
+    data: ArrayBuffer,
+    filePath?: string
+  ) => Promise<{ success: boolean; data?: unknown; error?: string }>
+  getAttachment: (
+    attachmentPath: string,
+    filePath?: string
+  ) => Promise<{
+    success: boolean
+    data?: { buffer: Uint8Array | number[] | { type: string; data: number[] }; mimeType: string }
+    error?: string
+  }>
+  restoreRecoveryAssets: (
+    filePath: string,
+    document: unknown,
+    assetData: Record<string, string>
+  ) => Promise<{ success: boolean; error?: string }>
 
   // PDF 导出
-  readPdfSource: (filePath: string) => Promise<{ success: boolean; data?: PdfSource; error?: string }>
-  listPdfSources: (folderPath: string) => Promise<{ success: boolean; data?: PdfSourceEntry[]; error?: string }>
-  printPdf: (suggestedFileName: string, outputDir?: string, relativeSubdir?: string) => Promise<{ success: boolean; data?: PdfPrintResult; error?: string }>
+  readPdfSource: (
+    filePath: string
+  ) => Promise<{ success: boolean; data?: PdfSource; error?: string }>
+  listPdfSources: (
+    folderPath: string
+  ) => Promise<{ success: boolean; data?: PdfSourceEntry[]; error?: string }>
+  printPdf: (
+    suggestedFileName: string,
+    outputDir?: string,
+    relativeSubdir?: string
+  ) => Promise<{ success: boolean; data?: PdfPrintResult; error?: string }>
 
   // 文件夹操作
-  readFolder: (dirPath: string) => Promise<{ success: boolean; data?: FolderItem[]; error?: string }>
-  searchFiles: (dirPath: string, limit?: number) => Promise<{ success: boolean; data?: Array<{ name: string; path: string }>; error?: string }>
-  createFile: (dirPath: string, name: string) => Promise<{ success: boolean; data?: { path: string }; error?: string }>
-  createFolder: (parentPath: string, name: string) => Promise<{ success: boolean; data?: { path: string }; error?: string }>
-  renameFile: (oldPath: string, newName: string) => Promise<{ success: boolean; data?: { path: string }; error?: string }>
-  moveFile: (sourcePath: string, targetDir: string) => Promise<{ success: boolean; data?: { path: string }; error?: string }>
+  readFolder: (
+    dirPath: string
+  ) => Promise<{ success: boolean; data?: FolderItem[]; error?: string }>
+  searchFiles: (
+    dirPath: string,
+    limit?: number
+  ) => Promise<{ success: boolean; data?: Array<{ name: string; path: string }>; error?: string }>
+  createFile: (
+    dirPath: string,
+    name: string
+  ) => Promise<{ success: boolean; data?: { path: string }; error?: string }>
+  createFolder: (
+    parentPath: string,
+    name: string
+  ) => Promise<{ success: boolean; data?: { path: string }; error?: string }>
+  renameFile: (
+    oldPath: string,
+    newName: string
+  ) => Promise<{ success: boolean; data?: { path: string }; error?: string }>
+  moveFile: (
+    sourcePath: string,
+    targetDir: string
+  ) => Promise<{ success: boolean; data?: { path: string }; error?: string }>
   deleteFile: (targetPath: string) => Promise<{ success: boolean; error?: string }>
-  importFilesIntoFolder: (targetDir: string, sourcePaths?: string[], conflictAction?: 'skip' | 'overwrite' | 'keep') => Promise<{ success: boolean; data?: FolderImportResult; error?: string }>
-  importDirectoryIntoFolder: (targetDir: string, sourcePath?: string, conflictAction?: 'skip' | 'overwrite' | 'keep') => Promise<{ success: boolean; data?: FolderImportResult; error?: string }>
+  importFilesIntoFolder: (
+    targetDir: string,
+    sourcePaths?: string[],
+    conflictAction?: 'skip' | 'overwrite' | 'keep'
+  ) => Promise<{ success: boolean; data?: FolderImportResult; error?: string }>
+  importDirectoryIntoFolder: (
+    targetDir: string,
+    sourcePath?: string,
+    conflictAction?: 'skip' | 'overwrite' | 'keep'
+  ) => Promise<{ success: boolean; data?: FolderImportResult; error?: string }>
   readClipboardFilePaths: () => Promise<{ success: boolean; data?: string[]; error?: string }>
-  writeClipboardFilePaths: (paths: string[], mode: 'copy' | 'cut') => Promise<{ success: boolean; error?: string }>
+  writeClipboardFilePaths: (
+    paths: string[],
+    mode: 'copy' | 'cut'
+  ) => Promise<{ success: boolean; error?: string }>
   copyIntoFolder: (
     sources: string[],
     targetDir: string,
@@ -167,9 +343,15 @@ export interface ElectronAPI {
   getUserGuidePath: () => Promise<{ success: boolean; data?: string; error?: string }>
 
   // 对话框
-  showOpenDialog: (options?: unknown) => Promise<{ success: boolean; data?: string[]; error?: string }>
-  showSaveDialog: (options?: unknown) => Promise<{ success: boolean; data?: string; error?: string }>
-  showMessageBox: (options?: unknown) => Promise<{ success: boolean; data?: number; error?: string }>
+  showOpenDialog: (
+    options?: unknown
+  ) => Promise<{ success: boolean; data?: string[]; error?: string }>
+  showSaveDialog: (
+    options?: unknown
+  ) => Promise<{ success: boolean; data?: string; error?: string }>
+  showMessageBox: (
+    options?: unknown
+  ) => Promise<{ success: boolean; data?: number; error?: string }>
 
   // 事件监听
   onConfirmClose: (callback: () => void) => () => void
@@ -195,27 +377,43 @@ export interface ElectronAPI {
   onWindowUnmaximized: (callback: () => void) => () => void
 
   // 同步
-  syncAttachFolder: (workspacePath: string) => Promise<{ success: boolean; data?: SyncStatusView; error?: string }>
+  syncAttachFolder: (
+    workspacePath: string
+  ) => Promise<{ success: boolean; data?: SyncStatusView; error?: string }>
   syncDetachFolder: () => Promise<{ success: boolean; error?: string }>
   getSyncStatus: () => Promise<{ success: boolean; data?: SyncStatusView; error?: string }>
   syncPull: () => Promise<{ success: boolean; data?: SyncResult; error?: string }>
   syncPush: () => Promise<{ success: boolean; data?: SyncResult; error?: string }>
   syncContinueRebase: () => Promise<{ success: boolean; data?: SyncResult; error?: string }>
   syncAbortRebase: () => Promise<{ success: boolean; data?: SyncResult; error?: string }>
-  syncResolveConflicts: (choices: ConflictChoice[]) => Promise<{ success: boolean; data?: SyncResult; error?: string }>
-  enableSync: (workspacePath: string, options: EnableSyncOptions) => Promise<{ success: boolean; data?: SyncResult; error?: string }>
+  syncResolveConflicts: (
+    choices: ConflictChoice[]
+  ) => Promise<{ success: boolean; data?: SyncResult; error?: string }>
+  enableSync: (
+    workspacePath: string,
+    options: EnableSyncOptions
+  ) => Promise<{ success: boolean; data?: SyncResult; error?: string }>
   disableSync: () => Promise<{ success: boolean; error?: string }>
   getSyncConfig: () => Promise<{ success: boolean; data?: SyncConfig | null; error?: string }>
-  setSyncConfig: (patch: Partial<Omit<SyncConfig, 'version' | 'provider'>>) => Promise<{ success: boolean; data?: SyncConfig; error?: string }>
+  setSyncConfig: (
+    patch: Partial<Omit<SyncConfig, 'version' | 'provider'>>
+  ) => Promise<{ success: boolean; data?: SyncConfig; error?: string }>
   onSyncEvent: (callback: (view: SyncStatusView) => void) => () => void
   onSyncFileChanged: (callback: (files: string[]) => void) => () => void
 
   // 外部变更监视
-  watchExternalChanges: (root: string | null, extraFiles: string[]) => Promise<{ success: boolean; error?: string }>
+  watchExternalChanges: (
+    root: string | null,
+    extraFiles: string[]
+  ) => Promise<{ success: boolean; error?: string }>
   onExternalFileChanged: (callback: (files: string[]) => void) => () => void
 
   // 链接操作
-  openLink: (linkHref: string, currentFilePath?: string, openedFolderPath?: string) => Promise<{ success: boolean; data?: string; error?: string }>
+  openLink: (
+    linkHref: string,
+    currentFilePath?: string,
+    openedFolderPath?: string
+  ) => Promise<{ success: boolean; data?: string; error?: string }>
 
   // 自动更新
   checkForUpdates: () => Promise<{ success: boolean; error?: string }>
@@ -226,9 +424,15 @@ export interface ElectronAPI {
 
   // AI 助手
   getAiConfig: () => Promise<{ success: boolean; data?: AiConfigView; error?: string }>
-  setAiConfig: (config: AiConfigInput) => Promise<{ success: boolean; data?: AiConfigView; error?: string }>
-  testAiConfig: (config: AiConfigInput) => Promise<{ success: boolean; data?: AiConnectionTestResult; error?: string }>
-  startAiRun: (input: AiRunInput) => Promise<{ success: boolean; data?: { runId: string }; error?: string }>
+  setAiConfig: (
+    config: AiConfigInput
+  ) => Promise<{ success: boolean; data?: AiConfigView; error?: string }>
+  testAiConfig: (
+    config: AiConfigInput
+  ) => Promise<{ success: boolean; data?: AiConnectionTestResult; error?: string }>
+  startAiRun: (
+    input: AiRunInput
+  ) => Promise<{ success: boolean; data?: { runId: string }; error?: string }>
   cancelAiRun: (runId: string) => Promise<{ success: boolean; error?: string }>
   claimAiApproval: (approvalId: string) => Promise<{ success: boolean; error?: string }>
   resolveAiApproval: (
@@ -237,11 +441,24 @@ export interface ElectronAPI {
     executionResult?: ToolExecutionResult
   ) => Promise<{ success: boolean; error?: string }>
   onAiRunEvent: (callback: (event: AiRunEvent) => void) => () => void
-  listAiConversations: (root: string | null) => Promise<{ success: boolean; data?: ConversationMeta[]; error?: string }>
-  loadAiConversation: (root: string | null, id: string) => Promise<{ success: boolean; data?: ConversationRecord; error?: string }>
-  saveAiConversation: (root: string | null, record: ConversationRecord) => Promise<{ success: boolean; error?: string }>
-  deleteAiConversation: (root: string | null, id: string) => Promise<{ success: boolean; error?: string }>
-  summarizeAiConversation: (text: string) => Promise<{ success: boolean; data?: { title: string }; error?: string }>
+  listAiConversations: (
+    root: string | null
+  ) => Promise<{ success: boolean; data?: ConversationMeta[]; error?: string }>
+  loadAiConversation: (
+    root: string | null,
+    id: string
+  ) => Promise<{ success: boolean; data?: ConversationRecord; error?: string }>
+  saveAiConversation: (
+    root: string | null,
+    record: ConversationRecord
+  ) => Promise<{ success: boolean; error?: string }>
+  deleteAiConversation: (
+    root: string | null,
+    id: string
+  ) => Promise<{ success: boolean; error?: string }>
+  summarizeAiConversation: (
+    text: string
+  ) => Promise<{ success: boolean; data?: { title: string }; error?: string }>
   authorizeWorkspaceRoot: (root: string | null) => Promise<{ success: boolean; error?: string }>
 }
 
@@ -249,12 +466,18 @@ export interface ElectronAPI {
 const api: ElectronAPI = {
   // 文件操作
   newFile: () => ipcRenderer.invoke(IPC_CHANNELS.FILE.NEW),
-  openFile: (filePath?, addToRecent?) => ipcRenderer.invoke(IPC_CHANNELS.FILE.OPEN, filePath, addToRecent),
-  saveFile: (content?, title?, filePath?, addToRecent?) => ipcRenderer.invoke(IPC_CHANNELS.FILE.SAVE, content, title, filePath, addToRecent),
-  saveAsFile: (content?, title?, filePath?, addToRecent?) => ipcRenderer.invoke(IPC_CHANNELS.FILE.SAVE_AS, content, title, filePath, addToRecent),
+  openFile: (filePath?, addToRecent?) =>
+    ipcRenderer.invoke(IPC_CHANNELS.FILE.OPEN, filePath, addToRecent),
+  saveFile: (content?, title?, filePath?, addToRecent?) =>
+    ipcRenderer.invoke(IPC_CHANNELS.FILE.SAVE, content, title, filePath, addToRecent),
+  saveAsFile: (content?, title?, filePath?, addToRecent?, format?) =>
+    ipcRenderer.invoke(IPC_CHANNELS.FILE.SAVE_AS, content, title, filePath, addToRecent, format),
   closeFile: (filePath?) => ipcRenderer.invoke(IPC_CHANNELS.FILE.CLOSE, filePath),
+  exportMindMapImage: (title, format, data) =>
+    ipcRenderer.invoke(IPC_CHANNELS.FILE.EXPORT_IMAGE, title, format, data),
   getRecentFiles: () => ipcRenderer.invoke(IPC_CHANNELS.FILE.RECENT),
-  addRecentFile: (filePath, type) => ipcRenderer.invoke(IPC_CHANNELS.FILE.RECENT_ADD, filePath, type),
+  addRecentFile: (filePath, type) =>
+    ipcRenderer.invoke(IPC_CHANNELS.FILE.RECENT_ADD, filePath, type),
   removeRecentFile: (filePath) => ipcRenderer.invoke(IPC_CHANNELS.FILE.RECENT_REMOVE, filePath),
   clearRecentFiles: () => ipcRenderer.invoke(IPC_CHANNELS.FILE.RECENT_CLEAR),
 
@@ -269,33 +492,59 @@ const api: ElectronAPI = {
   // MDX 操作
   readMdx: (filePath) => ipcRenderer.invoke(IPC_CHANNELS.MDX.READ, filePath),
   writeMdx: (filePath, data) => ipcRenderer.invoke(IPC_CHANNELS.MDX.WRITE, filePath, data),
-  importMd: (filePath?, targetPath?) => ipcRenderer.invoke(IPC_CHANNELS.MDX.IMPORT_MD, filePath, targetPath),
-  importDocx: (docxFilePath?, targetPath?) => ipcRenderer.invoke(IPC_CHANNELS.MDX.IMPORT_DOCX, docxFilePath, targetPath),
-  importFolder: (sourceFolder?, targetFolder?) => ipcRenderer.invoke(IPC_CHANNELS.MDX.IMPORT_FOLDER, sourceFolder, targetFolder),
-  exportMd: (filePath, outputDir?) => ipcRenderer.invoke(IPC_CHANNELS.MDX.EXPORT_MD, filePath, outputDir),
-  addImage: (filename, mimeType, data, options?, filePath?) => ipcRenderer.invoke(IPC_CHANNELS.MDX.ADD_IMAGE, filename, mimeType, data, options, filePath),
-  getImage: (imagePath, filePath?) => ipcRenderer.invoke(IPC_CHANNELS.MDX.GET_IMAGE, imagePath, filePath),
-  removeAsset: (assetId, filePath?) => ipcRenderer.invoke(IPC_CHANNELS.MDX.REMOVE_ASSET, assetId, filePath),
+  importMd: (filePath?, targetPath?) =>
+    ipcRenderer.invoke(IPC_CHANNELS.MDX.IMPORT_MD, filePath, targetPath),
+  importDocx: (docxFilePath?, targetPath?) =>
+    ipcRenderer.invoke(IPC_CHANNELS.MDX.IMPORT_DOCX, docxFilePath, targetPath),
+  importFolder: (sourceFolder?, targetFolder?) =>
+    ipcRenderer.invoke(IPC_CHANNELS.MDX.IMPORT_FOLDER, sourceFolder, targetFolder),
+  exportMd: (filePath, outputDir?) =>
+    ipcRenderer.invoke(IPC_CHANNELS.MDX.EXPORT_MD, filePath, outputDir),
+  importXmind: (filePath?, targetFolder?) =>
+    ipcRenderer.invoke(IPC_CHANNELS.MINDMAP.IMPORT_XMIND, filePath, targetFolder),
+  exportXmind: (title, content) =>
+    ipcRenderer.invoke(IPC_CHANNELS.MINDMAP.EXPORT_XMIND, title, content),
+  addMindMapAsset: (documentPath, kind, sourcePath?) =>
+    ipcRenderer.invoke(IPC_CHANNELS.MINDMAP.ADD_ASSET, documentPath, kind, sourcePath),
+  openMindMapAsset: (absolutePath) =>
+    ipcRenderer.invoke(IPC_CHANNELS.MINDMAP.OPEN_ASSET, absolutePath),
+  saveMindMapAssetAs: (absolutePath, suggestedName?) =>
+    ipcRenderer.invoke(IPC_CHANNELS.MINDMAP.SAVE_ASSET_AS, absolutePath, suggestedName),
+  addImage: (filename, mimeType, data, options?, filePath?) =>
+    ipcRenderer.invoke(IPC_CHANNELS.MDX.ADD_IMAGE, filename, mimeType, data, options, filePath),
+  getImage: (imagePath, filePath?) =>
+    ipcRenderer.invoke(IPC_CHANNELS.MDX.GET_IMAGE, imagePath, filePath),
+  removeAsset: (assetId, filePath?) =>
+    ipcRenderer.invoke(IPC_CHANNELS.MDX.REMOVE_ASSET, assetId, filePath),
   listAssets: (filePath?) => ipcRenderer.invoke(IPC_CHANNELS.MDX.LIST_ASSETS, filePath),
-  addAttachment: (filename, mimeType, data, filePath?) => ipcRenderer.invoke(IPC_CHANNELS.MDX.ADD_ATTACHMENT, filename, mimeType, data, filePath),
-  getAttachment: (attachmentPath, filePath?) => ipcRenderer.invoke(IPC_CHANNELS.MDX.GET_ATTACHMENT, attachmentPath, filePath),
-  restoreRecoveryAssets: (filePath, document, assetData) => ipcRenderer.invoke(IPC_CHANNELS.MDX.RESTORE_RECOVERY_ASSETS, filePath, document, assetData),
+  addAttachment: (filename, mimeType, data, filePath?) =>
+    ipcRenderer.invoke(IPC_CHANNELS.MDX.ADD_ATTACHMENT, filename, mimeType, data, filePath),
+  getAttachment: (attachmentPath, filePath?) =>
+    ipcRenderer.invoke(IPC_CHANNELS.MDX.GET_ATTACHMENT, attachmentPath, filePath),
+  restoreRecoveryAssets: (filePath, document, assetData) =>
+    ipcRenderer.invoke(IPC_CHANNELS.MDX.RESTORE_RECOVERY_ASSETS, filePath, document, assetData),
 
   // PDF 导出
   readPdfSource: (filePath) => ipcRenderer.invoke(IPC_CHANNELS.PDF.READ_SOURCE, filePath),
   listPdfSources: (folderPath) => ipcRenderer.invoke(IPC_CHANNELS.PDF.LIST_FOLDER, folderPath),
-  printPdf: (suggestedFileName, outputDir?, relativeSubdir?) => ipcRenderer.invoke(IPC_CHANNELS.PDF.PRINT, suggestedFileName, outputDir, relativeSubdir),
+  printPdf: (suggestedFileName, outputDir?, relativeSubdir?) =>
+    ipcRenderer.invoke(IPC_CHANNELS.PDF.PRINT, suggestedFileName, outputDir, relativeSubdir),
 
   // 文件夹操作
   readFolder: (dirPath) => ipcRenderer.invoke(IPC_CHANNELS.FOLDER.READ, dirPath),
   searchFiles: (dirPath, limit?) => ipcRenderer.invoke(IPC_CHANNELS.FILE.SEARCH, dirPath, limit),
   createFile: (dirPath, name) => ipcRenderer.invoke(IPC_CHANNELS.FILE.CREATE, { dirPath, name }),
-  createFolder: (parentPath, name) => ipcRenderer.invoke(IPC_CHANNELS.FOLDER.CREATE, { parentPath, name }),
-  renameFile: (oldPath, newName) => ipcRenderer.invoke(IPC_CHANNELS.FILE.RENAME, { oldPath, newName }),
-  moveFile: (sourcePath, targetDir) => ipcRenderer.invoke(IPC_CHANNELS.FILE.MOVE, { sourcePath, targetDir }),
+  createFolder: (parentPath, name) =>
+    ipcRenderer.invoke(IPC_CHANNELS.FOLDER.CREATE, { parentPath, name }),
+  renameFile: (oldPath, newName) =>
+    ipcRenderer.invoke(IPC_CHANNELS.FILE.RENAME, { oldPath, newName }),
+  moveFile: (sourcePath, targetDir) =>
+    ipcRenderer.invoke(IPC_CHANNELS.FILE.MOVE, { sourcePath, targetDir }),
   deleteFile: (targetPath) => ipcRenderer.invoke(IPC_CHANNELS.FILE.DELETE, { targetPath }),
-  importFilesIntoFolder: (targetDir, sourcePaths, conflictAction) => ipcRenderer.invoke(IPC_CHANNELS.FOLDER.IMPORT_FILES, targetDir, sourcePaths, conflictAction),
-  importDirectoryIntoFolder: (targetDir, sourcePath, conflictAction) => ipcRenderer.invoke(IPC_CHANNELS.FOLDER.IMPORT_DIRECTORY, targetDir, sourcePath, conflictAction),
+  importFilesIntoFolder: (targetDir, sourcePaths, conflictAction) =>
+    ipcRenderer.invoke(IPC_CHANNELS.FOLDER.IMPORT_FILES, targetDir, sourcePaths, conflictAction),
+  importDirectoryIntoFolder: (targetDir, sourcePath, conflictAction) =>
+    ipcRenderer.invoke(IPC_CHANNELS.FOLDER.IMPORT_DIRECTORY, targetDir, sourcePath, conflictAction),
   readClipboardFilePaths: () => ipcRenderer.invoke(IPC_CHANNELS.FILE.CLIPBOARD_READ_FILES),
   writeClipboardFilePaths: (paths, mode) =>
     ipcRenderer.invoke(IPC_CHANNELS.FILE.CLIPBOARD_WRITE_FILES, { paths, mode }),
@@ -332,7 +581,8 @@ const api: ElectronAPI = {
   },
 
   // 文件系统
-  revealInExplorer: (filePath) => ipcRenderer.invoke(IPC_CHANNELS.FILE.REVEAL_IN_EXPLORER, filePath),
+  revealInExplorer: (filePath) =>
+    ipcRenderer.invoke(IPC_CHANNELS.FILE.REVEAL_IN_EXPLORER, filePath),
 
   // 窗口控制
   windowMinimize: () => ipcRenderer.invoke(IPC_CHANNELS.WINDOW.MINIMIZE),
@@ -351,15 +601,18 @@ const api: ElectronAPI = {
   },
 
   // 同步
-  syncAttachFolder: (workspacePath) => ipcRenderer.invoke(IPC_CHANNELS.SYNC.ATTACH_FOLDER, workspacePath),
+  syncAttachFolder: (workspacePath) =>
+    ipcRenderer.invoke(IPC_CHANNELS.SYNC.ATTACH_FOLDER, workspacePath),
   syncDetachFolder: () => ipcRenderer.invoke(IPC_CHANNELS.SYNC.DETACH_FOLDER),
   getSyncStatus: () => ipcRenderer.invoke(IPC_CHANNELS.SYNC.STATUS),
   syncPull: () => ipcRenderer.invoke(IPC_CHANNELS.SYNC.PULL),
   syncPush: () => ipcRenderer.invoke(IPC_CHANNELS.SYNC.PUSH),
   syncContinueRebase: () => ipcRenderer.invoke(IPC_CHANNELS.SYNC.CONTINUE_REBASE),
   syncAbortRebase: () => ipcRenderer.invoke(IPC_CHANNELS.SYNC.ABORT_REBASE),
-  syncResolveConflicts: (choices) => ipcRenderer.invoke(IPC_CHANNELS.SYNC.RESOLVE_CONFLICTS, choices),
-  enableSync: (workspacePath, options) => ipcRenderer.invoke(IPC_CHANNELS.SYNC.ENABLE, workspacePath, options),
+  syncResolveConflicts: (choices) =>
+    ipcRenderer.invoke(IPC_CHANNELS.SYNC.RESOLVE_CONFLICTS, choices),
+  enableSync: (workspacePath, options) =>
+    ipcRenderer.invoke(IPC_CHANNELS.SYNC.ENABLE, workspacePath, options),
   disableSync: () => ipcRenderer.invoke(IPC_CHANNELS.SYNC.DISABLE),
   getSyncConfig: () => ipcRenderer.invoke(IPC_CHANNELS.SYNC.CONFIG.GET),
   setSyncConfig: (patch) => ipcRenderer.invoke(IPC_CHANNELS.SYNC.CONFIG.SET, patch),
@@ -375,7 +628,8 @@ const api: ElectronAPI = {
   },
 
   // 外部变更监视
-  watchExternalChanges: (root, extraFiles) => ipcRenderer.invoke(IPC_CHANNELS.EXTERNAL_WATCH.START, root, extraFiles),
+  watchExternalChanges: (root, extraFiles) =>
+    ipcRenderer.invoke(IPC_CHANNELS.EXTERNAL_WATCH.START, root, extraFiles),
   onExternalFileChanged: (callback) => {
     const handler = (_event: unknown, files: string[]): void => callback(files)
     ipcRenderer.on(IPC_CHANNELS.EXTERNAL_WATCH.CHANGED, handler)
@@ -383,7 +637,8 @@ const api: ElectronAPI = {
   },
 
   // 链接操作
-  openLink: (linkHref, currentFilePath?, openedFolderPath?) => ipcRenderer.invoke(IPC_CHANNELS.LINK.OPEN, { linkHref, currentFilePath, openedFolderPath }),
+  openLink: (linkHref, currentFilePath?, openedFolderPath?) =>
+    ipcRenderer.invoke(IPC_CHANNELS.LINK.OPEN, { linkHref, currentFilePath, openedFolderPath }),
 
   // 自动更新
   checkForUpdates: () => ipcRenderer.invoke(IPC_CHANNELS.UPDATE.CHECK),
@@ -415,9 +670,12 @@ const api: ElectronAPI = {
     ipcRenderer.invoke(IPC_CHANNELS.AI.APPROVAL.RESOLVE, approvalId, decision, executionResult),
   listAiConversations: (root) => ipcRenderer.invoke(IPC_CHANNELS.AI.CONVERSATION.LIST, root),
   loadAiConversation: (root, id) => ipcRenderer.invoke(IPC_CHANNELS.AI.CONVERSATION.LOAD, root, id),
-  saveAiConversation: (root, record) => ipcRenderer.invoke(IPC_CHANNELS.AI.CONVERSATION.SAVE, root, record),
-  deleteAiConversation: (root, id) => ipcRenderer.invoke(IPC_CHANNELS.AI.CONVERSATION.DELETE, root, id),
-  summarizeAiConversation: (text) => ipcRenderer.invoke(IPC_CHANNELS.AI.CONVERSATION.SUMMARIZE, text),
+  saveAiConversation: (root, record) =>
+    ipcRenderer.invoke(IPC_CHANNELS.AI.CONVERSATION.SAVE, root, record),
+  deleteAiConversation: (root, id) =>
+    ipcRenderer.invoke(IPC_CHANNELS.AI.CONVERSATION.DELETE, root, id),
+  summarizeAiConversation: (text) =>
+    ipcRenderer.invoke(IPC_CHANNELS.AI.CONVERSATION.SUMMARIZE, text),
   authorizeWorkspaceRoot: (root) => ipcRenderer.invoke(IPC_CHANNELS.AI.WORKSPACE.AUTHORIZE, root),
   onAiRunEvent: (callback) => {
     const handler = (_event: unknown, payload: AiRunEvent): void => callback(payload)

@@ -110,6 +110,75 @@ describe('AI tab', () => {
     expect(wrapper.find('[data-testid="ai-running-marker"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="ai-approval-marker"]').exists()).toBe(true)
   })
+
+  it('can be dragged to a position before the file tabs', async () => {
+    const wrapper = mountTabBar()
+    const aiStore = useAiStore()
+    const fileStore = useFileStore()
+    const first = fileStore.createGeneratedDocument('一', 'a', 'markdown')
+    const second = fileStore.createGeneratedDocument('二', 'b', 'markdown')
+    aiStore.openPanel()
+    await nextTick()
+
+    const order = () =>
+      wrapper.findAll('.tab').map((tab) => tab.attributes('data-testid') ?? tab.attributes('data-tab-id'))
+
+    expect(order()).toEqual([first.id, second.id, 'ai-tab'])
+
+    await wrapper.get('[data-testid="ai-tab"]').trigger('dragstart')
+    const firstTab = wrapper.get(`[data-tab-id="${first.id}"]`)
+    await firstTab.trigger('dragover', { clientX: 0 })
+    await firstTab.trigger('drop')
+
+    expect(aiStore.tabIndex).toBe(0)
+    expect(order()).toEqual(['ai-tab', first.id, second.id])
+    // AI 位置变化不应打乱文件标签相对顺序
+    expect(fileStore.tabs.map((tab) => tab.id)).toEqual([first.id, second.id])
+  })
+
+  it('can be dragged to a position between file tabs', async () => {
+    const wrapper = mountTabBar()
+    const aiStore = useAiStore()
+    const fileStore = useFileStore()
+    const first = fileStore.createGeneratedDocument('一', 'a', 'markdown')
+    const second = fileStore.createGeneratedDocument('二', 'b', 'markdown')
+    aiStore.openPanel()
+    await nextTick()
+
+    await wrapper.get('[data-testid="ai-tab"]').trigger('dragstart')
+    const secondTab = wrapper.get(`[data-tab-id="${second.id}"]`)
+    await secondTab.trigger('dragover', { clientX: 0 })
+    await secondTab.trigger('drop')
+
+    expect(aiStore.tabIndex).toBe(1)
+    expect(
+      wrapper.findAll('.tab').map((tab) => tab.attributes('data-testid') ?? tab.attributes('data-tab-id'))
+    ).toEqual([first.id, 'ai-tab', second.id])
+  })
+
+  it('moves a file tab across the AI tab', async () => {
+    const wrapper = mountTabBar()
+    const aiStore = useAiStore()
+    const fileStore = useFileStore()
+    const first = fileStore.createGeneratedDocument('一', 'a', 'markdown')
+    const second = fileStore.createGeneratedDocument('二', 'b', 'markdown')
+    aiStore.openPanel()
+    aiStore.setTabIndex(1)
+    await nextTick()
+
+    const order = () =>
+      wrapper.findAll('.tab').map((tab) => tab.attributes('data-testid') ?? tab.attributes('data-tab-id'))
+    expect(order()).toEqual([first.id, 'ai-tab', second.id])
+
+    const firstTab = wrapper.get(`[data-tab-id="${first.id}"]`)
+    await firstTab.trigger('dragstart')
+    const secondTab = wrapper.get(`[data-tab-id="${second.id}"]`)
+    await secondTab.trigger('dragover', { clientX: 100 })
+    await secondTab.trigger('drop')
+
+    expect(aiStore.tabIndex).toBe(0)
+    expect(order()).toEqual(['ai-tab', second.id, first.id])
+  })
 })
 
 describe('AI editor view', () => {

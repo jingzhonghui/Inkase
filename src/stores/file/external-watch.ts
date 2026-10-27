@@ -1,5 +1,5 @@
 import { computed, watch, type Ref } from 'vue'
-import { isEditableMarkdownFormat } from '../../types/mdx'
+import { isEditableTextFormat } from '../../types/mdx'
 import { requestDialog } from '../../utils/dialog'
 import type { TabInfo } from './types'
 
@@ -59,7 +59,7 @@ export function createExternalWatch(deps: ExternalWatchDeps) {
   }
 
   function canAutoReload(tab: TabInfo): boolean {
-    return !!tab.document && !!tab.fileInfo?.path && isEditableMarkdownFormat(tab.fileInfo.format)
+    return !!tab.document && !!tab.fileInfo?.path && isEditableTextFormat(tab.fileInfo.format)
   }
 
   /** 处理一批外部变更：刷新文件树 + 重载/提示受影响的已打开标签 */

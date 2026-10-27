@@ -7,7 +7,8 @@ export interface RecoveryTab {
   id: string
   filePath: string | null
   fileName: string
-  format: 'mdx' | 'markdown'
+  /** 恢复的标签页格式；思维导图直接存文本，因此与 markdown/mdx 同样按文本恢复 */
+  format: 'mdx' | 'markdown' | 'mindmap'
   content: string
   document: unknown
   modifiedAt: string

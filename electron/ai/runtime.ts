@@ -93,7 +93,9 @@ export class AiRuntime {
       sourceTools.readLocalFile,
       docTools.replaceCurrentDocument,
       docTools.insertIntoCurrentDocument,
-      docTools.createDocument
+      docTools.createDocument,
+      docTools.createMindmap,
+      docTools.updateMindmap
     ]
     for (const def of all) {
       this.registry.register(def)

@@ -6,12 +6,12 @@ import { useFileStore } from '../stores/file'
  *
  * 在 document 上注册全局拖放监听：
  * - 拦截 Electron 默认的文件拖入导航（file://）
- * - 拖入 .md/.mdx 文件 → 打开为标签页
+ * - 拖入 .md/.mdx/.inkmind 文件 → 打开为标签页
  * - 拖入文件夹 → 打开文件夹浏览
  * - 其他文件（如图片）忽略，不干扰编辑器内已有的图片插入处理
  */
 
-export type DropItemKind = 'folder' | 'markdown' | 'other'
+export type DropItemKind = 'folder' | 'markdown' | 'mindmap' | 'other'
 
 interface FileSystemEntryLike {
   isFile: boolean
@@ -24,6 +24,7 @@ interface FileSystemEntryLike {
 export function classifyDropItem(name: string, isDirectory: boolean): DropItemKind {
   if (isDirectory) return 'folder'
   const lower = name.toLowerCase()
+  if (lower.endsWith('.inkmind')) return 'mindmap'
   if (lower.endsWith('.md') || lower.endsWith('.mdx')) return 'markdown'
   return 'other'
 }

@@ -78,6 +78,7 @@
     "jsdom": "^30.0.1",
     "katex": "^0.16.46",
     "markdown-it": "^14.1.1",
+    "mind-elixir": "5.15.1",
     "pdfjs-dist": "^5.4.296",
     "pinia": "^2.3.0",
     "png-to-ico": "^3.0.2",

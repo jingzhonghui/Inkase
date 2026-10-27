@@ -331,15 +331,45 @@ describe('workspace context', () => {
       const store = useFileStore()
       const revealDocument = vi.fn()
 
-      await applyDocumentOperation(store, {
-        type: 'create-document',
-        title: '新文档',
-        content: '新内容',
-        format: 'markdown',
-        reason: ''
-      }, revealDocument)
+      await applyDocumentOperation(
+        store,
+        {
+          type: 'create-document',
+          title: '新文档',
+          content: '新内容',
+          format: 'markdown',
+          reason: ''
+        },
+        revealDocument
+      )
 
       expect(revealDocument).toHaveBeenCalledTimes(1)
+    })
+
+    /*
+     * AI 生成的导图走同一个创建路径，但文件名必须是 `.inkmind`：
+     * 否则用户第一次保存时会被当成 Markdown 存成 `.md`，导图打不开。
+     */
+    it('以 mindmap 格式创建时文件名带 .inkmind 后缀', async () => {
+      const store = useFileStore()
+      const content =
+        '{"schema":"inkase.mindmap","version":2,"root":{"id":"r","text":"规划","children":[]}}'
+
+      const result = await applyDocumentOperation(store, {
+        type: 'create-document',
+        title: '产品规划',
+        content,
+        format: 'mindmap',
+        reason: ''
+      })
+
+      expect(result.status).toBe('applied')
+      const tabId = (result.data as { tabId: string }).tabId
+      const tab = store.tabs.find((t) => t.id === tabId)
+      expect(tab!.fileInfo!.format).toBe('mindmap')
+      expect(tab!.fileInfo!.name).toBe('产品规划.inkmind')
+      // 正文原样保留，交给 MindMapEditor 解析
+      expect(tab!.content).toBe(content)
     })
   })
 })

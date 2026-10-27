@@ -1,16 +1,21 @@
 <script setup lang="ts">
 import { ref, reactive, provide, onMounted, onUnmounted, nextTick, watch } from 'vue'
-import { IconFolderOpen } from '@tabler/icons-vue'
+import { IconChevronRight, IconFolderOpen } from '@tabler/icons-vue'
 import { useFileStore, type FileTreeNode } from '../../stores/file'
 import { requestDialog } from '../../utils/dialog'
 import { validateWindowsFolderName, validateWindowsFileName } from '../../utils/windows-filename'
 import { dedupeTopLevelPaths } from '../../../shared/fs/dedupe'
+import { MINDMAP_EXTENSION } from '../../types/mindmap'
 import FileTreeItem from './FileTreeItem.vue'
 
 const fileStore = useFileStore()
 
 // ========== 拖拽移动 ==========
-const dragState = reactive<{ sourcePaths: string[]; sourcePath: string | null; hoverPath: string | null }>({
+const dragState = reactive<{
+  sourcePaths: string[]
+  sourcePath: string | null
+  hoverPath: string | null
+}>({
   sourcePaths: [],
   sourcePath: null,
   hoverPath: null
@@ -28,17 +33,21 @@ function getParentDir(filePath: string): string {
 }
 
 async function handleDropToFolder(targetDir: string): Promise<void> {
-  const sources = dragState.sourcePaths.length > 0
-    ? [...dragState.sourcePaths]
-    : dragState.sourcePath ? [dragState.sourcePath] : []
+  const sources =
+    dragState.sourcePaths.length > 0
+      ? [...dragState.sourcePaths]
+      : dragState.sourcePath
+        ? [dragState.sourcePath]
+        : []
   const source = sources[0]
   dragState.sourcePaths = []
   dragState.sourcePath = null
   dragState.hoverPath = null
   isListDragOver.value = false
   if (!source || !fileStore.openedFolderPath) return
-  const movableSources = dedupeTopLevelPaths(sources)
-    .filter((item) => normalizePath(targetDir) !== getParentDir(item))
+  const movableSources = dedupeTopLevelPaths(sources).filter(
+    (item) => normalizePath(targetDir) !== getParentDir(item)
+  )
   if (movableSources.length === 0) return
   const ok = await fileStore.moveItems(movableSources, targetDir)
   if (!ok) {
@@ -76,7 +85,11 @@ async function scrollToActiveFile(): Promise<boolean> {
   await nextTick()
   const filePath = fileStore.currentFile?.path
   if (!filePath) return false
-  const normalize = (value: string): string => value.replace(/[\\/]+/g, '/').replace(/\/+$/, '').toLowerCase()
+  const normalize = (value: string): string =>
+    value
+      .replace(/[\\/]+/g, '/')
+      .replace(/\/+$/, '')
+      .toLowerCase()
   const targetPath = normalize(filePath)
 
   const nodes = document.querySelectorAll<HTMLElement>('[data-file-path]')
@@ -99,7 +112,11 @@ let scrollRevealTimer: number | undefined
 function isInsideOpenedFolder(filePath: string): boolean {
   const folderPath = fileStore.openedFolderPath
   if (!folderPath) return false
-  const normalize = (value: string): string => value.replace(/[\\/]+/g, '/').replace(/\/+$/, '').toLowerCase()
+  const normalize = (value: string): string =>
+    value
+      .replace(/[\\/]+/g, '/')
+      .replace(/\/+$/, '')
+      .toLowerCase()
   return normalize(filePath).startsWith(`${normalize(folderPath)}/`)
 }
 
@@ -123,21 +140,43 @@ function armScrollReveal(): void {
   }, 3000)
 }
 
-watch(() => fileStore.activeTabId, () => {
-  armScrollReveal()
-})
+watch(
+  () => fileStore.activeTabId,
+  () => {
+    armScrollReveal()
+  }
+)
 
-watch(() => fileStore.fileTree, () => {
-  if (scrollRevealPending) void tryScrollToActiveFile()
-}, { deep: true })
+watch(
+  () => fileStore.fileTree,
+  () => {
+    if (scrollRevealPending) void tryScrollToActiveFile()
+  },
+  { deep: true }
+)
 
 const CLOSE_ALL_CONTEXT_MENUS_EVENT = 'inkase:close-context-menus'
 
 // ========== 右键菜单状态 ==========
+/**
+ * 右键菜单项。
+ * `children` 有值时渲染成二级菜单入口（新建 / 导入 / 打开 这类聚合项），
+ * `divider` 为 true 时渲染分隔线——两者配合能把十几项平铺的菜单收成几组。
+ */
 interface ContextMenuItem {
-  label: string
-  action: () => void
+  label?: string
+  action?: () => void
   disabled?: () => boolean
+  children?: ContextMenuItem[]
+  divider?: boolean
+}
+
+/** 分隔线（同一个对象可以重复引用，渲染时按序号做 key） */
+const CONTEXT_MENU_DIVIDER: ContextMenuItem = { divider: true }
+
+/** 聚合入口：父项只负责标题，动作都在二级菜单里 */
+function contextSubmenu(label: string, children: ContextMenuItem[]): ContextMenuItem {
+  return { label, children }
 }
 
 const contextMenu = reactive({
@@ -152,7 +191,8 @@ function closeContextMenu(): void {
 }
 
 function onContextMenuItemClick(item: ContextMenuItem): void {
-  if (item.disabled?.()) return
+  // 聚合项自身没有动作，点它不应该关菜单（真正的动作在二级菜单里）
+  if (!item.action || item.disabled?.()) return
   closeContextMenu()
   item.action()
 }
@@ -204,7 +244,11 @@ function onListClick(event: MouseEvent): void {
 
 function isEditableTarget(target: EventTarget | null): boolean {
   const element = target as HTMLElement | null
-  return element?.tagName === 'INPUT' || element?.tagName === 'TEXTAREA' || element?.isContentEditable === true
+  return (
+    element?.tagName === 'INPUT' ||
+    element?.tagName === 'TEXTAREA' ||
+    element?.isContentEditable === true
+  )
 }
 
 async function onListKeydown(event: KeyboardEvent): Promise<void> {
@@ -251,27 +295,54 @@ async function onListKeydown(event: KeyboardEvent): Promise<void> {
 
 function onEmptyContextMenu(event: MouseEvent): void {
   const folderPath = fileStore.openedFolderPath
+
+  // 「快速打开」检索的是工作区文件，没有打开文件夹时无处可查，因此按需出现
+  const openSubmenu = contextSubmenu('打开', [
+    { label: '文件', action: () => openFile() },
+    { label: '文件夹', action: () => openFolder() },
+    ...(folderPath
+      ? [
+          {
+            label: '快速打开',
+            action: () => window.dispatchEvent(new Event('inkase:quick-open'))
+          }
+        ]
+      : [])
+  ])
+
+  const importSubmenu = contextSubmenu('导入', [
+    { label: 'Markdown', action: () => fileStore.importMarkdown() },
+    { label: 'Word 文档', action: () => fileStore.importDocx() },
+    { label: '文件夹', action: () => fileStore.importFolder() }
+  ])
+
+  // 没有打开文件夹时无处新建/粘贴/刷新，只留「导入」「打开」这两组对外操作的入口
   const items: ContextMenuItem[] = folderPath
     ? [
-        { label: '新建文件', action: () => promptCreateFile(folderPath) },
-        { label: '新建文件夹', action: () => promptCreateFolder(folderPath) },
-        { label: '导入 Markdown', action: () => fileStore.importMarkdown() },
-        { label: '导入 Word 文档', action: () => fileStore.importDocx() },
-        { label: '导入文件夹', action: () => fileStore.importFolder() },
-        { label: '打开文件', action: () => openFile() },
-        { label: '打开文件夹', action: () => openFolder() },
-        { label: '快速打开文件', action: () => window.dispatchEvent(new Event('inkase:quick-open')) },
+        contextSubmenu('新建', [
+          { label: '文件', action: () => promptCreateFile(folderPath) },
+          { label: '思维导图', action: () => promptCreateMindMap(folderPath) },
+          { label: '文件夹', action: () => promptCreateFolder(folderPath) }
+        ]),
+        importSubmenu,
+        openSubmenu,
+        CONTEXT_MENU_DIVIDER,
+        {
+          label: '粘贴',
+          action: () => {
+            void pasteHere(folderPath)
+          },
+          disabled: () => !fileStore.clipboardFiles && !fileStore.hasSystemClipboardFiles
+        },
         { label: '刷新', action: () => fileStore.readFolder(folderPath) },
-        { label: '关闭文件夹', action: () => { void fileStore.closeFolder() } },
-        { label: '粘贴', action: () => { void pasteHere(folderPath) }, disabled: () => !fileStore.clipboardFiles && !fileStore.hasSystemClipboardFiles }
+        {
+          label: '关闭文件夹',
+          action: () => {
+            void fileStore.closeFolder()
+          }
+        }
       ]
-    : [
-        { label: '导入 Markdown', action: () => fileStore.importMarkdown() },
-        { label: '导入 Word 文档', action: () => fileStore.importDocx() },
-        { label: '导入文件夹', action: () => fileStore.importFolder() },
-        { label: '打开文件', action: () => openFile() },
-        { label: '打开文件夹', action: () => openFolder() }
-      ]
+    : [importSubmenu, openSubmenu]
   showContextMenu(event, items)
 }
 
@@ -280,37 +351,119 @@ function onFileContextMenu(event: MouseEvent, node: FileTreeNode): void {
     { label: '打开', action: () => fileStore.openFile(node.path, { addToRecent: false }) },
     { label: '保存', action: () => saveFileNode(node) },
     { label: '另存为', action: () => saveFileNodeAs(node) },
+    // 只有能渲染的文本类文件才提供单项导出；导图/图片等交给「另存为」
     ...(/\.(md|mdx|txt)$/i.test(node.name)
-      ? [{ label: '导出 PDF', action: () => { void fileStore.exportFileToPdf(node.path) } }]
+      ? [
+          {
+            label: '导出 PDF',
+            action: () => {
+              void fileStore.exportFileToPdf(node.path)
+            }
+          }
+        ]
       : []),
+    CONTEXT_MENU_DIVIDER,
+    {
+      label: '复制',
+      action: () => {
+        void fileStore.copySelection('copy')
+      }
+    },
+    {
+      label: '剪切',
+      action: () => {
+        void fileStore.copySelection('cut')
+      }
+    },
+    {
+      label: '粘贴到同级目录',
+      action: () => {
+        void pasteHere(getParentDir(node.path))
+      },
+      disabled: () => !fileStore.clipboardFiles && !fileStore.hasSystemClipboardFiles
+    },
+    CONTEXT_MENU_DIVIDER,
     { label: '重命名', action: () => promptRename(node) },
     { label: '删除', action: () => promptDelete(node) },
-    { label: '复制', action: () => { void fileStore.copySelection('copy') } },
-    { label: '剪切', action: () => { void fileStore.copySelection('cut') } },
-    { label: '粘贴到同级目录', action: () => { void pasteHere(getParentDir(node.path)) }, disabled: () => !fileStore.clipboardFiles && !fileStore.hasSystemClipboardFiles },
     { label: '复制路径', action: () => fileStore.copyPath(node.path) },
-    { label: '打开文件所在位置', action: () => { void fileStore.revealInExplorer(node.path) } }
+    {
+      label: '打开文件所在位置',
+      action: () => {
+        void fileStore.revealInExplorer(node.path)
+      }
+    }
   ]
   showContextMenu(event, items)
 }
 
 function onFolderContextMenu(event: MouseEvent, node: FileTreeNode): void {
   const items: ContextMenuItem[] = [
-    { label: '新建文件', action: () => promptCreateFile(node.path) },
-    { label: '新建文件夹', action: () => promptCreateFolder(node.path) },
-    { label: '导入文件', action: () => { void importFilesToFolder(node) } },
-    { label: '导入 Word 文档', action: () => { void importDocxToFolder(node) } },
-    { label: '导入文件夹', action: () => { void importDirectoryToFolder(node) } },
-    { label: '批量导出 PDF', action: () => { void fileStore.exportFolderToPdf(node.path) } },
-    { label: '复制', action: () => { void fileStore.copySelection('copy') } },
-    { label: '剪切', action: () => { void fileStore.copySelection('cut') } },
-    { label: '粘贴', action: () => { void pasteHere(node.path) }, disabled: () => !fileStore.clipboardFiles && !fileStore.hasSystemClipboardFiles },
+    contextSubmenu('新建', [
+      { label: '文件', action: () => promptCreateFile(node.path) },
+      { label: '思维导图', action: () => promptCreateMindMap(node.path) },
+      { label: '文件夹', action: () => promptCreateFolder(node.path) }
+    ]),
+    contextSubmenu('导入', [
+      {
+        label: '文件',
+        action: () => {
+          void importFilesToFolder(node)
+        }
+      },
+      {
+        label: 'Word 文档',
+        action: () => {
+          void importDocxToFolder(node)
+        }
+      },
+      {
+        label: '文件夹',
+        action: () => {
+          void importDirectoryToFolder(node)
+        }
+      }
+    ]),
+    {
+      label: '批量导出 PDF',
+      action: () => {
+        void fileStore.exportFolderToPdf(node.path)
+      }
+    },
+    CONTEXT_MENU_DIVIDER,
+    {
+      label: '复制',
+      action: () => {
+        void fileStore.copySelection('copy')
+      }
+    },
+    {
+      label: '剪切',
+      action: () => {
+        void fileStore.copySelection('cut')
+      }
+    },
+    {
+      label: '粘贴',
+      action: () => {
+        void pasteHere(node.path)
+      },
+      disabled: () => !fileStore.clipboardFiles && !fileStore.hasSystemClipboardFiles
+    },
+    CONTEXT_MENU_DIVIDER,
     { label: '刷新', action: () => fileStore.loadChildren(node) },
+    CONTEXT_MENU_DIVIDER,
     { label: '重命名', action: () => promptRename(node) },
     { label: '删除', action: () => promptDelete(node) },
     { label: '复制路径', action: () => fileStore.copyPath(node.path) },
     ...(node.path === fileStore.openedFolderPath
-      ? [{ label: '关闭文件夹', action: () => { void fileStore.closeFolder() } }]
+      ? [
+          {
+            label: '关闭文件夹',
+            action: () => {
+              void fileStore.closeFolder()
+            }
+          }
+        ]
       : [])
   ]
   showContextMenu(event, items)
@@ -342,7 +495,11 @@ const confirmDialogTitle = ref('')
 const confirmDialogMessage = ref('')
 let confirmResolve: ((value: boolean) => void) | null = null
 
-function openInputDialog(title: string, initialValue: string, placeholder: string): Promise<string | null> {
+function openInputDialog(
+  title: string,
+  initialValue: string,
+  placeholder: string
+): Promise<string | null> {
   return new Promise((resolve) => {
     inputDialogTitle.value = title
     inputValue.value = initialValue
@@ -361,13 +518,22 @@ const createFileError = ref('')
 const createFileInputRef = ref<HTMLInputElement | null>(null)
 let createFileResolve: ((value: string | null) => void) | null = null
 
-function openCreateFileDialog(): Promise<string | null> {
+function openCreateFileDialog(initialName = ''): Promise<string | null> {
   return new Promise((resolve) => {
-    createFileName.value = ''
+    createFileName.value = initialName
     createFileError.value = ''
     showCreateFileDialog.value = true
     createFileResolve = resolve
-    nextTick(() => createFileInputRef.value?.focus())
+    nextTick(() => {
+      createFileInputRef.value?.focus()
+      // 预填文件名时把光标放在主干之后（`.inkmind` 之前），方便直接改名
+      const input = createFileInputRef.value
+      if (input && initialName) {
+        const dot = input.value.lastIndexOf('.')
+        const caret = dot > 0 ? dot : input.value.length
+        input.setSelectionRange(0, caret)
+      }
+    })
   })
 }
 
@@ -433,6 +599,15 @@ async function promptCreateFile(dirPath: string): Promise<void> {
   await fileStore.createFile(dirPath, name)
 }
 
+/**
+ * 新建思维导图：预填 `.inkmind` 后缀，主进程会写入一张可解析的空白导图
+ */
+async function promptCreateMindMap(dirPath: string): Promise<void> {
+  const name = await openCreateFileDialog(`未命名导图${MINDMAP_EXTENSION}`)
+  if (!name) return
+  await fileStore.createFile(dirPath, name)
+}
+
 async function promptCreateFolder(dirPath: string): Promise<void> {
   const name = await openInputDialog('新建文件夹', '', '请输入文件夹名称')
   if (!name) return
@@ -463,7 +638,7 @@ async function promptDelete(node: FileTreeNode): Promise<void> {
 
 // ========== 基础操作 ==========
 async function openFile(): Promise<void> {
-  if (!await fileStore.confirmSaveBeforeAction()) return
+  if (!(await fileStore.confirmSaveBeforeAction())) return
   await fileStore.openFile()
 }
 
@@ -578,15 +753,45 @@ onUnmounted(() => {
         @click.stop
         @contextmenu.prevent.stop
       >
-        <div
+        <template
           v-for="(item, index) in contextMenu.items"
           :key="index"
-          class="context-menu-item"
-          :class="{ 'is-disabled': item.disabled?.() }"
-          @click="onContextMenuItemClick(item)"
         >
-          {{ item.label }}
-        </div>
+          <div
+            v-if="item.divider"
+            class="context-menu-divider"
+          />
+          <!-- 聚合项：鼠标悬停展开二级菜单，自身不执行动作 -->
+          <div
+            v-else-if="item.children"
+            class="context-menu-item has-sub"
+          >
+            <span>{{ item.label }}</span>
+            <IconChevronRight
+              class="context-submenu-indicator"
+              :size="12"
+            />
+            <div class="context-submenu">
+              <div
+                v-for="(sub, subIndex) in item.children"
+                :key="subIndex"
+                class="context-menu-item"
+                :class="{ 'is-disabled': sub.disabled?.() }"
+                @click.stop="onContextMenuItemClick(sub)"
+              >
+                {{ sub.label }}
+              </div>
+            </div>
+          </div>
+          <div
+            v-else
+            class="context-menu-item"
+            :class="{ 'is-disabled': item.disabled?.() }"
+            @click="onContextMenuItemClick(item)"
+          >
+            {{ item.label }}
+          </div>
+        </template>
       </div>
     </teleport>
 
@@ -692,7 +897,7 @@ onUnmounted(() => {
             spellcheck="false"
             class="dialog-input"
             :class="{ 'dialog-input-error': createFileError }"
-            placeholder="例如：笔记.mdx、deploy.sh、config.json"
+            placeholder="例如：笔记.mdx、导图.inkmind、deploy.sh、config.json"
             @keyup.enter="confirmCreateFile"
             @input="createFileError = ''"
           >
@@ -912,6 +1117,44 @@ onUnmounted(() => {
 
 .context-menu-item.is-disabled:hover {
   background: transparent;
+}
+
+/* 聚合项：标题在左、箭头在右；二级菜单在右侧展开 */
+.context-menu-item.has-sub {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  position: relative;
+}
+
+.context-submenu-indicator {
+  flex: none;
+  opacity: 0.65;
+}
+
+.context-submenu {
+  display: none;
+  position: absolute;
+  left: calc(100% - 4px);
+  /* 抵消 .context-menu 的 4px 内边距，让二级菜单首项与父项对齐 */
+  top: -5px;
+  min-width: 160px;
+  padding: 4px;
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+}
+
+.context-menu-item.has-sub:hover > .context-submenu {
+  display: block;
+}
+
+.context-menu-divider {
+  height: 1px;
+  margin: 4px 8px;
+  background: var(--color-border);
 }
 
 .dialog-overlay {

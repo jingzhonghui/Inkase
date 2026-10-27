@@ -81,7 +81,7 @@ export interface WebSourceReadResult {
   truncated: boolean
 }
 
-export type LocalFileType = 'pdf' | 'markdown' | 'mdx' | 'text'
+export type LocalFileType = 'pdf' | 'markdown' | 'mdx' | 'mindmap' | 'text'
 
 export interface LocalFileInspection {
   requestedPath: string
@@ -107,7 +107,8 @@ export interface AiDocumentSnapshot {
   id: string
   title: string
   path: string | null
-  format: 'markdown' | 'mdx'
+  /** 思维导图也参与 AI 上下文，因此和普通文档一样带格式标记 */
+  format: 'markdown' | 'mdx' | 'mindmap'
   content: string
   revision: number
   contentHash: string
@@ -157,7 +158,7 @@ export type ApprovedDocumentOperation =
       type: 'create-document'
       title: string
       content: string
-      format: 'markdown' | 'mdx'
+      format: 'markdown' | 'mdx' | 'mindmap'
       reason: string
     }
 

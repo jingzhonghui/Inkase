@@ -40,6 +40,7 @@ import {
   IconMarkdown,
   IconPhoto,
   IconSettings,
+  IconSitemap,
   IconTerminal2,
   type Icon
 } from '@tabler/icons-vue'
@@ -53,6 +54,7 @@ import {
 export type FileIconKey =
   | 'folder'
   | 'markdown'
+  | 'mindmap'
   | 'pdf'
   | 'image'
   | 'svg'
@@ -101,6 +103,7 @@ export type FileIconKey =
 export const FILE_ICON_COMPONENTS: Record<FileIconKey, Icon> = {
   folder: IconFolder,
   markdown: IconMarkdown,
+  mindmap: IconSitemap,
   pdf: IconFileTypePdf,
   image: IconPhoto,
   svg: IconFileTypeSvg,
@@ -150,6 +153,7 @@ export const FILE_ICON_COMPONENTS: Record<FileIconKey, Icon> = {
 const EXTENSION_TO_KEY: Record<string, FileIconKey> = {
   md: 'markdown',
   mdx: 'markdown',
+  inkmind: 'mindmap',
   markdown: 'markdown',
   pdf: 'pdf',
   png: 'image',

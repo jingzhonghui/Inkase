@@ -85,11 +85,24 @@ export interface MdxDocument {
   settings: MdxSettings
 }
 
-export type DocumentFormat = 'mdx' | 'markdown' | 'image' | 'pdf'
+export type DocumentFormat = 'mdx' | 'markdown' | 'image' | 'pdf' | 'mindmap'
 
 /** 只有 Markdown 文档格式支持编辑和保存；新增格式默认按只读处理。 */
 export function isEditableMarkdownFormat(format?: DocumentFormat | null): boolean {
   return format === 'mdx' || format === 'markdown'
+}
+
+/**
+ * 思维导图格式：同样是「可编辑文本」，但不走 Markdown 语义
+ * （没有源码/即时渲染/分屏模式，内容是一段 JSON）。
+ */
+export function isMindMapFormat(format?: DocumentFormat | null): boolean {
+  return format === 'mindmap'
+}
+
+/** 内容可编辑并可通过文本通道写盘的格式（Markdown + 思维导图） */
+export function isEditableTextFormat(format?: DocumentFormat | null): boolean {
+  return isEditableMarkdownFormat(format) || isMindMapFormat(format)
 }
 
 /** MDX 文件操作结果 */

@@ -19,4 +19,13 @@ describe('parseLaunchTargets', () => {
       )
     ).toEqual(['C:\\Docs\\a.md'])
   })
+
+  it('accepts .inkmind mind map files as launch targets', () => {
+    expect(
+      parseLaunchTargets(
+        ['Inkase.exe', 'C:\\Docs\\项目规划.inkmind', 'C:\\Docs\\MAP.INKMIND', 'C:\\Docs\\a.png'],
+        () => 'file'
+      )
+    ).toEqual(['C:\\Docs\\项目规划.inkmind', 'C:\\Docs\\MAP.INKMIND'])
+  })
 })

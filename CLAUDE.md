@@ -31,7 +31,7 @@ pnpm run build
 
 # 打包
 pnpm run build:win    # Windows
-pnpm run build:mac    # macOS  
+pnpm run build:mac    # macOS
 pnpm run build:linux  # Linux
 
 # 测试
@@ -126,6 +126,7 @@ src/
 │   ├── fuzzy.ts / dialog.ts / editor-language.ts / windows-filename.ts 等通用工具
 │   ├── formatters/                    # 代码格式化（Prettier standalone，按扩展名懒加载 parser；供纯文本源码右键菜单「格式化文档」/ Shift+Alt+F）
 │   ├── ai/                            # AI 消息解析等工具
+│   ├── mindmap/                       # 思维导图（schema 解析/序列化、viewport 画布尺寸、context-menu 菜单项）
 │   └── prosemirror/                   # ProseMirror 工具集
 │       ├── index.ts                   # 统一导出
 │       ├── schema.ts                  # Schema 定义（节点 + 标记，含 math_inline/block）
@@ -160,7 +161,7 @@ src/
   → fileStore.updateContent(content)    # 写入 Pinia
   → fileStore.fileContent (computed)    # 读取当前 tab 内容
   → PreviewPanel 监听变化重新渲染 HTML
-    
+
 用户操作 (AppHeader/ToolBar)
   → fileStore.newFile/openFile/saveFile
   → window.electronAPI.saveFile(content)
@@ -189,7 +190,41 @@ document.mdx
     └── images/       # 嵌入的图片文件
 ```
 
+### 思维导图（`.inkmind`）
+
+第三种文档格式：**ZIP 容器**，与 `.mdx` 同构——导图结构与图片、附件一起打包，单文件即可带走，不会出现「文件在、图没了」。
+
+```
+map.inkmind (ZIP)
+├── map.json          # 导图结构
+└── assets/
+    ├── images/       # 节点图片
+    └── files/        # 节点附件
+```
+
+```json
+{ "schema": "inkase.mindmap", "version": 2,
+  "root": { "id": "n_root", "text": "中心主题", "note": "可选备注",
+            "collapsed": false, "direction": "right", "color": "#4c8dff",
+            "image": { "src": "assets/images/hero_9f2a1c.png", "width": 200, "height": 140 },
+            "attachments": [ { "id": "att_1", "name": "方案.pdf",
+                               "src": "assets/files/方案_a41d90.pdf",
+                               "mime": "application/pdf", "size": 10240 } ],
+            "children": [ ... ] } }
+```
+
+- **共享定义**：`shared/mindmap/document.ts`（schema/version/扩展名/空白文档），主进程新建文件与渲染层共用同一份常量
+- **容器读写**：`electron/mindmap/inkmind-archive.ts` 用 `adm-zip` 解包到临时目录 / 原子打包回去，卡包体积、条目数、解压总量，并按 `assets/<images|files>/<文件名>` 逐段校验路径（挡 `..` 穿越）。打开时把 `map.json` 的文本交给编辑器，资源留在临时目录，另给一张「包内路径 → 绝对路径」的 `assetMap`；保存时才重打包。临时目录随标签关闭清理
+- **资源登记与另存为**：`assetMap` 只覆盖「打开时包里已有」的条目，新插入的图片/附件必须由 store 的 `registerMindMapAsset` 把包内路径补进当前标签的表——否则 `resolveMindMapImageSrc` 查到空串，节点的 `<img>` 拿不到 url 就画不出来（附件同理，点了打不开）。`SAVE_AS` 对 `.inkmind` 必须**真的打包成容器**（写裸 JSON 会产出打不开的文件）；已打开的导图顺着源临时目录打包并沿用它，新建导图则写新容器再解包，两条路径都要 `registerTempDir(targetPath, …)`，否则另存为之后插入图片/附件会报「导图尚未打开」。新容器的 `assetMap` 随返回值带回渲染层替换标签的资源表。注意导图临时目录里只有 `map.json`，按 MDX 文档（`mdx.json`）去读会 ENOENT
+- **渲染层**：`src/types/mindmap.ts` 模型 + `src/utils/mindmap/schema.ts` 容错解析（`{ ok, document, repaired[] }`）与序列化（2 空格缩进 + 末尾换行）
+- **编辑器**：`src/components/editor/MindMapEditor.vue`（基于 mind-elixir）。刻意关掉了渲染库自带的右键菜单与平移，改用面板内自有菜单和原生滚动容器；画布尺寸由 `src/utils/mindmap/viewport.ts` 自适应内容；图片 URL 由 `src/utils/mindmap/image-src.ts` 查 `assetMap` 得到
+- **AI 与搜索**：`shared/mindmap/outline.ts` 把导图转成「主题 + 缩进 + （备注：…）」大纲；`source-access-service` 与 `workspace-search-service` 读 `.inkmind` 时**先解包**再返回该大纲，不会把压缩字节当文本
+- **互通**：`shared/mindmap/markdown.ts` 把 Markdown 标题/列表层级转成导图（store 的 `convertActiveToMindMap`，原文档不动）；`exportMindMapOutline` 反向导出大纲，走 `SAVE_AS` 的 `format: 'markdown'` 分支直接写文本
+- **XMind 互转**：`shared/mindmap/xmind.ts` 做 `.inkmind` ↔ `.xmind` 的纯文本转换（只支持新版 `content.json`；遇到 XMind 8 的 `content.xml` 给「用新版另存」的提示），`electron/mindmap/xmind-archive.ts` 用 `adm-zip` 读写压缩包并卡体积/条目/解压总量上限；导入落盘 `.inkmind`（重名加 `_1`）后走正常打开流程。标记（`markers`）与标签（`labels`）映射到节点 `tags`、超链接映射到 `href`，能原样带回；关系线/概要/边界/图片/游离主题/多余画布无法表达，按类别计数汇总提示一次
+- **富内容**：节点支持 `image`（包内 `assets/images/…`）、`attachments`（包内 `assets/files/…`，单节点上限 10 个、单个 50MB）、`icons`、`tags`、`href`，文档支持 `arrows`（关系线）与 `summaries`（概要），schema 版本 2。渲染层映射集中在 `src/utils/mindmap/adapter.ts`，校验与限额在 `src/utils/mindmap/rich-content.ts`；图标以字形（⭐🚩❓❗✅）交给渲染库、文件里仍存名字，因为 mind-elixir 把 `icons` 当纯文本输出——两边进出必须走 `iconsFromElixir` / `writeIconsToElixir`，直接往 `icons` 里塞名字会让画布显示「star」这个单词；附件不在渲染库的数据结构里，借节点 `metadata` 带一圈再回读
+- **右键菜单与附件卡片**：图标是一级入口 + 二级菜单，点一下就地切换**并关闭菜单**（图标可叠加：重新右键再选，二级菜单里已选项带勾选态；`refresh()` 会清掉选中态，所以关菜单前记住 id、切完用 `restoreSelection` 选回来），不弹输入面板；只有标签/链接需要面板校验。附件在画布上渲染成节点下方的卡片（字形 + 文件名 + 大小），卡片是**注入进 `me-tpc` 的 DOM**，渲染库每轮重绘都会重建节点元素，所以挂在 `scheduleMeasure()` 里重画（与分支配色、查找标记同一处）；卡片参与节点高度，整图由渲染库自己的 flex 布局重排。卡片左键打开、右键出「打开 / 另存为 / 移除」。`P1`/`P2`/`P3` 自动套用优先级配色（预设定义在 `shared/mindmap/document.ts`，供 XMind 互转共用）
+- **AI 生成导图**：`create_mindmap` / `update_mindmap`（`electron/ai/tools/document-tools.ts`）只收 Markdown 大纲，由 `markdownToMindMapJson` 转成 JSON——不让模型手写 `.inkmind`，避免 id/括号出错产出打不开的文件。`update_mindmap` 复用 `replace-document` 操作，自带 revision/哈希冲突检测；会整体覆盖，因此丢失节点富内容，工具描述里限定了使用场景。与标题同名的一级标题会被剥掉，避免中心主题下多挂一个同名节点
+
 ### IPC 通信模式
 
 所有 IPC handler 统一返回 `{ success: boolean, data?: any, error?: string }` 格式。通道常量集中定义在 `electron/ipc/channels.ts` 中作为单一来源，preload 和主进程共享。
-

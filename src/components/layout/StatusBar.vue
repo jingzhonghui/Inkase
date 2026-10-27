@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { IconCode, IconColumns, IconFileText, IconFileTypePdf } from '@tabler/icons-vue'
+import { IconCode, IconColumns, IconFileText, IconFileTypePdf, IconSitemap } from '@tabler/icons-vue'
 import { useFileStore, type EditorMode } from '../../stores/file'
 import { findCodeLanguage, languageDisplayName } from '../../utils/editor-language'
 import Tooltip from '../common/Tooltip.vue'
@@ -12,6 +12,9 @@ const appVersion = ref('')
 const effectiveMode = computed<EditorMode>(() =>
   fileStore.effectiveEditorMode
 )
+
+/** 当前标签是否为思维导图（不属于编辑模式体系，只做展示） */
+const isMindMapActive = computed(() => fileStore.activeTab?.fileInfo?.format === 'mindmap')
 
 onMounted(async () => {
   try {
@@ -60,6 +63,7 @@ function toggleEditorMode(): void {
  */
 const modeIcon = computed(() => {
   if (fileStore.isPdfActiveTab) return 'pdf'
+  if (isMindMapActive.value) return 'mindmap'
   const icons: Record<EditorMode, string> = {
     split: 'split',
     source: 'source',
@@ -84,6 +88,7 @@ const plainLanguageLabel = computed<string | null>(() => {
  */
 const modeLabel = computed(() => {
   if (fileStore.isPdfActiveTab) return 'PDF 预览'
+  if (isMindMapActive.value) return '思维导图'
   if (effectiveMode.value === 'plain') return plainLanguageLabel.value ?? '纯文本'
   const labels: Record<Exclude<EditorMode, 'plain'>, string> = {
     split: '分屏预览',
@@ -126,6 +131,8 @@ const modeTooltip = computed(() => `${modeLabel.value} (点击切换)`)
           <IconFileText v-else-if="modeIcon === 'ir'" />
           <!-- PDF 预览图标 -->
           <IconFileTypePdf v-else-if="modeIcon === 'pdf'" />
+          <!-- 思维导图图标 -->
+          <IconSitemap v-else-if="modeIcon === 'mindmap'" />
           <!-- 源码编辑图标 -->
           <IconCode v-else />
           <span class="mode-label">{{ modeLabel }}</span>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, defineAsyncComponent, ref } from 'vue'
 import { IconFile, IconFolder, IconPlus, IconSourceCode, IconWorldWww } from '@tabler/icons-vue'
 import { useFileStore } from '../../stores/file'
 import { useAiStore } from '../../stores/ai'
@@ -14,6 +14,12 @@ import TabBar from './TabBar.vue'
 import { Splitpanes, Pane } from 'splitpanes'
 import 'splitpanes/dist/splitpanes.css'
 
+/**
+ * 思维导图编辑器按需加载：
+ * 渲染核心约 120KB，没必要进入首屏包。
+ */
+const MindMapEditor = defineAsyncComponent(() => import('./MindMapEditor.vue'))
+
 const fileStore = useFileStore()
 const aiStore = useAiStore()
 defineProps<{ aiReady?: boolean }>()
@@ -24,6 +30,7 @@ const isIrMode = computed(() => fileStore.effectiveEditorMode === 'ir')
 const hasOpenFile = computed(() => fileStore.tabs.length > 0 && fileStore.activeTabId !== null)
 const isImageTab = computed(() => fileStore.activeTab?.fileInfo?.format === 'image')
 const isPdfTab = computed(() => fileStore.activeTab?.fileInfo?.format === 'pdf')
+const isMindMapTab = computed(() => fileStore.activeTab?.fileInfo?.format === 'mindmap')
 const isPlainTextTab = computed(() => fileStore.effectiveEditorMode === 'plain')
 const isHtmlTab = computed(() => fileStore.isHtmlFile)
 const isHtmlPreviewOn = computed(() => isHtmlTab.value && fileStore.htmlPreviewActive)
@@ -191,6 +198,12 @@ function onPreviewScroll(ratio: number): void {
       <ImageViewer
         v-if="isImageTab"
         :key="fileStore.activeTabId || 'image-viewer'"
+      />
+
+      <!-- 思维导图：独立编辑器（不走 Markdown 的源码/即时渲染/分屏体系） -->
+      <MindMapEditor
+        v-else-if="isMindMapTab"
+        :key="fileStore.activeTabId || 'mindmap-editor'"
       />
 
       <!-- PDF 文件：只读查看 -->

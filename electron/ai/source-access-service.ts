@@ -12,6 +12,8 @@ import type {
   WebSourceReadResult
 } from '../../shared/ai/types'
 import { validatePublicHttpsUrl } from './url-policy'
+import { extractMindMapOutline, hasReadableOutline } from '../../shared/mindmap/outline'
+import { MINDMAP_ENTRY } from '../mindmap/inkmind-archive'
 
 interface SourceStats {
   size: number
@@ -109,14 +111,28 @@ function samePath(left: string, right: string): boolean {
     : normalize(left) === normalize(right)
 }
 
+/**
+ * 比较两次 stat 是否指向同一个文件。
+ *
+ * `dev` 的 0 视为「未知」而不是「另一块设备」：Windows 上按路径 `lstat`/`stat`
+ * 拿到的 `st_dev` 恒为 0，而对已打开句柄 `fstat` 会给出真实设备号。若把 0 当成
+ * 有效值参与比较，每一次本地文件读取都会被误判为「获批后发生变化」而拒绝。
+ * 其余字段（size/ino/mode/mtime/ctime）照旧参与比较，替换文件的检测能力不减。
+ */
 function sameIdentity(left: SourceStats, right: SourceStats): boolean {
   if (left.size !== right.size) return false
-  if (left.dev !== undefined && right.dev !== undefined && left.dev !== right.dev) return false
+  if (isKnownDevice(left.dev) && isKnownDevice(right.dev) && left.dev !== right.dev) return false
   if (left.ino !== undefined && right.ino !== undefined && left.ino !== right.ino) return false
   if (left.mode !== undefined && right.mode !== undefined && left.mode !== right.mode) return false
   if (left.mtimeMs !== undefined && right.mtimeMs !== undefined && left.mtimeMs !== right.mtimeMs) return false
   if (left.ctimeMs !== undefined && right.ctimeMs !== undefined && left.ctimeMs !== right.ctimeMs) return false
   return true
+}
+
+/** `dev` 是否是可比较的设备号（0 与 undefined 都表示平台没提供） */
+function isKnownDevice(dev: number | bigint | undefined): boolean {
+  if (dev === undefined) return false
+  return dev !== 0 && dev !== 0n
 }
 
 function inspectionIdentity(inspection: SourceFileInspection): SourceStats {
@@ -137,6 +153,7 @@ function inferType(filePath: string): LocalFileType | null {
     case '.pdf': return 'pdf'
     case '.md': case '.markdown': return 'markdown'
     case '.mdx': return 'mdx'
+    case '.inkmind': return 'mindmap'
     case '.txt': return 'text'
     default: return null
   }
@@ -291,8 +308,44 @@ export class SourceAccessService {
       } finally { await parser.destroy() }
     }
     if (type === 'mdx') return this.extractMdx(bytes)
+    if (type === 'mindmap') return this.extractMindMap(bytes)
     this.rejectBinaryText(bytes)
     return new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+  }
+
+  /**
+   * 思维导图 → 大纲文本。
+   *
+   * `.inkmind` 是 ZIP 容器，先取出里面的 `map.json`；直接把 JSON 交给模型有两个问题：
+   * 节点 id、括号、转义符会吃掉大量 token，层级还得模型自己从嵌套结构里推。
+   * 这里复用 shared 里的纯函数摊平成缩进大纲，模型读到的就是「看得懂的树」。
+   */
+  private extractMindMap(bytes: Buffer): string {
+    let zip: AdmZip
+    try {
+      zip = new AdmZip(bytes)
+    } catch {
+      throw new SourceAccessError('SOURCE_INVALID', '思维导图无法解压')
+    }
+    const entries = zip.getEntries()
+    if (entries.length > this.options.maxZipEntries) {
+      throw new SourceAccessError('SOURCE_TOO_LARGE', '思维导图条目过多')
+    }
+    const mapEntry = entries.find((entry) => entry.entryName === MINDMAP_ENTRY)
+    if (!mapEntry) {
+      throw new SourceAccessError('SOURCE_INVALID', '思维导图缺少 map.json')
+    }
+    let raw: string
+    try {
+      raw = mapEntry.getData().toString('utf8')
+    } catch {
+      throw new SourceAccessError('SOURCE_INVALID', '思维导图不是有效的 UTF-8 文本')
+    }
+    const outline = extractMindMapOutline(raw)
+    if (!hasReadableOutline(outline)) {
+      throw new SourceAccessError('SOURCE_INVALID', '思维导图没有可读取的主题文本')
+    }
+    return outline
   }
 
   private extractMdx(bytes: Buffer): string {

@@ -4,6 +4,8 @@ import * as os from 'os'
 import * as path from 'path'
 import { dialog } from 'electron'
 import { IPC_CHANNELS } from '../channels'
+import { readArchive } from '../../mindmap/inkmind-archive'
+import { MINDMAP_VERSION } from '../../../shared/mindmap/document'
 
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'inkase-folder-'))
 
@@ -58,7 +60,10 @@ describe('folder:read', () => {
     fs.writeFileSync(path.join(dir, 'readme.md'), '# hi', 'utf8')
 
     const handler = electronMocks.handlers.get(IPC_CHANNELS.FOLDER.READ)!
-    const result = (await handler({}, dir)) as { success: boolean; data: Array<{ name: string; isDirectory: boolean }> }
+    const result = (await handler({}, dir)) as {
+      success: boolean
+      data: Array<{ name: string; isDirectory: boolean }>
+    }
 
     expect(result.success).toBe(true)
     const names = result.data.map((item) => item.name)
@@ -77,7 +82,10 @@ describe('folder:read', () => {
     fs.writeFileSync(path.join(dir, 'LICENSE'), 'x', 'utf8')
 
     const handler = electronMocks.handlers.get(IPC_CHANNELS.FOLDER.READ)!
-    const result = (await handler({}, dir)) as { success: boolean; data: Array<{ name: string; isDirectory: boolean }> }
+    const result = (await handler({}, dir)) as {
+      success: boolean
+      data: Array<{ name: string; isDirectory: boolean }>
+    }
 
     expect(result.success).toBe(true)
     const names = result.data.map((item) => item.name)
@@ -85,6 +93,85 @@ describe('folder:read', () => {
     for (const expected of ['LICENSE', 'a.md', 'b.mdx', 'c.txt', 'd.json']) {
       expect(names).toContain(expected)
     }
+  })
+})
+
+describe('file:create', () => {
+  beforeEach(async () => {
+    await registerHandlersFresh()
+  })
+
+  it('creates a .inkmind file with a parseable empty mind map', async () => {
+    const dir = path.join(tmpDir, 'create-mindmap')
+    fs.mkdirSync(dir, { recursive: true })
+
+    const handler = electronMocks.handlers.get(IPC_CHANNELS.FILE.CREATE)!
+    const result = (await handler(
+      {},
+      {
+        dirPath: dir,
+        name: '项目规划.inkmind'
+      }
+    )) as { success: boolean; data?: { path: string } }
+
+    expect(result.success).toBe(true)
+    const filePath = result.data!.path
+
+    // 新建出来的是容器（ZIP），不是 0 字节也不是纯文本
+    expect(fs.readFileSync(filePath).subarray(0, 2).toString()).toBe('PK')
+    const archive = readArchive(filePath)
+    expect(archive.ok).toBe(true)
+    if (!archive.ok) return
+    const raw = archive.content
+
+    // 新建后打开必须直接看到一张空白导图
+    expect(raw.length).toBeGreaterThan(0)
+    const parsed = JSON.parse(raw) as {
+      schema: string
+      version: number
+      root: { id: string; text: string; children: unknown[] }
+    }
+    expect(parsed.schema).toBe('inkase.mindmap')
+    expect(parsed.version).toBe(MINDMAP_VERSION)
+    // 中心主题默认用文件名，用户新建后一眼能认出这张图属于哪个文件
+    expect(parsed.root.text).toBe('项目规划')
+    expect(parsed.root.id).toBeTruthy()
+    expect(parsed.root.children).toEqual([])
+    fs.rmSync(archive.tempDir, { recursive: true, force: true })
+  })
+
+  it('keeps creating plain .md files as empty text', async () => {
+    const dir = path.join(tmpDir, 'create-md')
+    fs.mkdirSync(dir, { recursive: true })
+
+    const handler = electronMocks.handlers.get(IPC_CHANNELS.FILE.CREATE)!
+    const result = (await handler(
+      {},
+      {
+        dirPath: dir,
+        name: '笔记.md'
+      }
+    )) as { success: boolean; data?: { path: string } }
+
+    expect(result.success).toBe(true)
+    expect(fs.readFileSync(result.data!.path, 'utf-8')).toBe('')
+  })
+
+  it('still creates .mdx as a ZIP container', async () => {
+    const dir = path.join(tmpDir, 'create-mdx')
+    fs.mkdirSync(dir, { recursive: true })
+
+    const handler = electronMocks.handlers.get(IPC_CHANNELS.FILE.CREATE)!
+    const result = (await handler(
+      {},
+      {
+        dirPath: dir,
+        name: '文档.mdx'
+      }
+    )) as { success: boolean; data?: { path: string } }
+
+    expect(result.success).toBe(true)
+    expect(fs.readFileSync(result.data!.path).subarray(0, 2).toString()).toBe('PK')
   })
 })
 
@@ -99,7 +186,9 @@ describe('file:rename', () => {
     fs.writeFileSync(path.join(dir, 'A', 'x.mdx'), 'x', 'utf8')
 
     const handler = electronMocks.handlers.get(IPC_CHANNELS.FILE.RENAME)!
-    const result = (await handler({}, { oldPath: path.join(dir, 'A'), newName: 'B' })) as { success: boolean }
+    const result = (await handler({}, { oldPath: path.join(dir, 'A'), newName: 'B' })) as {
+      success: boolean
+    }
 
     expect(result.success).toBe(true)
     expect(fs.existsSync(path.join(dir, 'B'))).toBe(true)
@@ -164,7 +253,10 @@ describe('recent files', () => {
     expect(addResult.success).toBe(true)
 
     const getHandler = electronMocks.handlers.get(IPC_CHANNELS.FILE.RECENT)!
-    const getResult = (await getHandler({})) as { success: boolean; data: Array<{ path: string; type: string }> }
+    const getResult = (await getHandler({})) as {
+      success: boolean
+      data: Array<{ path: string; type: string }>
+    }
     expect(getResult.success).toBe(true)
     expect(getResult.data).toHaveLength(1)
     expect(getResult.data[0]).toEqual({ path: path.resolve(file), type: 'file' })
@@ -179,7 +271,10 @@ describe('recent files', () => {
     expect(addResult.success).toBe(true)
 
     const getHandler = electronMocks.handlers.get(IPC_CHANNELS.FILE.RECENT)!
-    const getResult = (await getHandler({})) as { success: boolean; data: Array<{ path: string; type: string }> }
+    const getResult = (await getHandler({})) as {
+      success: boolean
+      data: Array<{ path: string; type: string }>
+    }
     expect(getResult.data[0]).toEqual({ path: path.resolve(folder), type: 'folder' })
   })
 
@@ -189,15 +284,22 @@ describe('recent files', () => {
     fs.writeFileSync(recentStorePath, JSON.stringify([legacyPath]), 'utf8')
 
     const getHandler = electronMocks.handlers.get(IPC_CHANNELS.FILE.RECENT)!
-    const getResult = (await getHandler({})) as { success: boolean; data: Array<{ path: string; type: string }> }
+    const getResult = (await getHandler({})) as {
+      success: boolean
+      data: Array<{ path: string; type: string }>
+    }
     expect(getResult.data[0]).toEqual({ path: legacyPath, type: 'file' })
   })
 
   it('filters out recent items whose file no longer exists', async () => {
-    fs.writeFileSync(recentStorePath, JSON.stringify([
-      { path: path.join(tmpDir, 'gone.md'), type: 'file' },
-      { path: path.join(tmpDir, 'present.md'), type: 'file' }
-    ]), 'utf8')
+    fs.writeFileSync(
+      recentStorePath,
+      JSON.stringify([
+        { path: path.join(tmpDir, 'gone.md'), type: 'file' },
+        { path: path.join(tmpDir, 'present.md'), type: 'file' }
+      ]),
+      'utf8'
+    )
     fs.writeFileSync(path.join(tmpDir, 'present.md'), 'x', 'utf8')
 
     const getHandler = electronMocks.handlers.get(IPC_CHANNELS.FILE.RECENT)!
@@ -253,7 +355,10 @@ describe('file:search', () => {
     fs.writeFileSync(path.join(dir, 'docs', 'nested', 'deep.txt'), 'x', 'utf8')
 
     const handler = electronMocks.handlers.get(IPC_CHANNELS.FILE.SEARCH)!
-    const result = (await handler({}, dir)) as { success: boolean; data: Array<{ name: string; path: string }> }
+    const result = (await handler({}, dir)) as {
+      success: boolean
+      data: Array<{ name: string; path: string }>
+    }
 
     expect(result.success).toBe(true)
     const paths = result.data.map((item) => item.path)
@@ -297,7 +402,10 @@ describe('file:search', () => {
 
   it('returns a failure for a non-existent directory', async () => {
     const handler = electronMocks.handlers.get(IPC_CHANNELS.FILE.SEARCH)!
-    const result = (await handler({}, path.join(tmpDir, 'no-such-dir'))) as { success: boolean; error?: string }
+    const result = (await handler({}, path.join(tmpDir, 'no-such-dir'))) as {
+      success: boolean
+      error?: string
+    }
 
     expect(result.success).toBe(false)
     expect(result.error).toBeTruthy()
@@ -374,10 +482,15 @@ describe('folder:importFiles / folder:importDirectory', () => {
     fs.mkdirSync(target, { recursive: true })
     fs.writeFileSync(path.join(target, 'a.md'), 'old a', 'utf8')
     fs.writeFileSync(path.join(target, 'b.md'), 'old b', 'utf8')
-    showOpenDialog.mockResolvedValue({ canceled: false, filePaths: [path.join(srcDir, 'a.md'), path.join(srcDir, 'b.md')] })
+    showOpenDialog.mockResolvedValue({
+      canceled: false,
+      filePaths: [path.join(srcDir, 'a.md'), path.join(srcDir, 'b.md')]
+    })
 
     const handler = electronMocks.handlers.get(IPC_CHANNELS.FOLDER.IMPORT_FILES)!
-    const result = (await handler({}, target, undefined, 'skip')) as { data: { imported: unknown[] } }
+    const result = (await handler({}, target, undefined, 'skip')) as {
+      data: { imported: unknown[] }
+    }
 
     expect(result.data.imported).toHaveLength(0)
     expect(fs.readFileSync(path.join(target, 'a.md'), 'utf8')).toBe('old a')
@@ -393,10 +506,15 @@ describe('folder:importFiles / folder:importDirectory', () => {
     fs.mkdirSync(target, { recursive: true })
     fs.writeFileSync(path.join(target, 'a.md'), 'old a', 'utf8')
     fs.writeFileSync(path.join(target, 'b.md'), 'old b', 'utf8')
-    showOpenDialog.mockResolvedValue({ canceled: false, filePaths: [path.join(srcDir, 'a.md'), path.join(srcDir, 'b.md')] })
+    showOpenDialog.mockResolvedValue({
+      canceled: false,
+      filePaths: [path.join(srcDir, 'a.md'), path.join(srcDir, 'b.md')]
+    })
 
     const handler = electronMocks.handlers.get(IPC_CHANNELS.FOLDER.IMPORT_FILES)!
-    const result = (await handler({}, target, undefined, 'overwrite')) as { data: { imported: unknown[] } }
+    const result = (await handler({}, target, undefined, 'overwrite')) as {
+      data: { imported: unknown[] }
+    }
 
     expect(result.data.imported).toHaveLength(2)
     expect(fs.readFileSync(path.join(target, 'a.md'), 'utf8')).toBe('new a')
@@ -416,7 +534,10 @@ describe('folder:importFiles / folder:importDirectory', () => {
     })
 
     const handler = electronMocks.handlers.get(IPC_CHANNELS.FOLDER.IMPORT_DIRECTORY)!
-    const result = (await handler({}, target)) as { success: boolean; data?: { imported: unknown[] } }
+    const result = (await handler({}, target)) as {
+      success: boolean
+      data?: { imported: unknown[] }
+    }
 
     expect(result.success).toBe(true)
     expect(result.data?.imported).toHaveLength(1)
@@ -443,21 +564,61 @@ describe('folder:importFiles / folder:importDirectory', () => {
 })
 
 describe('file:clipboardReadFiles / file:clipboardWriteFiles', () => {
-  it('reads and writes file paths through the clipboard abstraction', async () => {
-    await registerHandlersFresh()
-    const { clipboard } = await import('electron')
-    ;(clipboard.read as ReturnType<typeof vi.fn>).mockReturnValue('file:///tmp/a.md')
+  // 读取路径分平台实现：Linux 走 text/uri-list，其他平台依赖原生模块
+  // electron-clipboard-ex（测试环境里不可用），因此两条用例各自限定平台，
+  // 否则在 Windows/macOS 上跑 Linux 用例必然拿到空数组。
+  it.skipIf(process.platform !== 'linux')(
+    'reads and writes file paths through the clipboard abstraction',
+    async () => {
+      await registerHandlersFresh()
+      const { clipboard } = await import('electron')
+      ;(clipboard.read as ReturnType<typeof vi.fn>).mockReturnValue('file:///tmp/a.md')
 
-    const readHandler = electronMocks.handlers.get(IPC_CHANNELS.FILE.CLIPBOARD_READ_FILES)!
-    const readResult = (await readHandler({})) as { success: boolean; data?: string[] }
-    expect(readResult.success).toBe(true)
-    expect(readResult.data).toEqual(['/tmp/a.md'])
+      const readHandler = electronMocks.handlers.get(IPC_CHANNELS.FILE.CLIPBOARD_READ_FILES)!
+      const readResult = (await readHandler({})) as { success: boolean; data?: string[] }
+      expect(readResult.success).toBe(true)
+      expect(readResult.data).toEqual(['/tmp/a.md'])
 
-    const writeHandler = electronMocks.handlers.get(IPC_CHANNELS.FILE.CLIPBOARD_WRITE_FILES)!
-    const writeResult = (await writeHandler({}, { paths: ['/tmp/a.md'], mode: 'copy' })) as { success: boolean }
-    expect(writeResult.success).toBe(true)
-    expect(clipboard.writeBuffer).toHaveBeenCalledWith('text/uri-list', Buffer.from('file:///tmp/a.md', 'utf8'))
-  })
+      const writeHandler = electronMocks.handlers.get(IPC_CHANNELS.FILE.CLIPBOARD_WRITE_FILES)!
+      const writeResult = (await writeHandler({}, { paths: ['/tmp/a.md'], mode: 'copy' })) as {
+        success: boolean
+      }
+      expect(writeResult.success).toBe(true)
+      expect(clipboard.writeBuffer).toHaveBeenCalledWith(
+        'text/uri-list',
+        Buffer.from('file:///tmp/a.md', 'utf8')
+      )
+    }
+  )
+
+  it.skipIf(process.platform === 'linux')(
+    'degrades to an empty list when the native clipboard module is unavailable',
+    async () => {
+      // electron-clipboard-ex 在 Windows 上是真实安装的原生模块，模块加载失败这条分支
+      // 只能在测试里显式制造；否则读到的会是机器的真实剪贴板内容（随环境变化）。
+      vi.doMock('electron-clipboard-ex', () => {
+        throw new Error('native clipboard module unavailable')
+      })
+      try {
+        await registerHandlersFresh()
+
+        const readHandler = electronMocks.handlers.get(IPC_CHANNELS.FILE.CLIPBOARD_READ_FILES)!
+        const readResult = (await readHandler({})) as { success: boolean; data?: string[] }
+        // 原生模块缺失时不能让整个粘贴流程报错，只是没有可用路径
+        expect(readResult.success).toBe(true)
+        expect(readResult.data).toEqual([])
+
+        const writeHandler = electronMocks.handlers.get(IPC_CHANNELS.FILE.CLIPBOARD_WRITE_FILES)!
+        const writeResult = (await writeHandler({}, { paths: ['/tmp/a.md'], mode: 'copy' })) as {
+          success: boolean
+        }
+        // 写入同样降级为「什么都不做」，但依然返回成功
+        expect(writeResult.success).toBe(true)
+      } finally {
+        vi.doUnmock('electron-clipboard-ex')
+      }
+    }
+  )
 })
 
 describe('file:copyInto', () => {
@@ -477,11 +638,14 @@ describe('file:copyInto', () => {
     fs.writeFileSync(path.join(src, 'a.md'), 'aa', 'utf8')
 
     const handler = electronMocks.handlers.get(IPC_CHANNELS.FILE.COPY_INTO)!
-    const result = (await handler({}, {
-      sources: [path.join(src, 'a.md')],
-      targetDir: target,
-      mode: 'copy'
-    })) as { success: boolean; data: { items: Array<{ target: string }> } }
+    const result = (await handler(
+      {},
+      {
+        sources: [path.join(src, 'a.md')],
+        targetDir: target,
+        mode: 'copy'
+      }
+    )) as { success: boolean; data: { items: Array<{ target: string }> } }
 
     expect(result.success).toBe(true)
     expect(fs.readFileSync(path.join(target, 'a.md'), 'utf8')).toBe('aa')
@@ -497,12 +661,15 @@ describe('file:copyInto', () => {
     fs.mkdirSync(path.join(target, 'copy-folder-src'), { recursive: true })
 
     const handler = electronMocks.handlers.get(IPC_CHANNELS.FILE.COPY_INTO)!
-    const result = (await handler({}, {
-      sources: [src],
-      targetDir: target,
-      mode: 'copy',
-      conflictAction: 'keep'
-    })) as { success: boolean; data: { items: Array<{ target: string }> } }
+    const result = (await handler(
+      {},
+      {
+        sources: [src],
+        targetDir: target,
+        mode: 'copy',
+        conflictAction: 'keep'
+      }
+    )) as { success: boolean; data: { items: Array<{ target: string }> } }
 
     expect(result.success).toBe(true)
     expect(fs.existsSync(path.join(target, 'copy-folder-src (1)', 'sub', 'x.md'))).toBe(true)
@@ -521,12 +688,15 @@ describe('file:copyInto', () => {
     showMessageBox.mockResolvedValue({ response: 1 })
 
     const handler = electronMocks.handlers.get(IPC_CHANNELS.FILE.COPY_INTO)!
-    const result = (await handler({}, {
-      sources: [path.join(src, 'a.md'), path.join(src, 'b.md')],
-      targetDir: target,
-      mode: 'copy',
-      conflictAction: 'overwrite'
-    })) as { success: boolean; data: { items: unknown[] } }
+    const result = (await handler(
+      {},
+      {
+        sources: [path.join(src, 'a.md'), path.join(src, 'b.md')],
+        targetDir: target,
+        mode: 'copy',
+        conflictAction: 'overwrite'
+      }
+    )) as { success: boolean; data: { items: unknown[] } }
 
     expect(result.success).toBe(true)
     expect(result.data.items).toHaveLength(2)
@@ -542,11 +712,14 @@ describe('file:copyInto', () => {
     fs.writeFileSync(path.join(src, 'a.md'), 'aa', 'utf8')
 
     const handler = electronMocks.handlers.get(IPC_CHANNELS.FILE.COPY_INTO)!
-    const result = (await handler({}, {
-      sources: [path.join(src, 'a.md')],
-      targetDir: target,
-      mode: 'cut'
-    })) as { success: boolean }
+    const result = (await handler(
+      {},
+      {
+        sources: [path.join(src, 'a.md')],
+        targetDir: target,
+        mode: 'cut'
+      }
+    )) as { success: boolean }
 
     expect(result.success).toBe(true)
     expect(fs.existsSync(path.join(target, 'a.md'))).toBe(true)
@@ -558,11 +731,14 @@ describe('file:copyInto', () => {
     fs.mkdirSync(src, { recursive: true })
 
     const handler = electronMocks.handlers.get(IPC_CHANNELS.FILE.COPY_INTO)!
-    const result = (await handler({}, {
-      sources: [src],
-      targetDir: src,
-      mode: 'copy'
-    })) as { success: boolean; data: { failed: Array<{ error: string }> } }
+    const result = (await handler(
+      {},
+      {
+        sources: [src],
+        targetDir: src,
+        mode: 'copy'
+      }
+    )) as { success: boolean; data: { failed: Array<{ error: string }> } }
 
     expect(result.success).toBe(true)
     expect(result.data.failed).toHaveLength(1)
@@ -575,11 +751,14 @@ describe('file:copyInto', () => {
     fs.writeFileSync(path.join(dir, 'a.md'), 'aa', 'utf8')
 
     const handler = electronMocks.handlers.get(IPC_CHANNELS.FILE.COPY_INTO)!
-    const result = (await handler({}, {
-      sources: [path.join(dir, 'a.md')],
-      targetDir: dir,
-      mode: 'cut'
-    })) as { success: boolean; data: { items: unknown[] } }
+    const result = (await handler(
+      {},
+      {
+        sources: [path.join(dir, 'a.md')],
+        targetDir: dir,
+        mode: 'cut'
+      }
+    )) as { success: boolean; data: { items: unknown[] } }
 
     expect(result.success).toBe(true)
     expect(result.data.items).toHaveLength(0)
@@ -594,11 +773,14 @@ describe('file:copyInto', () => {
     fs.writeFileSync(path.join(dir, 'x.md'), 'x', 'utf8')
 
     const handler = electronMocks.handlers.get(IPC_CHANNELS.FILE.COPY_INTO)!
-    const result = (await handler({}, {
-      sources: [dir, path.join(dir, 'x.md')],
-      targetDir: target,
-      mode: 'copy'
-    })) as { success: boolean; data: { items: Array<{ target: string }> } }
+    const result = (await handler(
+      {},
+      {
+        sources: [dir, path.join(dir, 'x.md')],
+        targetDir: target,
+        mode: 'copy'
+      }
+    )) as { success: boolean; data: { items: Array<{ target: string }> } }
 
     expect(result.success).toBe(true)
     expect(result.data.items).toHaveLength(1)

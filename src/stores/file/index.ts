@@ -1,6 +1,11 @@
 import { computed, ref, watch } from 'vue'
 import { defineStore } from 'pinia'
-import { isEditableMarkdownFormat } from '../../types/mdx'
+import { isEditableTextFormat, isMindMapFormat } from '../../types/mdx'
+import { createEmptyMindMap, MINDMAP_EXTENSION } from '../../types/mindmap'
+import { markdownToMindMapJson } from '../../../shared/mindmap/markdown'
+import { extractMindMapOutline } from '../../../shared/mindmap/outline'
+import { parseMindMap, countMindMapText, serializeMindMap } from '../../utils/mindmap/schema'
+import { getMindMapImageBuilder, type MindMapImageFormat } from '../../utils/mindmap/export-bridge'
 import type { DocumentFormat, MdxDocument } from '../../types/mdx'
 import { createMdxDocument } from '../../types/mdx'
 import { loadSessionState, saveSessionState } from '../session'
@@ -33,7 +38,8 @@ export const useFileStore = defineStore('file', () => {
   const DEFAULT_SIDEBAR_WIDTH = 220
   const MIN_SIDEBAR_WIDTH = 180
   const MAX_SIDEBAR_WIDTH = 420
-  const clampSidebarWidth = (width: number): number => Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, width))
+  const clampSidebarWidth = (width: number): number =>
+    Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, width))
 
   // ====== 最大打开标签数（默认 20，可在设置中修改，持久化到会话） ======
   const DEFAULT_MAX_OPEN_TABS = 20
@@ -56,7 +62,11 @@ export const useFileStore = defineStore('file', () => {
 
   const editorMode = ref<EditorMode>('ir')
   const sessionEditorMode = loadSessionState()?.editorMode
-  if (sessionEditorMode === 'ir' || sessionEditorMode === 'source' || sessionEditorMode === 'split') {
+  if (
+    sessionEditorMode === 'ir' ||
+    sessionEditorMode === 'source' ||
+    sessionEditorMode === 'split'
+  ) {
     editorMode.value = sessionEditorMode
   }
   const sidebarCollapsed = ref(false)
@@ -129,7 +139,15 @@ export const useFileStore = defineStore('file', () => {
 
   // ====== 字数统计 ======
   function updateWordCount(): void {
-    const text = fileContent.value
+    const raw = fileContent.value
+    // 内容理论上一定是字符串；这里防御非字符串输入，避免切换到异常标签时抛错
+    const text = typeof raw === 'string' ? raw : ''
+    // 思维导图的内容是 JSON，直接按字符数会统计到括号与引号，改为统计节点文字
+    if (isMindMapFormat(activeTab.value?.fileInfo?.format)) {
+      const parsed = parseMindMap(text)
+      wordCount.value = parsed.ok ? countMindMapText(parsed.document.root) : 0
+      return
+    }
     wordCount.value = text.replace(/\s/g, '').length
   }
 
@@ -141,7 +159,9 @@ export const useFileStore = defineStore('file', () => {
       return
     }
     recoveryWriteInProgress = true
-    const dirtyTabs = tabs.value.filter((tab) => tab.document && ((tab.fileInfo?.modified ?? false) || !tab.fileInfo?.path))
+    const dirtyTabs = tabs.value.filter(
+      (tab) => tab.document && ((tab.fileInfo?.modified ?? false) || !tab.fileInfo?.path)
+    )
     try {
       if (dirtyTabs.length === 0) {
         const result = await window.electronAPI.clearRecovery()
@@ -285,11 +305,14 @@ export const useFileStore = defineStore('file', () => {
 
   /**
    * 创建一篇由 AI 生成的新文档（未保存的新 tab），并激活它。
+   *
+   * `format` 决定默认文件名后缀：思维导图用 `.inkmind`，否则首次保存会被当成
+   * Markdown 存成 `.md`。各格式的正文都由 `content` 承载（导图正文即 JSON 文本）。
    */
   function createGeneratedDocument(
     title: string,
     content: string,
-    format: 'markdown' | 'mdx'
+    format: 'markdown' | 'mdx' | 'mindmap'
   ): TabInfo | null {
     if (tabs.value.length >= maxOpenTabs.value) return null
     const tab = tabState.createTab()
@@ -297,7 +320,7 @@ export const useFileStore = defineStore('file', () => {
     tab.content = content
     tab.fileInfo = {
       path: '',
-      name: format === 'markdown' ? `${title}.md` : `${title}.mdx`,
+      name: `${title}${format === 'markdown' ? '.md' : format === 'mindmap' ? '.inkmind' : '.mdx'}`,
       modified: true,
       format
     }
@@ -305,6 +328,23 @@ export const useFileStore = defineStore('file', () => {
     stateVersion.value++
     updateWordCount()
     return tab
+  }
+
+  /**
+   * 把当前 Markdown（或纯文本）标签转成一份新的思维导图标签。
+   *
+   * 只读当前内容、不修改原文档：这是「换个视角看笔记」，不是格式转换，
+   * 原 Markdown 必须原样保留。没有可转换的结构时返回 null，由调用方提示。
+   */
+  function convertActiveToMindMap(): TabInfo | null {
+    const tab = activeTab.value
+    if (!tab || tab.fileInfo?.format === 'mindmap') return null
+    const markdown = tab.content ?? ''
+    if (!markdown.trim()) return null
+    const name = tab.fileInfo?.name ?? '未命名'
+    const title = name.replace(/\.[^.]+$/, '') || '未命名'
+    const json = markdownToMindMapJson(markdown, { title })
+    return createGeneratedDocument(`${title} 思维导图`, json, 'mindmap')
   }
 
   function markSaved(): void {
@@ -427,9 +467,59 @@ export const useFileStore = defineStore('file', () => {
     }
   }
 
+  /**
+   * 新建思维导图。
+   * 不需要主进程参与：内容是一段 JSON 文本，本地生成即可，
+   * 首次保存时走「另存为」让用户选路径。
+   */
+  async function newMindMap(): Promise<boolean> {
+    isLoading.value = true
+    error.value = null
+
+    try {
+      if (tabs.value.length >= maxOpenTabs.value) {
+        await requestDialog({
+          title: '已达标签上限',
+          message: `最多同时打开 ${maxOpenTabs.value} 个标签，请先关闭一些标签。`,
+          buttons: [{ label: '知道了', value: 0, primary: true }]
+        })
+        return false
+      }
+
+      const document = createEmptyMindMap()
+      const content = serializeMindMap(document)
+
+      const tab = tabState.createTab()
+      tab.excludeFromRecent = true
+      tab.document = createMdxDocument('未命名思维导图', content)
+      tab.content = content
+      tab.fileInfo = {
+        path: '',
+        name: `未命名思维导图${MINDMAP_EXTENSION}`,
+        modified: false,
+        format: 'mindmap'
+      }
+      activeTabId.value = tab.id
+      useAiStore().deactivatePanel()
+      stateVersion.value++
+      updateWordCount()
+      return true
+    } catch (err) {
+      error.value = err instanceof Error ? err.message : '新建思维导图失败'
+      return false
+    } finally {
+      isLoading.value = false
+    }
+  }
+
   async function openFile(
     filePath?: string,
-    options?: { addToRecent?: boolean; silentLimit?: boolean; preview?: boolean; excludeFromRecent?: boolean }
+    options?: {
+      addToRecent?: boolean
+      silentLimit?: boolean
+      preview?: boolean
+      excludeFromRecent?: boolean
+    }
   ): Promise<boolean> {
     isLoading.value = true
     error.value = null
@@ -485,7 +575,8 @@ export const useFileStore = defineStore('file', () => {
         }
 
         // 创建新 tab 前检查标签上限
-        const previewTab = options?.preview === true ? tabs.value.find((tab) => tab.isPreview) : undefined
+        const previewTab =
+          options?.preview === true ? tabs.value.find((tab) => tab.isPreview) : undefined
         if (tabs.value.length >= maxOpenTabs.value && !previewTab) {
           if (!options?.silentLimit) {
             await requestDialog({
@@ -500,12 +591,22 @@ export const useFileStore = defineStore('file', () => {
 
         // 创建新 tab
         const tab = tabState.createTab()
-        const format = (result.data.format as DocumentFormat) || (fPath.toLowerCase().endsWith('.md') ? 'markdown' : 'mdx')
-        const isReadOnlyMedia = !isEditableMarkdownFormat(format)
+        const format =
+          (result.data.format as DocumentFormat) ||
+          (fPath.toLowerCase().endsWith('.inkmind')
+            ? 'mindmap'
+            : fPath.toLowerCase().endsWith('.md')
+              ? 'markdown'
+              : 'mdx')
+        const isReadOnlyMedia = !isEditableTextFormat(format)
         tab.document = doc
         tab.content = isReadOnlyMedia ? '' : doc.content
         if (format === 'image') tab.imageDataUrl = result.data.imageDataUrl
         if (format === 'pdf') tab.pdfBase64 = result.data.pdfBase64
+        // 思维导图是容器：把包内路径 → 临时目录绝对路径的表带上，图片才显示得出来
+        if (format === 'mindmap') {
+          tab.mindMapAssets = (result.data.assetMap as Record<string, string> | undefined) ?? {}
+        }
         tab.fileInfo = {
           path: fPath,
           name: fPath.split(/[/\\]/).pop() || '未命名.mdx',
@@ -555,14 +656,18 @@ export const useFileStore = defineStore('file', () => {
         error.value = '没有打开的文档'
         return false
       }
-      if (!isEditableMarkdownFormat(tab.fileInfo?.format)) {
+      if (!isEditableTextFormat(tab.fileInfo?.format)) {
         error.value = '该文件类型不支持编辑或保存'
         return false
       }
 
       const savedContent = tab.content
       const filePath = tab.fileInfo?.path
-      const isInWorkspace = !!(filePath && folder.openedFolderPath.value && filePath.startsWith(folder.openedFolderPath.value))
+      const isInWorkspace = !!(
+        filePath &&
+        folder.openedFolderPath.value &&
+        filePath.startsWith(folder.openedFolderPath.value)
+      )
       const result = await window.electronAPI.saveFile(
         savedContent,
         tab.document.metadata.title,
@@ -608,7 +713,7 @@ export const useFileStore = defineStore('file', () => {
         error.value = '没有打开的文档'
         return false
       }
-      if (!isEditableMarkdownFormat(tab.fileInfo?.format)) {
+      if (!isEditableTextFormat(tab.fileInfo?.format)) {
         error.value = '该文件类型不支持编辑或保存'
         return false
       }
@@ -618,24 +723,42 @@ export const useFileStore = defineStore('file', () => {
         savedContent,
         tab.document.metadata.title,
         tab.fileInfo?.path || undefined,
-        tab.excludeFromRecent !== true
+        tab.excludeFromRecent !== true,
+        // 新建的思维导图还没有路径，必须显式告知格式，否则会被存成 .mdx
+        tab.fileInfo?.format === 'mindmap'
+          ? 'mindmap'
+          : tab.fileInfo?.format === 'markdown'
+            ? 'markdown'
+            : 'mdx'
       )
 
       if (result.success && result.data) {
         const savePath = result.data as string
         externalWatch.markExternalHandled(savePath)
+        const savedFormat: DocumentFormat = savePath.toLowerCase().endsWith('.inkmind')
+          ? 'mindmap'
+          : savePath.toLowerCase().endsWith('.md')
+            ? 'markdown'
+            : 'mdx'
         if (tab.fileInfo) {
           tab.fileInfo.path = savePath
           tab.fileInfo.name = savePath.split(/[/\\]/).pop() || '未命名.mdx'
           tab.fileInfo.modified = tab.content !== savedContent
-          tab.fileInfo.format = savePath.toLowerCase().endsWith('.md') ? 'markdown' : 'mdx'
+          tab.fileInfo.format = savedFormat
         } else {
           tab.fileInfo = {
             path: savePath,
             name: savePath.split(/[/\\]/).pop() || '未命名.mdx',
             modified: tab.content !== savedContent,
-            format: savePath.toLowerCase().endsWith('.md') ? 'markdown' : 'mdx'
+            format: savedFormat
           }
+        }
+        /*
+         * 导图另存为会得到一个新的 ZIP 容器（资源重新解到自己的目录）：
+         * 主进程把这张表一起带回来，渲染层换成它，画布上的图片才不会指向旧目录。
+         */
+        if (savedFormat === 'mindmap' && result.assetMap) {
+          tab.mindMapAssets = { ...result.assetMap }
         }
         await loadRecentFiles()
         await writeRecoverySnapshot()
@@ -770,7 +893,8 @@ export const useFileStore = defineStore('file', () => {
     openedFolderPath: folder.openedFolderPath,
     readFolder: folder.readFolder,
     reloadFile,
-    isTabDirty: (tab) => !!tab.document && ((tab.fileInfo?.modified ?? false) || !tab.fileInfo?.path)
+    isTabDirty: (tab) =>
+      !!tab.document && ((tab.fileInfo?.modified ?? false) || !tab.fileInfo?.path)
   })
   externalWatch.setup()
 
@@ -804,7 +928,11 @@ export const useFileStore = defineStore('file', () => {
       return
     }
 
-    if (state.editorMode === 'ir' || state.editorMode === 'source' || state.editorMode === 'split') {
+    if (
+      state.editorMode === 'ir' ||
+      state.editorMode === 'source' ||
+      state.editorMode === 'split'
+    ) {
       editorMode.value = state.editorMode
     }
     sidebarCollapsed.value = state.sidebarCollapsed === true
@@ -908,7 +1036,11 @@ export const useFileStore = defineStore('file', () => {
         existing.document.content = recovered.content
         if (existing.fileInfo) existing.fileInfo.modified = true
         if (recovered.assetData && recovered.filePath) {
-          const restoreResult = await window.electronAPI.restoreRecoveryAssets(recovered.filePath, recovered.document, recovered.assetData)
+          const restoreResult = await window.electronAPI.restoreRecoveryAssets(
+            recovered.filePath,
+            recovered.document,
+            recovered.assetData
+          )
           if (!restoreResult.success) error.value = restoreResult.error || '恢复资源失败'
         }
         if (recovered.id === snapshot.activeTabId) recoveredActiveTabId = existing.id
@@ -926,7 +1058,8 @@ export const useFileStore = defineStore('file', () => {
       if (recovered.id === snapshot.activeTabId) recoveredActiveTabId = tab.id
     }
     if (recoveredActiveTabId) activeTabId.value = recoveredActiveTabId
-    else if (!activeTabId.value && tabs.value.length > 0) activeTabId.value = tabs.value[tabs.value.length - 1].id
+    else if (!activeTabId.value && tabs.value.length > 0)
+      activeTabId.value = tabs.value[tabs.value.length - 1].id
     stateVersion.value++
     updateWordCount()
     await window.electronAPI.clearRecovery()
@@ -1174,6 +1307,220 @@ export const useFileStore = defineStore('file', () => {
     }
   }
 
+  /**
+   * 登记一张刚插入导图容器的资源（图片或附件）。
+   *
+   * 打开 `.inkmind` 时主进程给出的 `assetMap` 只覆盖「ZIP 里已经存在的条目」；
+   * 新插入的文件还躺在临时解压目录里、尚未打包进容器，所以查表必然落空——
+   * 节点的 `<img>` 拿到空 url，画布上就一片空白（附件同理，点了打不开）。
+   * 这里把新条目补进当前标签的表里，画布与附件卡片立刻就能解析出可加载的 URL。
+   */
+  function registerMindMapAsset(tabId: string, packagedSrc: string, absolutePath: string): void {
+    const tab = tabs.value.find((item) => item.id === tabId)
+    if (!tab || !packagedSrc || !absolutePath) return
+    // 包内路径统一用 `/`：与 `image-src` 的查表归一化保持一致
+    const key = packagedSrc.replace(/\\/g, '/')
+    tab.mindMapAssets = { ...(tab.mindMapAssets ?? {}), [key]: absolutePath }
+    stateVersion.value++
+  }
+
+  /**
+   * 把当前思维导图导出成一份 Markdown 大纲（.md）。
+   *
+   * 和「另存为」不同：导出只是写出一份快照，导图标签仍指向原 `.inkmind`，
+   * 路径与未保存标记都不动，避免用户以为「存成 Markdown 了」而丢掉导图本身。
+   */
+  async function exportMindMapOutline(): Promise<boolean> {
+    isLoading.value = true
+    error.value = null
+
+    try {
+      if (!window.electronAPI) {
+        error.value = 'Electron API 不可用'
+        return false
+      }
+
+      const tab = activeTab.value
+      if (!tab) {
+        error.value = '没有打开的文档'
+        return false
+      }
+      if (tab.fileInfo?.format !== 'mindmap') {
+        error.value = '只有思维导图可以导出为大纲'
+        return false
+      }
+
+      const outline = extractMindMapOutline(tab.content ?? '')
+      if (!outline) {
+        error.value = '当前思维导图没有可导出的内容'
+        return false
+      }
+
+      const title = (tab.fileInfo?.name ?? '思维导图').replace(/\.[^.]+$/, '') || '思维导图'
+      // 显式声明 markdown：否则主进程会按 .mdx 打包，导出就变成了另一个 Inkase 文档
+      const result = await window.electronAPI.saveAsFile(
+        `${outline}\n`,
+        `${title} 大纲`,
+        undefined,
+        false,
+        'markdown'
+      )
+
+      if (result.success) return true
+      if (result.error === '用户取消') return false
+      error.value = result.error || '导出失败'
+      return false
+    } catch (err) {
+      error.value = err instanceof Error ? err.message : '导出失败'
+      return false
+    } finally {
+      isLoading.value = false
+    }
+  }
+
+  /**
+   * 把当前思维导图导出成图片（PNG / SVG）。
+   *
+   * 图片只能从**正在渲染的 DOM** 里取（颜色、连线、折叠状态都在 DOM 上），
+   * 因此真正的出图交给 `MindMapEditor` 登记的构建器，store 只负责
+   * 「检查标签类型 → 拿字节 → 弹保存框 → 落盘」这条统一链路。
+   *
+   * 与「另存为」不同：导出只是写出一份快照，导图标签仍指向原 `.inkmind`。
+   */
+  async function exportMindMapImage(format: MindMapImageFormat): Promise<boolean> {
+    isLoading.value = true
+    error.value = null
+
+    try {
+      if (!window.electronAPI) {
+        error.value = 'Electron API 不可用'
+        return false
+      }
+
+      const tab = activeTab.value
+      if (!tab) {
+        error.value = '没有打开的文档'
+        return false
+      }
+      if (tab.fileInfo?.format !== 'mindmap') {
+        error.value = '只有思维导图可以导出为图片'
+        return false
+      }
+
+      const builder = getMindMapImageBuilder()
+      if (!builder) {
+        error.value = '思维导图还没准备好，请稍后重试'
+        return false
+      }
+
+      const image = await builder(format)
+      const title = (tab.fileInfo?.name ?? '思维导图').replace(/\.[^.]+$/, '') || '思维导图'
+      const result = await window.electronAPI.exportMindMapImage(title, image.format, image.bytes)
+
+      if (result.success) return true
+      if (result.error === '用户取消') return false
+      error.value = result.error || '导出失败'
+      return false
+    } catch (err) {
+      error.value = err instanceof Error ? err.message : '导出失败'
+      return false
+    } finally {
+      isLoading.value = false
+    }
+  }
+
+  /**
+   * 导入 XMind：`.xmind` → 本地 `.inkmind` → 打开新标签。
+   *
+   * 与「导入 Markdown」一致：先在磁盘上落一个 `.inkmind`（重名不覆盖），再正常打开它，
+   * 这样导入结果是一个和手建导图没有区别的文件，能保存、能进 Git、能被同步。
+   * 不支持的内容只汇总提示一次，避免被上百个标记弹成筛子。
+   */
+  async function importXmind(targetFolderOverride?: string): Promise<boolean> {
+    isLoading.value = true
+    error.value = null
+
+    try {
+      if (!window.electronAPI) {
+        error.value = 'Electron API 不可用'
+        return false
+      }
+
+      const targetFolder = targetFolderOverride || folder.openedFolderPath.value || undefined
+      const result = await window.electronAPI.importXmind(undefined, targetFolder)
+
+      if (!result.success || !result.data) {
+        if (result.error === '用户取消') return false
+        error.value = result.error || '导入 XMind 失败'
+        return false
+      }
+
+      const opened = await openFile(result.data.filePath)
+      const summary = result.data.warningsSummary ?? []
+      if (summary.length > 0) {
+        // 导图已经打开，提示只是告知「有东西没跟过来」，因此不阻断操作
+        await requestDialog({
+          title: '已导入，但有内容被忽略',
+          message: `主题文字与层级已完整保留，以下内容 XMind 与 Inkase 之间暂不支持转换：\n\n${summary.join('\n')}`,
+          buttons: [{ label: '知道了', value: 0, primary: true }]
+        })
+      }
+      return opened
+    } catch (err) {
+      error.value = err instanceof Error ? err.message : '导入 XMind 失败'
+      return false
+    } finally {
+      isLoading.value = false
+    }
+  }
+
+  /**
+   * 把当前思维导图导出成 `.xmind`。
+   *
+   * 与导出图片、导出大纲同一套定位：写一份快照出去，导图标签仍指向原 `.inkmind`，
+   * 路径与未保存标记都不动。
+   */
+  async function exportXmind(): Promise<boolean> {
+    isLoading.value = true
+    error.value = null
+
+    try {
+      if (!window.electronAPI) {
+        error.value = 'Electron API 不可用'
+        return false
+      }
+
+      const tab = activeTab.value
+      if (!tab) {
+        error.value = '没有打开的文档'
+        return false
+      }
+      if (tab.fileInfo?.format !== 'mindmap') {
+        error.value = '只有思维导图可以导出为 XMind'
+        return false
+      }
+
+      const content = tab.content ?? ''
+      if (!content.trim()) {
+        error.value = '当前思维导图没有可导出的内容'
+        return false
+      }
+
+      const title = (tab.fileInfo?.name ?? '思维导图').replace(/\.[^.]+$/, '') || '思维导图'
+      const result = await window.electronAPI.exportXmind(title, content)
+
+      if (result.success) return true
+      if (result.error === '用户取消') return false
+      error.value = result.error || '导出失败'
+      return false
+    } catch (err) {
+      error.value = err instanceof Error ? err.message : '导出失败'
+      return false
+    } finally {
+      isLoading.value = false
+    }
+  }
+
   // ====== 暴露的接口 ======
   return {
     // Tab 状态
@@ -1232,6 +1579,7 @@ export const useFileStore = defineStore('file', () => {
     closeOtherTabs: tabOps.closeOtherTabs,
     closeAllTabs: tabOps.closeAllTabs,
     moveTab: tabOps.moveTab,
+    reorderTabs: tabOps.reorderTabs,
     confirmSaveForTab: tabOps.confirmSaveForTab,
     confirmSaveBeforeClose: tabOps.confirmSaveBeforeClose,
     revealInExplorer: tabState.revealInExplorer,
@@ -1251,6 +1599,8 @@ export const useFileStore = defineStore('file', () => {
     updateTabContent,
     updateEditorSelection,
     createGeneratedDocument,
+    // 笔记 → 思维导图（不改原文档）
+    convertActiveToMindMap,
 
     // 会话持久化
     persistSession,
@@ -1266,6 +1616,7 @@ export const useFileStore = defineStore('file', () => {
     // 文件操作
     init,
     newFile,
+    newMindMap,
     openFile,
     saveFile,
     saveAsFile,
@@ -1276,6 +1627,13 @@ export const useFileStore = defineStore('file', () => {
     importDocx,
     importFolder,
     exportMarkdown,
+    // 思维导图容器内的新资源（图片 / 附件）登记
+    registerMindMapAsset,
+    // 思维导图 → Markdown 大纲（只写快照，不改标签）
+    exportMindMapOutline,
+    exportMindMapImage,
+    importXmind,
+    exportXmind,
     exportTabToPdf: pdf.exportTabToPdf,
     exportFileToPdf: pdf.exportFileToPdf,
     exportFolderToPdf: pdf.exportFolderToPdf,

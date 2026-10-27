@@ -19,6 +19,10 @@
   
   --color-border: #e5e7eb;
   --color-border-hover: #d1d5db;
+
+  /* 标签页：未选中/悬停背景，需介于标签栏底色(bg-secondary)与选中底色(bg-primary)之间 */
+  --color-tab-bg: #e4e8ee;
+  --color-tab-bg-hover: #d8dfe8;
   
   --color-primary: #3b82f6;
   --color-primary-hover: #2563eb;
@@ -78,6 +82,10 @@
   
   --color-border: #374151;
   --color-border-hover: #4b5563;
+
+  /* 标签页：未选中比标签栏略亮，选中仍用更暗的 bg-primary，三档可区分 */
+  --color-tab-bg: #414f63;
+  --color-tab-bg-hover: #4b5a70;
   
   --color-primary: #60a5fa;
   --color-primary-hover: #3b82f6;

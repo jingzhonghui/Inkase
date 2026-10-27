@@ -14,6 +14,11 @@ describe('classifyDropItem', () => {
     expect(classifyDropItem('Notes.MDX', false)).toBe('markdown')
   })
 
+  it('classifies .inkmind files as mindmap (case-insensitive)', () => {
+    expect(classifyDropItem('项目规划.inkmind', false)).toBe('mindmap')
+    expect(classifyDropItem('MAP.INKMIND', false)).toBe('mindmap')
+  })
+
   it('classifies other files as other', () => {
     expect(classifyDropItem('photo.png', false)).toBe('other')
     expect(classifyDropItem('data.pdf', false)).toBe('other')

@@ -45,6 +45,14 @@ export interface TabInfo {
   imageDataUrl?: string
   /** PDF 文件（format='pdf'）的 base64 内容，用于只读查看 */
   pdfBase64?: string
+  /**
+   * 思维导图容器的资源映射：包内路径 → 解压后的绝对路径。
+   *
+   * `.inkmind` 是 ZIP，图片与附件躺在临时解压目录里；
+   * 渲染层用这张表把 `assets/images/x.png` 换成能加载的 URL。
+   * 只对 format='mindmap' 有意义，关闭标签即失效。
+   */
+  mindMapAssets?: Record<string, string>
   /** 上次阅读位置（切换标签页时保存、切回时恢复；关闭标签即丢弃） */
   savedEditorPosition?: {
     /** 滚动容器纵向偏移 */

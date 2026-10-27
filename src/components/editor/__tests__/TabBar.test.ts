@@ -194,6 +194,59 @@ describe('TabBar label for read-only media', () => {
     const wrapper = mount(TabBar)
     expect(wrapper.find('.tab-label').text()).toBe('截图.png')
   })
+
+  it('wraps icon and label in the tooltip trigger so hovering the tab content reveals the full name', async () => {
+    // 上一个用例的 Teleport tooltip 仍挂在 body 上，先清空避免断言命中残留节点
+    document.body.innerHTML = ''
+    await openManyTabs(1)
+    const wrapper = mount(TabBar)
+    const trigger = wrapper.find('.tab .tooltip-trigger')
+
+    expect(trigger.exists()).toBe(true)
+    expect(trigger.find('.tab-icon').exists()).toBe(true)
+    expect(trigger.find('.tab-label').text()).toBe('f0.mdx')
+
+    vi.useFakeTimers()
+    await trigger.trigger('mouseover')
+    vi.advanceTimersByTime(400)
+    await nextTick()
+    expect(document.body.querySelector('[role="tooltip"]')?.textContent).toBe('f0.mdx')
+    vi.useRealTimers()
+  })
+})
+
+describe('TabBar middle ellipsis', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    stubElectronAPI()
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.clearAllMocks()
+  })
+
+  it('shortens a long file name in the middle and keeps the full name in the tooltip', async () => {
+    document.body.innerHTML = ''
+    const fullName = '这是一个很长很长很长很长很长的文件名.mdx'
+    const store = useFileStore()
+    await store.openFile(`C:/ws/${fullName}`)
+
+    const wrapper = mount(TabBar)
+    const label = wrapper.find('.tab-label').text()
+
+    expect(label).toContain('…')
+    expect(label.startsWith('这是')).toBe(true)
+    expect(label.endsWith('.mdx')).toBe(true)
+    expect(label).not.toBe(fullName)
+
+    vi.useFakeTimers()
+    await wrapper.find('.tab .tooltip-trigger').trigger('mouseover')
+    vi.advanceTimersByTime(400)
+    await nextTick()
+    expect(document.body.querySelector('[role="tooltip"]')?.textContent).toBe(fullName)
+    vi.useRealTimers()
+  })
 })
 
 function clickMenuItem(label: string): boolean {

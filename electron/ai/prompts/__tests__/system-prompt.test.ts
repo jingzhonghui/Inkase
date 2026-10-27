@@ -2,8 +2,13 @@ import { describe, expect, it } from 'vitest'
 import { SYSTEM_PROMPT } from '../inkase'
 
 describe('SYSTEM_PROMPT source rules', () => {
-  it('contains 19 source-safe principles covering realtime workspace search', () => {
-    expect(SYSTEM_PROMPT.match(/^\d+\./gm)).toHaveLength(19)
+  it('numbers every principle continuously and covers the topic groups', () => {
+    // 编号连续是给模型看的顺序提示，断号会让它以为有遗漏的规则
+    const numbers = [...SYSTEM_PROMPT.matchAll(/^(\d+)\./gm)].map((match) => Number(match[1]))
+    expect(numbers.length).toBeGreaterThan(19)
+    expect(numbers).toEqual(numbers.map((_, index) => index + 1))
+    expect(SYSTEM_PROMPT).toContain('create_mindmap')
+    expect(SYSTEM_PROMPT).toContain('update_mindmap')
     expect(SYSTEM_PROMPT).toContain('list_workspace_root')
     expect(SYSTEM_PROMPT).toContain('read_workspace_directory')
     expect(SYSTEM_PROMPT).toContain('search_workspace')

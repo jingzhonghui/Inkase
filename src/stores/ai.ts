@@ -42,6 +42,12 @@ export const useAiStore = defineStore('ai', () => {
   // ===== 面板 / 标签页状态 =====
   const panelOpen = ref(false)
   const panelActive = ref(false)
+  /** AI 标签在标签栏中的位置（0 基）；null 表示始终排在文件标签之后 */
+  const tabIndex = ref<number | null>(null)
+
+  function setTabIndex(index: number | null): void {
+    tabIndex.value = index
+  }
 
   // ===== 会话状态 =====
   const messages = ref<AiConversationMessage[]>([])
@@ -759,6 +765,7 @@ export const useAiStore = defineStore('ai', () => {
     // state
     panelOpen,
     panelActive,
+    tabIndex,
     messages,
     toolCalls,
     activeRunId,
@@ -776,6 +783,7 @@ export const useAiStore = defineStore('ai', () => {
     openPanel,
     activatePanel,
     deactivatePanel,
+    setTabIndex,
     requestClosePanel,
     loadConversations,
     openConversation,

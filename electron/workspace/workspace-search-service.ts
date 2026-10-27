@@ -1,3 +1,4 @@
+import AdmZip from 'adm-zip'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { spawn, type ChildProcess } from 'node:child_process'
@@ -12,6 +13,8 @@ import type {
 } from '../../shared/ai/types'
 import { resolveRgPath } from './rg-resolver'
 import { isPathWithinRoot } from './workspace-authorization'
+import { extractMindMapOutline } from '../../shared/mindmap/outline'
+import { MINDMAP_ENTRY } from '../mindmap/inkmind-archive'
 import {
   searchMdxFile,
   DEFAULT_MDX_SEARCH_LIMITS,
@@ -564,13 +567,21 @@ export class WorkspaceSearchService {
       const { extractMdxContentText } = await import('./mdx-content-search')
       return extractMdxContentText(bytes, this.deps.limits.mdx)
     }
+    // 思维导图是 ZIP 容器：先取出 map.json，再摊平成可读大纲
+    if (relativePath.toLowerCase().endsWith('.inkmind')) {
+      const outline = readMindMapOutline(bytes)
+      if (outline) return outline
+      throw new WorkspaceSearchError('PATH_INVALID', '思维导图没有可读取的主题文本')
+    }
 
     this.rejectBinary(bytes)
+    let text: string
     try {
-      return new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+      text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
     } catch {
       throw new WorkspaceSearchError('NOT_UTF8', '文件不是有效的 UTF-8 文本')
     }
+    return text
   }
 
   private isExcluded(name: string): boolean {
@@ -594,4 +605,23 @@ export class WorkspaceSearchService {
   private throwIfAborted(signal: AbortSignal): void {
     if (signal.aborted) throw new WorkspaceSearchError('ABORTED', '搜索已取消')
   }
+}
+
+
+/**
+ * 从容器字节里取出可读大纲。
+ *
+ * 单独抽成函数：`.inkmind` 是 ZIP，任何「当文本读」的入口都得先解包，
+ * 否则拿到的是压缩后的二进制。
+ */
+export function readMindMapOutline(bytes: Buffer): string {
+  let zip: AdmZip
+  try {
+    zip = new AdmZip(bytes)
+  } catch {
+    throw new WorkspaceSearchError('PATH_INVALID', '思维导图无法解压')
+  }
+  const mapEntry = zip.getEntries().find((entry) => entry.entryName === MINDMAP_ENTRY)
+  if (!mapEntry) throw new WorkspaceSearchError('PATH_INVALID', '思维导图缺少 map.json')
+  return extractMindMapOutline(mapEntry.getData().toString('utf8'))
 }

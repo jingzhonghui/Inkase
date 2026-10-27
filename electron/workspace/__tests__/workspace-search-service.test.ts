@@ -3,6 +3,7 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import AdmZip from 'adm-zip'
+import { writeArchive } from '../../mindmap/inkmind-archive'
 import { EventEmitter } from 'node:events'
 import { spawn } from 'node:child_process'
 import {
@@ -269,6 +270,50 @@ describe('WorkspaceSearchService', () => {
       const { service } = makeService('')
       const content = await service.readFile(root, 'docs/doc.mdx', new AbortController().signal)
       expect(content).toContain('Hello from mdx')
+    })
+
+    it('turns a mind map container into a readable outline instead of raw JSON', async () => {
+      const root = makeTempWorkspace()
+      // 思维导图现在是 ZIP 容器，得先打包再读
+      writeArchive(
+        path.join(root, 'docs', 'plan.inkmind'),
+        JSON.stringify({
+          schema: 'inkase.mindmap',
+          version: 1,
+          root: {
+            id: 'r',
+            text: '项目规划',
+            note: '下周一确认预算',
+            children: [{ id: 'c1', text: '上线时间', children: [] }]
+          }
+        })
+      )
+      const { service } = makeService('')
+      const content = await service.readFile(root, 'docs/plan.inkmind', new AbortController().signal)
+
+      expect(content).toBe(['项目规划（备注：下周一确认预算）', '  上线时间'].join('\n'))
+      // 大纲里不该再出现 JSON 结构符号，模型读到的就是层级文本
+      expect(content).not.toContain('"schema"')
+    })
+
+    it('rejects a mind map without readable topics', async () => {
+      const root = makeTempWorkspace()
+      writeArchive(path.join(root, 'docs', 'broken.inkmind'), '{ broken')
+      const { service } = makeService('')
+
+      await expect(
+        service.readFile(root, 'docs/broken.inkmind', new AbortController().signal)
+      ).rejects.toThrow(WorkspaceSearchError)
+    })
+
+    it('rejects a mind map that is not a container', async () => {
+      const root = makeTempWorkspace()
+      fs.writeFileSync(path.join(root, 'docs', 'plain.inkmind'), '{"schema":"inkase.mindmap"}', 'utf8')
+      const { service } = makeService('')
+
+      await expect(
+        service.readFile(root, 'docs/plain.inkmind', new AbortController().signal)
+      ).rejects.toThrow(WorkspaceSearchError)
     })
 
     it('rejects absolute paths', async () => {

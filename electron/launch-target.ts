@@ -10,6 +10,9 @@ export interface LaunchTarget {
 
 type InspectTarget = (target: string) => LaunchTargetKind | null
 
+/** 可作为文档直接打开的扩展名（文件夹不受限制） */
+const DOCUMENT_EXTENSIONS = ['.md', '.mdx', '.inkmind']
+
 function inspectTarget(target: string): LaunchTargetKind | null {
   try {
     const stat = fs.statSync(target)
@@ -32,7 +35,7 @@ export function parseLaunchTargets(
     if (!raw || raw.startsWith('-')) continue
     const kind = inspect(raw)
     if (!kind) continue
-    if (kind === 'file' && !['.md', '.mdx'].includes(path.extname(raw).toLowerCase())) continue
+    if (kind === 'file' && !DOCUMENT_EXTENSIONS.includes(path.extname(raw).toLowerCase())) continue
 
     const key = process.platform === 'win32' ? raw.toLowerCase() : raw
     if (seen.has(key)) continue

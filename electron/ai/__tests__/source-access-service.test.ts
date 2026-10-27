@@ -184,7 +184,9 @@ describe('SourceAccessService local files', () => {
     await expect(service.readLocalFile(txt, signal())).resolves.toMatchObject({ fileType: 'text', content: 'plain text', truncated: false })
     await expect(service.readLocalFile(md, signal())).resolves.toMatchObject({ fileType: 'markdown', content: '# heading\n\nbody' })
     expect((await service.readLocalFile(SAMPLE_MDX, signal())).content).toContain('MDX material body')
-    expect((await service.readLocalFile(SAMPLE_PDF, signal())).content).toContain('Inkase PDF material sample')
+    // 只校验「PDF 文本被成功抽出」，不锁死 fixture 里的示例文案：
+    // 那份样本 PDF 是随手做的素材，文案改过一次，钉死产品名会让用例被素材漂移打断。
+    expect((await service.readLocalFile(SAMPLE_PDF, signal())).content).toContain('PDF material sample')
   })
 
   it.each(['folder', 'unsupported', 'symlink', 'realpath'])('fails closed for unsafe metadata: %s', async (kind) => {

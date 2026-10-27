@@ -17,6 +17,32 @@ function makeFile(path: string, name: string): FileTreeNode {
   return { name, path, isDirectory: false, isExpanded: false, isLoading: false, children: [] }
 }
 
+/**
+ * 右键菜单里按「聚合项 → 子项」两级定位。
+ * 新建与打开下面都有「文件」「文件夹」，单看文字会取错，必须带上父项。
+ */
+function submenuItem(parentLabel: string, childLabel: string): HTMLElement | undefined {
+  const parents = Array.from(
+    document.body.querySelectorAll<HTMLElement>('.context-menu-item.has-sub')
+  )
+  const parent = parents.find((el) => el.firstElementChild?.textContent?.trim() === parentLabel)
+  const children = Array.from(
+    parent?.querySelectorAll<HTMLElement>('.context-submenu .context-menu-item') ?? []
+  )
+  return children.find((el) => el.textContent?.trim() === childLabel)
+}
+
+/** 菜单里的顶层条目文字（不含二级菜单里的子项） */
+function topLevelLabels(): string[] {
+  const menu = document.body.querySelector('.context-menu')
+  if (!menu) return []
+  return Array.from(menu.children).map((el) => {
+    // 聚合项的子菜单是嵌套 DOM，直接用 textContent 会把子项文字一起拼进来
+    const label = el.querySelector(':scope > span') ?? el
+    return label.textContent?.trim() ?? ''
+  })
+}
+
 describe('validateWindowsFolderName', () => {
   it('accepts normal Windows folder names', () => {
     expect(validateWindowsFolderName('项目资料 2026')).toBeNull()
@@ -35,13 +61,34 @@ describe('validateWindowsFolderName', () => {
   })
 
   it('rejects Windows reserved characters and control characters', () => {
-    for (const name of ['a<b', 'a>b', 'a:b', 'a"b', 'a/b', 'a\\b', 'a|b', 'a?b', 'a*b', 'a\u0001b']) {
+    for (const name of [
+      'a<b',
+      'a>b',
+      'a:b',
+      'a"b',
+      'a/b',
+      'a\\b',
+      'a|b',
+      'a?b',
+      'a*b',
+      'a\u0001b'
+    ]) {
       expect(validateWindowsFolderName(name)).not.toBeNull()
     }
   })
 
   it('rejects reserved device names including names with extensions', () => {
-    for (const name of ['CON', 'con.txt', 'PRN', 'AUX', 'NUL', 'COM1', 'COM9.data', 'LPT1', 'lpt9.log']) {
+    for (const name of [
+      'CON',
+      'con.txt',
+      'PRN',
+      'AUX',
+      'NUL',
+      'COM1',
+      'COM9.data',
+      'LPT1',
+      'lpt9.log'
+    ]) {
       expect(validateWindowsFolderName(name)).not.toBeNull()
     }
   })
@@ -63,7 +110,18 @@ describe('validateWindowsFileName', () => {
   })
 
   it('rejects reserved characters and control characters', () => {
-    for (const name of ['a<b', 'a>b', 'a:b', 'a"b', 'a/b', 'a\\b', 'a|b', 'a?b', 'a*b', 'a\u0001b']) {
+    for (const name of [
+      'a<b',
+      'a>b',
+      'a:b',
+      'a"b',
+      'a/b',
+      'a\\b',
+      'a|b',
+      'a?b',
+      'a*b',
+      'a\u0001b'
+    ]) {
       expect(validateWindowsFileName(name)).not.toBeNull()
     }
   })
@@ -99,8 +157,7 @@ describe('FileExplorer 空白区右键菜单', () => {
     const dispatchSpy = vi.spyOn(window, 'dispatchEvent')
     await openEmptyAreaMenu(wrapper)
 
-    const items = Array.from(document.body.querySelectorAll('.context-menu-item'))
-    const entry = items.find((el) => el.textContent?.trim() === '快速打开文件')
+    const entry = submenuItem('打开', '快速打开')
     expect(entry).toBeTruthy()
 
     entry!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
@@ -119,8 +176,44 @@ describe('FileExplorer 空白区右键菜单', () => {
     })
     await openEmptyAreaMenu(wrapper)
 
-    const items = Array.from(document.body.querySelectorAll('.context-menu-item'))
-    expect(items.some((el) => el.textContent?.trim() === '快速打开文件')).toBe(false)
+    expect(submenuItem('打开', '快速打开')).toBeUndefined()
+  })
+
+  it('把新建 / 导入 / 打开收成二级菜单，顶层只剩几组', async () => {
+    const wrapper = mountExplorer()
+    await openEmptyAreaMenu(wrapper)
+
+    // 顶层：3 个聚合入口 + 3 个单项，不再是一长串平铺项
+    expect(topLevelLabels()).toEqual(['新建', '导入', '打开', '', '粘贴', '刷新', '关闭文件夹'])
+    expect(document.body.querySelectorAll('.context-submenu')).toHaveLength(3)
+    expect(document.body.querySelectorAll('.context-menu-divider').length).toBeGreaterThan(0)
+  })
+
+  it('新建 / 导入 的子项按类型分组', async () => {
+    const wrapper = mountExplorer()
+    await openEmptyAreaMenu(wrapper)
+
+    const newItems = Array.from(
+      document.body
+        .querySelectorAll('.context-menu-item.has-sub')[0]
+        .querySelectorAll('.context-submenu .context-menu-item')
+    ).map((el) => el.textContent?.trim())
+    expect(newItems).toEqual(['文件', '思维导图', '文件夹'])
+    expect(submenuItem('导入', 'Markdown')).toBeTruthy()
+    expect(submenuItem('导入', 'Word 文档')).toBeTruthy()
+  })
+
+  it('点聚合项本身不执行动作，菜单保持打开', async () => {
+    const wrapper = mountExplorer()
+    await openEmptyAreaMenu(wrapper)
+
+    const parents = Array.from(
+      document.body.querySelectorAll<HTMLElement>('.context-menu-item.has-sub')
+    )
+    parents[0].dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await nextTick()
+
+    expect(document.body.querySelector('.context-menu')).not.toBeNull()
   })
 })
 
@@ -136,9 +229,7 @@ describe('FileExplorer 新建文件夹输入', () => {
 
   async function openCreateFolderDialog(wrapper: ReturnType<typeof mount>): Promise<void> {
     await wrapper.find('.file-list').trigger('contextmenu', { clientX: 10, clientY: 10 })
-    const menuItem = Array.from(document.body.querySelectorAll('.context-menu-item'))
-      .find((el) => el.textContent?.trim() === '新建文件夹')
-    menuItem?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    submenuItem('新建', '文件夹')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     await nextTick()
   }
 
@@ -181,9 +272,7 @@ describe('FileExplorer 新建文件对话框（后缀自由输入）', () => {
 
   async function openCreateFileDialog(wrapper: ReturnType<typeof mount>): Promise<void> {
     await wrapper.find('.file-list').trigger('contextmenu', { clientX: 10, clientY: 10 })
-    const menuItem = Array.from(document.body.querySelectorAll('.context-menu-item'))
-      .find((el) => el.textContent?.trim() === '新建文件')
-    menuItem?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    submenuItem('新建', '文件')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     await nextTick()
   }
 
@@ -258,7 +347,9 @@ describe('FileExplorer F2 重命名', () => {
     setActivePinia(pinia)
     const fileStore = useFileStore()
     fileStore.openedFolderPath = 'C:/workspace'
-    fileStore.fileTree = [makeDir('C:/workspace', 'workspace', [makeFile('C:/workspace/a.md', 'a.md')])]
+    fileStore.fileTree = [
+      makeDir('C:/workspace', 'workspace', [makeFile('C:/workspace/a.md', 'a.md')])
+    ]
     const wrapper = mount(FileExplorer, { global: { plugins: [pinia] }, attachTo: document.body })
     return { wrapper, fileStore }
   }
@@ -318,7 +409,9 @@ describe('FileExplorer 文件树自动定位滚动', () => {
   }
 
   function scrollTargets(): Array<string | undefined> {
-    return scrollSpy.mock.instances.map((inst) => (inst as HTMLElement | undefined)?.dataset?.filePath)
+    return scrollSpy.mock.instances.map(
+      (inst) => (inst as HTMLElement | undefined)?.dataset?.filePath
+    )
   }
 
   beforeEach(() => {
@@ -368,10 +461,7 @@ describe('FileExplorer 文件树自动定位滚动', () => {
     const srcNode = makeDir('C:/ws/src', 'src')
     srcNode.isExpanded = false
     srcNode.children = [makeFile('C:/ws/src/a.md', 'a.md')]
-    const { fileStore } = mountWithActiveFile(
-      [makeDir('C:/ws', 'ws', [srcNode])],
-      'C:/ws/src/a.md'
-    )
+    const { fileStore } = mountWithActiveFile([makeDir('C:/ws', 'ws', [srcNode])], 'C:/ws/src/a.md')
     const src = fileStore.fileTree[0].children[0]
     await nextTick()
     await nextTick()

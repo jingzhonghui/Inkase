@@ -4,13 +4,32 @@ import { join, resolve } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { IPC_CHANNELS } from './ipc/channels'
 import { registerFileHandlers } from './ipc/file-handlers'
-import { registerMdxHandlers, cleanupAll, isCloseConfirmed, setCloseConfirmed, attachRecoveryAssetData } from './ipc/mdx-handlers'
+import {
+  registerMdxHandlers,
+  cleanupAll,
+  isCloseConfirmed,
+  setCloseConfirmed,
+  attachRecoveryAssetData
+} from './ipc/mdx-handlers'
+import { registerMindMapHandlers } from './ipc/mindmap-handlers'
 import { registerPdfHandlers } from './ipc/pdf-handlers'
 import { registerPreviewProtocol, registerPreviewSchemePrivileges } from './ipc/preview-protocol'
-import { hadAbnormalExit, markAppRunning, readRecoverySnapshot, writeRecoverySnapshot, clearRecoverySnapshot } from './recovery'
+import {
+  hadAbnormalExit,
+  markAppRunning,
+  readRecoverySnapshot,
+  writeRecoverySnapshot,
+  clearRecoverySnapshot
+} from './recovery'
 import { resolveExistingUserGuidePath } from './user-guide'
 import { registerAiHandlers, disposeAiServices } from './ai/ipc-handlers'
-import { findRecentAliveInstance, sendTargetsToInstance, startInstanceService, stopInstanceService, touchHeartbeat } from './instance-broker'
+import {
+  findRecentAliveInstance,
+  sendTargetsToInstance,
+  startInstanceService,
+  stopInstanceService,
+  touchHeartbeat
+} from './instance-broker'
 import { initUpdater, checkForUpdates, openReleasesPage } from './updater'
 import { inspectLaunchTarget, parseLaunchTargets, type LaunchTarget } from './launch-target'
 import { SyncEngine } from './sync/engine'
@@ -20,7 +39,12 @@ import { createCredentialStore, type CryptoLike } from './sync/credentials'
 import { createWorkspaceWatcher } from './sync/watcher'
 import { registerSyncHandlers } from './ipc/sync-handlers'
 import { registerExternalWatchHandlers } from './ipc/watch-handlers'
-import { loadWindowState, resolveWindowState, saveWindowState, type WindowState } from './window-state'
+import {
+  loadWindowState,
+  resolveWindowState,
+  saveWindowState,
+  type WindowState
+} from './window-state'
 
 // AppImage is mounted via FUSE where the setuid bit cannot take effect, so the
 // SUID sandbox helper is unusable. Disable the Chromium sandbox for AppImage
@@ -71,7 +95,8 @@ const syncEngine = new SyncEngine({
 })
 
 function flushOpenTargets(): void {
-  if (!rendererReady || !mainWindow || mainWindow.isDestroyed() || pendingOpenTargets.length === 0) return
+  if (!rendererReady || !mainWindow || mainWindow.isDestroyed() || pendingOpenTargets.length === 0)
+    return
   mainWindow.webContents.send(IPC_CHANNELS.APP.OPEN_TARGETS, pendingOpenTargets.splice(0))
 }
 
@@ -244,94 +269,108 @@ async function bootstrap(): Promise<void> {
   })
 
   app.whenReady().then(() => {
-  electronApp.setAppUserModelId('com.inkase.app')
+    electronApp.setAppUserModelId('com.inkase.app')
 
-  // 默认打开或关闭开发者工具（仅开发环境）
-  app.on('browser-window-created', (_, window) => {
-    optimizer.watchWindowShortcuts(window)
-  })
-
-  // IPC 测试通道
-  ipcMain.handle('ping', () => 'pong')
-  ipcMain.handle(IPC_CHANNELS.APP.GET_VERSION, () => {
-    if (is.dev) return ''
-    return app.getVersion()
-  })
-  ipcMain.handle(IPC_CHANNELS.APP.GET_USER_GUIDE_PATH, () => {
-    const guidePath = resolveExistingUserGuidePath({
-      isPackaged: app.isPackaged,
-      appPath: app.getAppPath(),
-      resourcesPath: process.resourcesPath,
-      existsSync: fs.existsSync
+    // 默认打开或关闭开发者工具（仅开发环境）
+    app.on('browser-window-created', (_, window) => {
+      optimizer.watchWindowShortcuts(window)
     })
-    return guidePath ? { success: true, data: guidePath } : { success: false, error: '内置使用教程不存在，请重新安装 Inkase。' }
-  })
-  ipcMain.handle(IPC_CHANNELS.APP.RECOVERY_STATUS, () => ({ success: true, data: { available: hadAbnormalExit() } }))
-  ipcMain.handle(IPC_CHANNELS.APP.RECOVERY_READ, () => ({ success: true, data: readRecoverySnapshot() }))
-  ipcMain.handle(IPC_CHANNELS.APP.RECOVERY_WRITE, (_, snapshot) => {
-    try {
-      writeRecoverySnapshot(attachRecoveryAssetData(snapshot))
+
+    // IPC 测试通道
+    ipcMain.handle('ping', () => 'pong')
+    ipcMain.handle(IPC_CHANNELS.APP.GET_VERSION, () => {
+      if (is.dev) return ''
+      return app.getVersion()
+    })
+    ipcMain.handle(IPC_CHANNELS.APP.GET_USER_GUIDE_PATH, () => {
+      const guidePath = resolveExistingUserGuidePath({
+        isPackaged: app.isPackaged,
+        appPath: app.getAppPath(),
+        resourcesPath: process.resourcesPath,
+        existsSync: fs.existsSync
+      })
+      return guidePath
+        ? { success: true, data: guidePath }
+        : { success: false, error: '内置使用教程不存在，请重新安装 Inkase。' }
+    })
+    ipcMain.handle(IPC_CHANNELS.APP.RECOVERY_STATUS, () => ({
+      success: true,
+      data: { available: hadAbnormalExit() }
+    }))
+    ipcMain.handle(IPC_CHANNELS.APP.RECOVERY_READ, () => ({
+      success: true,
+      data: readRecoverySnapshot()
+    }))
+    ipcMain.handle(IPC_CHANNELS.APP.RECOVERY_WRITE, (_, snapshot) => {
+      try {
+        writeRecoverySnapshot(attachRecoveryAssetData(snapshot))
+        return { success: true }
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : '写入恢复快照失败'
+        }
+      }
+    })
+    ipcMain.handle(IPC_CHANNELS.APP.RECOVERY_CLEAR, () => {
+      clearRecoverySnapshot()
       return { success: true }
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : '写入恢复快照失败' }
+    })
+    ipcMain.handle(IPC_CHANNELS.APP.OPEN_TARGETS, () => {
+      rendererReady = true
+      const targets = pendingOpenTargets.splice(0)
+      return targets
+    })
+
+    // 自动更新 handlers
+    ipcMain.handle(IPC_CHANNELS.UPDATE.CHECK, () => checkForUpdates())
+    ipcMain.handle(IPC_CHANNELS.UPDATE.OPEN_RELEASES, () => openReleasesPage())
+
+    markAppRunning()
+
+    // 注册文件操作 handlers
+    registerFileHandlers()
+
+    // 注册 MDX 操作 handlers
+    registerMdxHandlers()
+
+    // 注册 PDF 导出 handlers
+    registerPdfHandlers()
+
+    // 注册思维导图格式互通（XMind）handlers
+    registerMindMapHandlers()
+
+    // 注册 HTML 预览协议 handlers
+    registerPreviewProtocol()
+
+    // 注册同步 IPC handlers
+    registerSyncHandlers(syncEngine, () => mainWindow)
+
+    // 注册外部变更监视 handlers
+    registerExternalWatchHandlers(() => mainWindow)
+
+    // 注册 AI 助手 handlers
+    registerAiHandlers(() => mainWindow)
+
+    createWindow()
+
+    queueOpenTargets(
+      launchPaths
+        .map((target) => inspectLaunchTarget(target))
+        .filter((target): target is LaunchTarget => target !== null)
+    )
+
+    // 初始化自动更新，并在启动后延迟静默检查一次
+    initUpdater(() => mainWindow)
+    if (app.isPackaged) {
+      setTimeout(() => {
+        void checkForUpdates()
+      }, 3000)
     }
-  })
-  ipcMain.handle(IPC_CHANNELS.APP.RECOVERY_CLEAR, () => {
-    clearRecoverySnapshot()
-    return { success: true }
-  })
-  ipcMain.handle(IPC_CHANNELS.APP.OPEN_TARGETS, () => {
-    rendererReady = true
-    const targets = pendingOpenTargets.splice(0)
-    return targets
-  })
 
-  // 自动更新 handlers
-  ipcMain.handle(IPC_CHANNELS.UPDATE.CHECK, () => checkForUpdates())
-  ipcMain.handle(IPC_CHANNELS.UPDATE.OPEN_RELEASES, () => openReleasesPage())
-
-  markAppRunning()
-
-  // 注册文件操作 handlers
-  registerFileHandlers()
-
-  // 注册 MDX 操作 handlers
-  registerMdxHandlers()
-
-  // 注册 PDF 导出 handlers
-  registerPdfHandlers()
-
-  // 注册 HTML 预览协议 handlers
-  registerPreviewProtocol()
-
-  // 注册同步 IPC handlers
-  registerSyncHandlers(syncEngine, () => mainWindow)
-
-  // 注册外部变更监视 handlers
-  registerExternalWatchHandlers(() => mainWindow)
-
-  // 注册 AI 助手 handlers
-  registerAiHandlers(() => mainWindow)
-
-  createWindow()
-
-  queueOpenTargets(
-    launchPaths
-      .map((target) => inspectLaunchTarget(target))
-      .filter((target): target is LaunchTarget => target !== null)
-  )
-
-  // 初始化自动更新，并在启动后延迟静默检查一次
-  initUpdater(() => mainWindow)
-  if (app.isPackaged) {
-    setTimeout(() => {
-      void checkForUpdates()
-    }, 3000)
-  }
-
-  app.on('activate', function () {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
-  })
+    app.on('activate', function () {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    })
   })
 }
 

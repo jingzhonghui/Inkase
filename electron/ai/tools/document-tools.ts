@@ -1,12 +1,11 @@
 import { z } from 'zod'
 import type { AiDocumentSnapshot, LocalFileReadResult } from '../../../shared/ai/types'
+import { markdownToMindMapJson } from '../../../shared/mindmap/markdown'
 import type { WorkspaceSearchService } from '../../workspace/workspace-search-service'
 import { defineTool, type ToolDefinition } from '../tool-registry'
 import type { WorkspaceSearchError } from '../../workspace/workspace-search-service'
 
-function requireWorkspaceRoot(context: {
-  snapshot: { workspaceRoot: string | null }
-}): string {
+function requireWorkspaceRoot(context: { snapshot: { workspaceRoot: string | null } }): string {
   if (!context.snapshot.workspaceRoot) {
     throw new Error('当前没有打开工作区，无法访问工作区文件')
   }
@@ -38,6 +37,8 @@ export interface DocumentToolRegistry {
   replaceCurrentDocument: ToolDefinition<unknown, unknown>
   insertIntoCurrentDocument: ToolDefinition<unknown, unknown>
   createDocument: ToolDefinition<unknown, unknown>
+  createMindmap: ToolDefinition<unknown, unknown>
+  updateMindmap: ToolDefinition<unknown, unknown>
 }
 
 export function createDocumentTools(searchService: WorkspaceSearchService): DocumentToolRegistry {
@@ -51,7 +52,10 @@ export function createDocumentTools(searchService: WorkspaceSearchService): Docu
         mode: z.enum(['filename', 'content']),
         match: z.enum(['literal', 'regex']).optional(),
         scope: z.string().trim().optional(),
-        extensions: z.array(z.string().regex(/^[a-zA-Z0-9]+$/)).max(20).optional(),
+        extensions: z
+          .array(z.string().regex(/^[a-zA-Z0-9]+$/))
+          .max(20)
+          .optional(),
         caseSensitive: z.boolean().optional(),
         contextLines: z.number().int().min(0).max(3).optional(),
         maxResults: z.number().int().min(1).max(100).optional()
@@ -319,6 +323,109 @@ export function createDocumentTools(searchService: WorkspaceSearchService): Docu
     }
   })
 
+  /**
+   * 大纲 → 导图 JSON。
+   *
+   * 模型只写 Markdown 大纲，结构与 id 交给 `markdownToMindMapJson` 生成：
+   * 让模型逐字产出 JSON 极易出现漏括号、错 id、悬空引用，
+   * 而这些问题一旦写进文件，用户看到的就是一张打不开的图。
+   */
+  const outlineToMindmap = (outline: string, title: string): string => {
+    const normalized = stripDuplicateTitle(outline, title)
+    if (normalized.trim() === '') {
+      throw new Error('大纲为空，无法生成导图')
+    }
+    const json = markdownToMindMapJson(normalized, { title })
+    // 兜底自检：转换结果必须是能解析的 JSON 对象，否则宁可报错也不落盘
+    try {
+      const parsed = JSON.parse(json) as { root?: unknown }
+      if (!parsed || typeof parsed !== 'object' || !parsed.root) {
+        throw new Error('empty')
+      }
+    } catch {
+      throw new Error('大纲没有可用的层级结构，无法生成导图')
+    }
+    return json
+  }
+
+  const createMindmap = defineTool({
+    name: 'create_mindmap',
+    description:
+      '根据 Markdown 大纲创建一张新的思维导图。用标题（#、##）与列表（-）表达层级。执行前需要用户批准。',
+    inputSchema: z.object({
+      title: z.string(),
+      outline: z.string(),
+      reason: z.string()
+    }),
+    policy: {
+      effect: 'write',
+      approval: 'always',
+      riskLevel: 'medium',
+      supportsRememberDecision: false
+    },
+    execution: 'renderer',
+    createRendererOperation: async (input) => {
+      const { title, outline, reason } = input as {
+        title: string
+        outline: string
+        reason: string
+      }
+      return {
+        type: 'create-document' as const,
+        title,
+        content: outlineToMindmap(outline, title),
+        format: 'mindmap' as const,
+        reason
+      }
+    },
+    // 预览给人看的是大纲，不是 JSON：JSON 又长又难读，审批时反而看不出结构对不对
+    createApprovalPreview: async (input) => {
+      const { title, outline } = input as { title: string; outline: string }
+      return { type: 'document' as const, title, content: outline }
+    }
+  })
+
+  const updateMindmap = defineTool({
+    name: 'update_mindmap',
+    description:
+      '用新的 Markdown 大纲整体重写当前思维导图。会覆盖原有内容（包括标签、图片等富内容），仅在用户明确要求重写整张图时使用。执行前需要用户批准。',
+    inputSchema: z.object({
+      outline: z.string(),
+      reason: z.string()
+    }),
+    policy: {
+      effect: 'write',
+      approval: 'always',
+      riskLevel: 'high',
+      supportsRememberDecision: false
+    },
+    execution: 'renderer',
+    createRendererOperation: async (input, context) => {
+      const { outline, reason } = input as { outline: string; reason: string }
+      const doc = describeTarget(context.snapshot.activeDocument)
+      if (doc.format !== 'mindmap') {
+        throw new Error('当前文档不是思维导图，请改用 replace_current_document')
+      }
+      const title = doc.title.replace(/\.[^.]+$/, '') || '思维导图'
+      // 复用替换操作：自带 revision/内容哈希冲突检测，避免覆盖用户在此期间的手动修改
+      return {
+        type: 'replace-document' as const,
+        target: doc,
+        content: outlineToMindmap(outline, title),
+        reason
+      }
+    },
+    createApprovalPreview: async (input, context) => {
+      const { outline } = input as { outline: string }
+      const doc = describeTarget(context.snapshot.activeDocument)
+      return {
+        type: 'document' as const,
+        title: doc.title,
+        content: outline
+      }
+    }
+  })
+
   return {
     searchWorkspace,
     listWorkspaceRoot,
@@ -327,8 +434,29 @@ export function createDocumentTools(searchService: WorkspaceSearchService): Docu
     readSelectedText,
     replaceCurrentDocument,
     insertIntoCurrentDocument,
-    createDocument
+    createDocument,
+    createMindmap,
+    updateMindmap
   }
+}
+
+/**
+ * 去掉与标题重复的一级标题。
+ *
+ * 模型几乎总是把主题写成大纲的第一行 `# 产品规划`，而导图的中心主题也就是这个标题；
+ * 照搬会让中心主题下面多挂一个同名节点，看起来像「根 → 同一个词 → 内容」。
+ * 只在「恰好一个 h1 且与标题同名」时剥掉，其它结构一律保持原样。
+ */
+function stripDuplicateTitle(outline: string, title: string): string {
+  const lines = outline.split(/\r?\n/)
+  const h1Indexes = lines
+    .map((line, index) => (/^#\s+\S/.test(line) ? index : -1))
+    .filter((index) => index >= 0)
+  if (h1Indexes.length !== 1) return outline
+  const heading = lines[h1Indexes[0]].replace(/^#\s+/, '').trim()
+  const expected = title.trim()
+  if (heading === '' || heading !== expected) return outline
+  return lines.filter((_, index) => index !== h1Indexes[0]).join('\n')
 }
 
 function applyInsert(

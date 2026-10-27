@@ -1037,7 +1037,7 @@ describe('file store', () => {
       expect(store.currentFile?.path).toBe('C:/docs/renamed.md')
       expect(store.currentFile?.name).toBe('renamed.md')
       expect(store.currentFile?.format).toBe('markdown')
-      expect(electronAPI.saveAsFile).toHaveBeenCalledWith('content', 'Doc', undefined, false)
+      expect(electronAPI.saveAsFile).toHaveBeenCalledWith('content', 'Doc', undefined, false, 'mdx')
     })
   })
 
@@ -1258,6 +1258,37 @@ describe('file store', () => {
       store.moveTab('missing', 0)
 
       expect(names(store)).toEqual(['A.mdx', 'B.mdx', 'C.mdx'])
+    })
+
+    it('reorderTabs applies the given order', async () => {
+      const store = useFileStore()
+      await openThreeTabs(store)
+      const [a, b, c] = store.tabs
+
+      store.reorderTabs([c.id, a.id, b.id])
+
+      expect(names(store)).toEqual(['C.mdx', 'A.mdx', 'B.mdx'])
+      expect(store.activeTabId).not.toBeNull()
+    })
+
+    it('reorderTabs ignores unknown ids and appends missing tabs', async () => {
+      const store = useFileStore()
+      await openThreeTabs(store)
+      const [a, , c] = store.tabs
+
+      store.reorderTabs([c.id, 'missing', a.id])
+
+      expect(names(store)).toEqual(['C.mdx', 'A.mdx', 'B.mdx'])
+    })
+
+    it('reorderTabs does not reorder when the order is unchanged', async () => {
+      const store = useFileStore()
+      await openThreeTabs(store)
+      const before = store.tabs.map((tab) => tab.id)
+
+      store.reorderTabs([...before])
+
+      expect(store.tabs.map((tab) => tab.id)).toEqual(before)
     })
   })
 

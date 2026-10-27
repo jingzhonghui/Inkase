@@ -1,10 +1,23 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { IconChevronRight, IconCopy, IconFile, IconFolder, IconMessageChatbot, IconMinus, IconMoon, IconRefresh, IconSquare, IconSun, IconX } from '@tabler/icons-vue'
+import {
+  IconChevronRight,
+  IconCopy,
+  IconFile,
+  IconFolder,
+  IconMessageChatbot,
+  IconMinus,
+  IconMoon,
+  IconRefresh,
+  IconSquare,
+  IconSun,
+  IconX
+} from '@tabler/icons-vue'
 import { useFileStore, type EditorMode } from '../../stores/file'
 import { useThemeStore } from '../../stores/theme'
 import { useUpdateStore } from '../../stores/update'
 import { useAiStore } from '../../stores/ai'
+import { buildBarItems } from '../../utils/tab-order'
 import { useSyncStore } from '../../stores/sync'
 import {
   useAppearanceStore,
@@ -95,51 +108,177 @@ const fileMenu = computed<MenuItem[]>(() => {
 
   const recentMenu: MenuItem = { kind: 'submenu', label: '最近文件', children: recentChildren }
 
+  /*
+   * 聚合入口：新建 / 打开 / 导入 / 导出 各自收成一个二级菜单。
+   * 父项负责「动作」，子项只写对象（文件、文件夹、思维导图…），
+   * 既避免「新建 ▸ 新建文件」这种重复，也让文件菜单从 20 多项降到 10 项左右。
+   */
+  const newMenu: MenuItem = {
+    kind: 'submenu',
+    label: '新建',
+    children: [
+      { kind: 'item', label: '文件', action: 'new', shortcut: 'Ctrl+N' },
+      { kind: 'item', label: '思维导图', action: 'new-mindmap', shortcut: 'Ctrl+Shift+N' },
+      {
+        kind: 'item',
+        label: '由当前笔记生成',
+        action: 'md-to-mindmap',
+        disabled: !canConvertToMindMap.value
+      }
+    ]
+  }
+
+  const openMenu: MenuItem = {
+    kind: 'submenu',
+    label: '打开',
+    children: [
+      { kind: 'item', label: '文件', action: 'open', shortcut: 'Ctrl+O' },
+      { kind: 'item', label: '文件夹', action: 'open-folder' },
+      { kind: 'item', label: '快速打开', action: 'quick-open', shortcut: 'Ctrl+P' },
+      ...(fileStore.openedFolderPath
+        ? [{ kind: 'item', label: '关闭文件夹', action: 'close-folder' } as MenuItem]
+        : [])
+    ]
+  }
+
+  const importMenu: MenuItem = {
+    kind: 'submenu',
+    label: '导入',
+    children: [
+      { kind: 'item', label: 'Markdown', action: 'import-md' },
+      { kind: 'item', label: 'Word 文档', action: 'import-docx' },
+      // 导入 XMind 会落一个本地 `.inkmind`（重名不覆盖），与上面几种导入同一套行为
+      { kind: 'item', label: 'XMind 文件', action: 'import-xmind' },
+      { kind: 'item', label: '文件夹', action: 'import-folder' }
+    ]
+  }
+
+  // 思维导图没有 Markdown 正文，导出 PDF/Markdown 对它无意义：保留在菜单里但置灰，
+  // 比「菜单项凭空消失」更容易理解；大纲与图片导出则只有导图可用。
+  const exportMenu: MenuItem = {
+    kind: 'submenu',
+    label: '导出',
+    children: [
+      { kind: 'item', label: 'Markdown', action: 'export-md', disabled: isMindMapActiveTab.value },
+      {
+        kind: 'item',
+        label: 'XMind 文件',
+        action: 'export-xmind',
+        disabled: !isMindMapActiveTab.value
+      },
+      {
+        kind: 'item',
+        label: '思维导图大纲',
+        action: 'export-mindmap-outline',
+        disabled: !isMindMapActiveTab.value
+      },
+      { kind: 'divider' },
+      {
+        kind: 'item',
+        label: 'PNG 图片',
+        action: 'export-mindmap-png',
+        disabled: !isMindMapActiveTab.value
+      },
+      {
+        kind: 'item',
+        label: 'SVG 矢量图',
+        action: 'export-mindmap-svg',
+        disabled: !isMindMapActiveTab.value
+      },
+      { kind: 'divider' },
+      { kind: 'item', label: 'PDF', action: 'export-pdf', disabled: isMindMapActiveTab.value },
+      {
+        kind: 'item',
+        label: '批量 PDF',
+        action: 'export-batch-pdf',
+        disabled: isMindMapActiveTab.value
+      }
+    ]
+  }
+
   return [
-    { kind: 'item', label: '新建文件', action: 'new', shortcut: 'Ctrl+N' },
-    { kind: 'item', label: '打开文件', action: 'open', shortcut: 'Ctrl+O' },
-    { kind: 'item', label: '打开文件夹', action: 'open-folder' },
-    { kind: 'item', label: '快速打开文件', action: 'quick-open', shortcut: 'Ctrl+P' },
-    ...(fileStore.openedFolderPath
-      ? [{ kind: 'item', label: '关闭文件夹', action: 'close-folder' } as MenuItem]
-      : []),
-    { kind: 'divider' },
-    { kind: 'item', label: '同步', action: 'sync', checked: syncStore.panelOpen, disabled: !fileStore.openedFolderPath },
+    newMenu,
+    openMenu,
+    recentMenu,
     { kind: 'divider' },
     { kind: 'item', label: '保存', action: 'save', shortcut: 'Ctrl+S' },
     { kind: 'item', label: '另存为', action: 'save-as', shortcut: 'Ctrl+Shift+S' },
     { kind: 'divider' },
-    { kind: 'item', label: '导入 Markdown', action: 'import-md' },
-    { kind: 'item', label: '导入 Word 文档', action: 'import-docx' },
-    { kind: 'item', label: '导入文件夹', action: 'import-folder' },
+    importMenu,
+    exportMenu,
     { kind: 'divider' },
-    { kind: 'item', label: '导出为 Markdown', action: 'export-md' },
-    { kind: 'item', label: '导出为 PDF', action: 'export-pdf' },
-    { kind: 'item', label: '批量导出 PDF', action: 'export-batch-pdf' },
-    { kind: 'divider' },
-    recentMenu,
-    { kind: 'divider' },
-    { kind: 'item', label: '清空最近文件', action: 'clear-recent' },
+    {
+      kind: 'item',
+      label: '同步',
+      action: 'sync',
+      checked: syncStore.panelOpen,
+      disabled: !fileStore.openedFolderPath
+    },
     { kind: 'divider' },
     { kind: 'item', label: '退出', action: 'exit' }
   ]
 })
 
-const editMenu: MenuItem[] = [
+/**
+ * 编辑菜单。
+ * 思维导图没有「文本选区」概念：系统剪贴板的剪切/复制/粘贴由渲染库自己按节点处理
+ * （Ctrl+C/V 在画布上直接生效），菜单栏这几项对它无效，因此置灰而不是点了没反应；
+ * 撤销/重做接在渲染库的历史栈上，「查找」走组件自己的节点搜索（导图没有正文、
+ * 也就没有替换，所以替换仍然置灰）。
+ */
+const editMenu = computed<MenuItem[]>(() => [
   { kind: 'item', label: '撤销', action: 'undo', shortcut: 'Ctrl+Z' },
   { kind: 'item', label: '重做', action: 'redo', shortcut: 'Ctrl+Y' },
   { kind: 'divider' },
-  { kind: 'item', label: '剪切', action: 'cut', shortcut: 'Ctrl+X' },
-  { kind: 'item', label: '复制', action: 'copy', shortcut: 'Ctrl+C' },
-  { kind: 'item', label: '粘贴', action: 'paste', shortcut: 'Ctrl+V' },
+  {
+    kind: 'item',
+    label: '剪切',
+    action: 'cut',
+    shortcut: 'Ctrl+X',
+    disabled: isMindMapActiveTab.value
+  },
+  {
+    kind: 'item',
+    label: '复制',
+    action: 'copy',
+    shortcut: 'Ctrl+C',
+    disabled: isMindMapActiveTab.value
+  },
+  {
+    kind: 'item',
+    label: '粘贴',
+    action: 'paste',
+    shortcut: 'Ctrl+V',
+    disabled: isMindMapActiveTab.value
+  },
   { kind: 'divider' },
-  { kind: 'item', label: '查找', action: 'find', shortcut: 'Ctrl+F' },
-  { kind: 'item', label: '替换', action: 'replace', shortcut: 'Ctrl+H' }
-]
+  {
+    kind: 'item',
+    label: '查找',
+    action: 'find',
+    shortcut: 'Ctrl+F'
+  },
+  {
+    kind: 'item',
+    label: '替换',
+    action: 'replace',
+    shortcut: 'Ctrl+H',
+    disabled: isMindMapActiveTab.value
+  }
+])
 
 /** 当前生效的编辑模式：非 .md/.mdx 文件（如 .txt）实际按源码编辑显示 */
-const effectiveMode = computed<EditorMode>(() =>
-  fileStore.effectiveEditorMode
+const effectiveMode = computed<EditorMode>(() => fileStore.effectiveEditorMode)
+
+/** 当前标签是否为思维导图（无 Markdown 正文，部分菜单项对它不适用） */
+const isMindMapActiveTab = computed(() => fileStore.activeTab?.fileInfo?.format === 'mindmap')
+
+/**
+ * 能否把当前笔记转成导图：需要有可编辑的文本内容。
+ * 导图本身、PDF/图片这类标签没有 Markdown 层级，转换只会得到一张空图。
+ */
+const canConvertToMindMap = computed(
+  () => !isMindMapActiveTab.value && (fileStore.activeTab?.content ?? '').trim().length > 0
 )
 
 /** 纯文本模式按后缀匹配到的语言展示名（如 Shell/INI），无匹配时回退“纯文本” */
@@ -156,11 +295,37 @@ const viewMenu = computed<MenuItem[]>(() => [
     label: '编辑器模式',
     disabled: !fileStore.canSwitchEditorMode,
     children: [
-      { kind: 'item', label: '即时渲染', action: 'mode-ir', checked: effectiveMode.value === 'ir', disabled: !fileStore.canSwitchEditorMode },
-      { kind: 'item', label: '源码编辑', action: 'mode-source', checked: effectiveMode.value === 'source', disabled: !fileStore.canSwitchEditorMode },
-      { kind: 'item', label: '分屏预览', action: 'mode-split', checked: effectiveMode.value === 'split', disabled: !fileStore.canSwitchEditorMode },
+      {
+        kind: 'item',
+        label: '即时渲染',
+        action: 'mode-ir',
+        checked: effectiveMode.value === 'ir',
+        disabled: !fileStore.canSwitchEditorMode
+      },
+      {
+        kind: 'item',
+        label: '源码编辑',
+        action: 'mode-source',
+        checked: effectiveMode.value === 'source',
+        disabled: !fileStore.canSwitchEditorMode
+      },
+      {
+        kind: 'item',
+        label: '分屏预览',
+        action: 'mode-split',
+        checked: effectiveMode.value === 'split',
+        disabled: !fileStore.canSwitchEditorMode
+      },
       ...(effectiveMode.value === 'plain'
-        ? [{ kind: 'item' as const, label: fileStore.isPdfActiveTab ? 'PDF 预览' : (plainLanguageLabel.value ?? '纯文本'), action: 'mode-plain', checked: true, disabled: true }]
+        ? [
+            {
+              kind: 'item' as const,
+              label: fileStore.isPdfActiveTab ? 'PDF 预览' : (plainLanguageLabel.value ?? '纯文本'),
+              action: 'mode-plain',
+              checked: true,
+              disabled: true
+            }
+          ]
         : [])
     ]
   },
@@ -170,11 +335,21 @@ const viewMenu = computed<MenuItem[]>(() => [
     children: [
       { kind: 'item', label: '浅色', action: 'theme-light', checked: themeStore.theme === 'light' },
       { kind: 'item', label: '深色', action: 'theme-dark', checked: themeStore.theme === 'dark' },
-      { kind: 'item', label: '跟随系统', action: 'theme-system', checked: themeStore.theme === 'system' }
+      {
+        kind: 'item',
+        label: '跟随系统',
+        action: 'theme-system',
+        checked: themeStore.theme === 'system'
+      }
     ]
   },
   { kind: 'divider' },
-  { kind: 'item', label: '显示侧边栏', action: 'toggle-sidebar', checked: !fileStore.sidebarCollapsed },
+  {
+    kind: 'item',
+    label: '显示侧边栏',
+    action: 'toggle-sidebar',
+    checked: !fileStore.sidebarCollapsed
+  },
   { kind: 'item', label: 'AI 助手', action: 'open-ai', checked: aiStore.panelOpen },
   { kind: 'divider' },
   { kind: 'item', label: '设置', action: 'settings', shortcut: 'Ctrl+,' }
@@ -201,6 +376,7 @@ const helpMenu: MenuItem[] = [
 
 const shortcuts = [
   { keys: 'Ctrl+N', label: '新建文件' },
+  { keys: 'Ctrl+Shift+N', label: '新建思维导图' },
   { keys: 'Ctrl+O', label: '打开文件' },
   { keys: 'Ctrl+P', label: '快速打开文件' },
   { keys: 'Ctrl+S', label: '保存文件' },
@@ -218,6 +394,7 @@ const shortcuts = [
   { keys: 'Ctrl+H', label: '替换' },
   { keys: 'Shift+Alt+F', label: '格式化文档（代码/纯文本）' },
   { keys: 'Ctrl+/', label: '切换编辑模式' },
+  { keys: 'Ctrl+←/→', label: '切换标签' },
   { keys: 'Ctrl+滚轮', label: '缩放编辑区字号' },
   { keys: 'Ctrl+,', label: '打开设置' }
 ]
@@ -232,7 +409,7 @@ const MENU_DEFS = [
 
 const menus = computed<Record<string, MenuItem[]>>(() => ({
   file: fileMenu.value,
-  edit: editMenu,
+  edit: editMenu.value,
   view: viewMenu.value,
   insert: insertMenu,
   help: helpMenu
@@ -328,12 +505,17 @@ function handleDocumentMousedown(event: MouseEvent): void {
 // ===== 文件操作 =====
 
 async function newFile(): Promise<void> {
-  if (!await fileStore.confirmSaveBeforeAction()) return
+  if (!(await fileStore.confirmSaveBeforeAction())) return
   await fileStore.newFile()
 }
 
+async function newMindMap(): Promise<void> {
+  if (!(await fileStore.confirmSaveBeforeAction())) return
+  await fileStore.newMindMap()
+}
+
 async function openFile(filePath?: string): Promise<void> {
-  if (!await fileStore.confirmSaveBeforeAction()) return
+  if (!(await fileStore.confirmSaveBeforeAction())) return
   await fileStore.openFile(filePath)
 }
 
@@ -357,6 +539,23 @@ async function exportBatchPdf(): Promise<void> {
     if (!opened || !fileStore.openedFolderPath) return
   }
   await fileStore.exportFolderToPdf(fileStore.openedFolderPath)
+}
+
+/**
+ * 导出思维导图图片。
+ *
+ * 失败必须说出来：图片导出可能因「画布还没渲染完 / 内容为空 / PNG 编码失败」
+ * 而中止，这些都不是用户点错了菜单，静默失败只会让人觉得功能不存在。
+ */
+async function exportMindMapImage(format: 'png' | 'svg'): Promise<void> {
+  const ok = await fileStore.exportMindMapImage(format)
+  if (!ok && fileStore.error) {
+    await requestDialog({
+      title: '导出失败',
+      message: fileStore.error,
+      buttons: [{ label: '确定', value: 0, primary: true }]
+    })
+  }
 }
 
 /** 从最近文件列表中移除单条记录 */
@@ -399,6 +598,9 @@ async function runMenuItem(item: MenuItem): Promise<void> {
     case 'new':
       await newFile()
       break
+    case 'new-mindmap':
+      await newMindMap()
+      break
     case 'open':
       await openFile()
       break
@@ -426,8 +628,31 @@ async function runMenuItem(item: MenuItem): Promise<void> {
     case 'import-folder':
       await fileStore.importFolder()
       break
+    case 'import-xmind':
+      await fileStore.importXmind()
+      break
+    case 'md-to-mindmap': {
+      // 转换只新建标签，原笔记保持原样；失败（内容为空/标签已满）静默无副作用
+      const created = fileStore.convertActiveToMindMap()
+      if (!created) {
+        console.warn('[mindmap] 当前笔记无法转换为思维导图（内容为空或标签已满）')
+      }
+      break
+    }
     case 'export-md':
       await fileStore.exportMarkdown()
+      break
+    case 'export-mindmap-outline':
+      await fileStore.exportMindMapOutline()
+      break
+    case 'export-xmind':
+      await fileStore.exportXmind()
+      break
+    case 'export-mindmap-png':
+      await exportMindMapImage('png')
+      break
+    case 'export-mindmap-svg':
+      await exportMindMapImage('svg')
       break
     case 'export-pdf':
       await exportCurrentPdf()
@@ -564,18 +789,22 @@ function openLinkDialog(): void {
 function confirmInsertLink(): void {
   const href = linkHref.value.trim()
   if (!href) return
-  window.dispatchEvent(new CustomEvent('editor:link', {
-    detail: { href, title: linkTitle.value.trim() }
-  }))
+  window.dispatchEvent(
+    new CustomEvent('editor:link', {
+      detail: { href, title: linkTitle.value.trim() }
+    })
+  )
   linkDialogOpen.value = false
 }
 
 function confirmInsertImage(): void {
   const src = imageSrc.value.trim()
   if (!src) return
-  window.dispatchEvent(new CustomEvent('editor:image', {
-    detail: { src, alt: imageAlt.value.trim() }
-  }))
+  window.dispatchEvent(
+    new CustomEvent('editor:image', {
+      detail: { src, alt: imageAlt.value.trim() }
+    })
+  )
   imageDialogOpen.value = false
 }
 
@@ -584,9 +813,11 @@ async function selectImageFile(): Promise<void> {
   if (!file) return
   const result = await fileStore.addImage(file)
   if (!result.success || !result.path) return
-  window.dispatchEvent(new CustomEvent('editor:image', {
-    detail: { src: result.path, alt: file.name }
-  }))
+  window.dispatchEvent(
+    new CustomEvent('editor:image', {
+      detail: { src: result.path, alt: file.name }
+    })
+  )
   imageDialogOpen.value = false
 }
 
@@ -595,9 +826,11 @@ async function selectAttachmentFile(): Promise<void> {
   if (!file) return
   const result = await fileStore.addAttachment(file)
   if (!result.success || !result.path) return
-  window.dispatchEvent(new CustomEvent('editor:attachment', {
-    detail: { path: result.path, name: file.name }
-  }))
+  window.dispatchEvent(
+    new CustomEvent('editor:attachment', {
+      detail: { path: result.path, name: file.name }
+    })
+  )
 }
 
 function openSettings(): void {
@@ -624,8 +857,14 @@ function saveSettings(): void {
   fileStore.setMaxOpenTabs(settingsMaxTabs.value)
   appearanceStore.setUiFontSize(settingsUiFontSize.value)
   appearanceStore.setEditorFontSize(settingsEditorFontSize.value)
-  appearanceStore.setEditorFontFamily(editorFontFamilyCustom.value ? settingsEditorFontFamily.value : editorFontFamilySelect.value)
-  appearanceStore.setEditorMonoFontFamily(editorMonoFontFamilyCustom.value ? settingsEditorMonoFontFamily.value : editorMonoFontFamilySelect.value)
+  appearanceStore.setEditorFontFamily(
+    editorFontFamilyCustom.value ? settingsEditorFontFamily.value : editorFontFamilySelect.value
+  )
+  appearanceStore.setEditorMonoFontFamily(
+    editorMonoFontFamilyCustom.value
+      ? settingsEditorMonoFontFamily.value
+      : editorMonoFontFamilySelect.value
+  )
   appearanceStore.setEditorLineHeight(settingsEditorLineHeight.value)
   settingsOpen.value = false
 }
@@ -682,32 +921,55 @@ function handleToggleModeEvent(): void {
   fileStore.setEditorMode(modes[nextIndex])
 }
 
-function isEditableTarget(target: EventTarget | null): boolean {
+function isTextInputTarget(target: EventTarget | null): boolean {
   const element = target as HTMLElement | null
-  return element?.tagName === 'INPUT' || element?.tagName === 'TEXTAREA' || element?.isContentEditable === true
+  return element?.tagName === 'INPUT' || element?.tagName === 'TEXTAREA'
 }
 
 function handleTabNavigationKeydown(event: KeyboardEvent): boolean {
-  if (
-    !event.altKey || event.ctrlKey || event.metaKey || event.shiftKey ||
-    !['ArrowLeft', 'ArrowRight'].includes(event.key) || isEditableTarget(event.target)
-  ) return false
+  if (event.isComposing) return false
+  if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return false
 
-  const tabs = fileStore.tabs
-  if (tabs.length < 2) return false
+  // 只保留 Ctrl+←/→（Alt+←/→ 已移除）。Ctrl+←/→ 与编辑器内「按词移动光标」冲突，
+  // 因此在捕获阶段先于编辑器处理并阻止其继续处理；输入框（查找/重命名/AI 输入等）
+  // 仍保留原生行为，由 handleTabNavigationCapture 过滤
+  if (!event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return false
 
-  const activeIndex = tabs.findIndex((tab) => tab.id === fileStore.activeTabId)
-  const currentIndex = activeIndex === -1 ? 0 : activeIndex
+  const items = buildBarItems(fileStore.tabs, aiStore.panelOpen, aiStore.tabIndex)
+  if (items.length < 2) return false
+
+  const currentIndex = aiStore.panelActive
+    ? items.findIndex((item) => item.kind === 'ai')
+    : items.findIndex((item) => item.kind === 'file' && item.tab.id === fileStore.activeTabId)
   const offset = event.key === 'ArrowRight' ? 1 : -1
-  const nextIndex = (currentIndex + offset + tabs.length) % tabs.length
+  const nextIndex =
+    ((currentIndex === -1 ? 0 : currentIndex) + offset + items.length) % items.length
+  const next = items[nextIndex]
   event.preventDefault()
-  void fileStore.setActiveTab(tabs[nextIndex].id)
+  if (next.kind === 'ai') {
+    aiStore.activatePanel()
+  } else {
+    if (aiStore.panelActive) aiStore.deactivatePanel()
+    void fileStore.setActiveTab(next.tab.id)
+  }
   return true
+}
+
+/** 捕获阶段拦截：编辑器会消费 Ctrl+方向键，冒泡阶段已来不及 */
+function handleTabNavigationCapture(event: KeyboardEvent): void {
+  if (isTextInputTarget(event.target)) return
+  if (handleTabNavigationKeydown(event)) event.stopPropagation()
 }
 
 function handleKeydown(event: KeyboardEvent): void {
   if (event.key === 'Escape') {
-    if (settingsOpen.value || linkDialogOpen.value || imageDialogOpen.value || shortcutsOpen.value || aboutOpen.value) {
+    if (
+      settingsOpen.value ||
+      linkDialogOpen.value ||
+      imageDialogOpen.value ||
+      shortcutsOpen.value ||
+      aboutOpen.value
+    ) {
       settingsOpen.value = false
       linkDialogOpen.value = false
       imageDialogOpen.value = false
@@ -719,12 +981,15 @@ function handleKeydown(event: KeyboardEvent): void {
     return
   }
 
-  if (handleTabNavigationKeydown(event)) return
   if (!event.ctrlKey) return
 
   if (event.key === 'n') {
     event.preventDefault()
-    newFile()
+    if (event.shiftKey) {
+      newMindMap()
+    } else {
+      newFile()
+    }
   } else if (event.key === 'o') {
     event.preventDefault()
     openFile()
@@ -749,6 +1014,8 @@ let removeUnmaximizedListener: (() => void) | null = null
 
 onMounted(async () => {
   window.addEventListener('keydown', handleKeydown)
+  // 捕获阶段处理标签切换，保证编辑器聚焦时也能生效
+  window.addEventListener('keydown', handleTabNavigationCapture, true)
   document.addEventListener('mousedown', handleDocumentMousedown)
   window.addEventListener('editor:toggleMode', handleToggleModeEvent)
   window.addEventListener('editor:showLinkDialog', openLinkDialog)
@@ -761,16 +1028,19 @@ onMounted(async () => {
   const version = await window.electronAPI?.getVersion()
   if (version) appVersion.value = version
 
-  removeMaximizedListener = window.electronAPI?.onWindowMaximized(() => {
-    isMaximized.value = true
-  }) ?? null
-  removeUnmaximizedListener = window.electronAPI?.onWindowUnmaximized(() => {
-    isMaximized.value = false
-  }) ?? null
+  removeMaximizedListener =
+    window.electronAPI?.onWindowMaximized(() => {
+      isMaximized.value = true
+    }) ?? null
+  removeUnmaximizedListener =
+    window.electronAPI?.onWindowUnmaximized(() => {
+      isMaximized.value = false
+    }) ?? null
 })
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeydown)
+  window.removeEventListener('keydown', handleTabNavigationCapture, true)
   document.removeEventListener('mousedown', handleDocumentMousedown)
   window.removeEventListener('editor:toggleMode', handleToggleModeEvent)
   window.removeEventListener('editor:showLinkDialog', openLinkDialog)
@@ -783,11 +1053,7 @@ onUnmounted(() => {
 
 <template>
   <header class="app-header">
-    <img
-      src="../../assets/logo.svg"
-      alt="M+"
-      class="logo-icon"
-    >
+    <img src="../../assets/logo.svg" alt="M+" class="logo-icon" />
 
     <nav class="menu-bar">
       <div
@@ -814,10 +1080,7 @@ onUnmounted(() => {
           :class="{ active: syncStore.panelOpen }"
           @click="syncStore.togglePanel()"
         >
-          <IconRefresh
-            class="icon"
-            :class="{ spinning: syncStore.syncing }"
-          />
+          <IconRefresh class="icon" :class="{ spinning: syncStore.syncing }" />
         </button>
       </Tooltip>
 
@@ -833,50 +1096,26 @@ onUnmounted(() => {
       </Tooltip>
 
       <Tooltip :content="themeStore.isDark ? '切换到浅色主题' : '切换到深色主题'">
-        <button
-          class="icon-btn"
-          @click="toggleTheme"
-        >
-          <IconSun
-            v-if="themeStore.isDark"
-            class="icon"
-          />
-          <IconMoon
-            v-else
-            class="icon"
-          />
+        <button class="icon-btn" @click="toggleTheme">
+          <IconSun v-if="themeStore.isDark" class="icon" />
+          <IconMoon v-else class="icon" />
         </button>
       </Tooltip>
 
       <div class="window-controls">
         <Tooltip content="最小化">
-          <button
-            class="window-btn"
-            @click="handleMinimize"
-          >
+          <button class="window-btn" @click="handleMinimize">
             <IconMinus :size="14" />
           </button>
         </Tooltip>
         <Tooltip :content="isMaximized ? '还原' : '最大化'">
-          <button
-            class="window-btn"
-            @click="handleMaximize"
-          >
-            <IconCopy
-              v-if="isMaximized"
-              :size="14"
-            />
-            <IconSquare
-              v-else
-              :size="14"
-            />
+          <button class="window-btn" @click="handleMaximize">
+            <IconCopy v-if="isMaximized" :size="14" />
+            <IconSquare v-else :size="14" />
           </button>
         </Tooltip>
         <Tooltip content="关闭">
-          <button
-            class="window-btn close"
-            @click="handleClose"
-          >
+          <button class="window-btn close" @click="handleClose">
             <IconX :size="14" />
           </button>
         </Tooltip>
@@ -890,38 +1129,19 @@ onUnmounted(() => {
         :style="{ left: menuPosition.left + 'px', top: menuPosition.top + 'px' }"
         @click.stop
       >
-        <template
-          v-for="(item, index) in currentMenuItems"
-          :key="index"
-        >
-          <div
-            v-if="item.kind === 'divider'"
-            class="menu-divider"
-          />
+        <template v-for="(item, index) in currentMenuItems" :key="index">
+          <div v-if="item.kind === 'divider'" class="menu-divider" />
           <div
             v-else-if="item.kind === 'submenu'"
             class="menu-entry has-sub"
             :class="{ disabled: item.disabled }"
           >
             <span>{{ item.label }}</span>
-            <IconChevronRight
-              class="sub-indicator"
-              :size="12"
-            />
+            <IconChevronRight class="sub-indicator" :size="12" />
             <div class="submenu">
-              <template
-                v-for="(sub, subIndex) in item.children"
-                :key="subIndex"
-              >
-                <div
-                  v-if="sub.kind === 'divider'"
-                  class="menu-divider"
-                />
-                <Tooltip
-                  v-else
-                  block
-                  :content="sub.payload || ''"
-                >
+              <template v-for="(sub, subIndex) in item.children" :key="subIndex">
+                <div v-if="sub.kind === 'divider'" class="menu-divider" />
+                <Tooltip v-else block :content="sub.payload || ''">
                   <div
                     class="menu-entry"
                     :class="{ disabled: sub.disabled || sub.action === 'none' }"
@@ -930,27 +1150,22 @@ onUnmounted(() => {
                     @click="runMenuItem(sub)"
                   >
                     <span class="menu-entry-label">
-                      <span
-                        v-if="sub.icon"
-                        class="menu-icon"
-                      >
-                        <IconFolder
-                          v-if="sub.icon === 'folder'"
-                          :size="14"
-                        />
-                        <IconFile
-                          v-else-if="sub.icon === 'file'"
-                          :size="14"
-                        />
+                      <span v-if="sub.icon" class="menu-icon">
+                        <IconFolder v-if="sub.icon === 'folder'" :size="14" />
+                        <IconFile v-else-if="sub.icon === 'file'" :size="14" />
                       </span>
-                      <span
-                        v-if="sub.checked !== undefined"
-                        class="menu-check"
-                      >{{ sub.checked ? '✓' : '' }}</span>
+                      <span v-if="sub.checked !== undefined" class="menu-check">{{
+                        sub.checked ? '✓' : ''
+                      }}</span>
                       {{ sub.label }}
                     </span>
+                    <!-- 二级菜单里的条目同样要显示快捷键，否则挪进子菜单的 Ctrl+N 会「消失」 -->
+                    <span v-if="sub.shortcut" class="shortcut">{{ sub.shortcut }}</span>
                     <button
-                      v-if="(sub.action === 'recent-file' || sub.action === 'recent-folder') && hoveredRecentPath === sub.payload"
+                      v-if="
+                        (sub.action === 'recent-file' || sub.action === 'recent-folder') &&
+                        hoveredRecentPath === sub.payload
+                      "
                       class="recent-remove"
                       :aria-label="`从最近文件移除 ${sub.label}`"
                       @click.stop.prevent="removeRecentItem(sub)"
@@ -969,25 +1184,17 @@ onUnmounted(() => {
             @click="runMenuItem(item)"
           >
             <span class="menu-entry-label">
-              <span
-                v-if="item.checked !== undefined"
-                class="menu-check"
-              >{{ item.checked ? '✓' : '' }}</span>
+              <span v-if="item.checked !== undefined" class="menu-check">{{
+                item.checked ? '✓' : ''
+              }}</span>
               {{ item.label }}
             </span>
-            <span
-              v-if="item.shortcut"
-              class="shortcut"
-            >{{ item.shortcut }}</span>
+            <span v-if="item.shortcut" class="shortcut">{{ item.shortcut }}</span>
           </div>
         </template>
       </div>
 
-      <div
-        v-if="settingsOpen"
-        class="settings-overlay"
-        @mousedown.self="settingsOpen = false"
-      >
+      <div v-if="settingsOpen" class="settings-overlay" @mousedown.self="settingsOpen = false">
         <section class="settings-dialog">
           <h2>设置</h2>
 
@@ -997,10 +1204,7 @@ onUnmounted(() => {
                 <strong>图片自动压缩</strong>
                 <small>插入图片时自动压缩以减小文档体积</small>
               </span>
-              <input
-                v-model="settingsCompressEnabled"
-                type="checkbox"
-              >
+              <input v-model="settingsCompressEnabled" type="checkbox" />
             </label>
 
             <label class="settings-row">
@@ -1015,7 +1219,7 @@ onUnmounted(() => {
                   min="1"
                   max="100"
                   :disabled="!settingsCompressEnabled"
-                >
+                />
                 <output>{{ settingsCompressQuality }}</output>
               </span>
             </label>
@@ -1031,7 +1235,7 @@ onUnmounted(() => {
                 type="number"
                 min="1"
                 max="100"
-              >
+              />
             </label>
 
             <label class="settings-row">
@@ -1045,7 +1249,7 @@ onUnmounted(() => {
                 type="number"
                 :min="MIN_EDITOR_FONT_SIZE"
                 :max="MAX_EDITOR_FONT_SIZE"
-              >
+              />
             </label>
 
             <label class="settings-row">
@@ -1073,7 +1277,7 @@ onUnmounted(() => {
                   class="settings-number font-custom-input"
                   type="text"
                   placeholder="如 '字体名', sans-serif"
-                >
+                />
               </span>
             </label>
 
@@ -1102,7 +1306,7 @@ onUnmounted(() => {
                   class="settings-number font-custom-input"
                   type="text"
                   placeholder="如 '字体名', monospace"
-                >
+                />
               </span>
             </label>
 
@@ -1118,7 +1322,7 @@ onUnmounted(() => {
                   :min="MIN_EDITOR_LINE_HEIGHT"
                   :max="MAX_EDITOR_LINE_HEIGHT"
                   step="0.1"
-                >
+                />
                 <output>{{ settingsEditorLineHeight.toFixed(1) }}</output>
               </span>
             </label>
@@ -1134,7 +1338,7 @@ onUnmounted(() => {
                 type="number"
                 :min="MIN_UI_FONT_SIZE"
                 :max="MAX_UI_FONT_SIZE"
-              >
+              />
             </label>
 
             <div class="settings-theme">
@@ -1158,20 +1362,8 @@ onUnmounted(() => {
           </div>
 
           <div class="settings-actions">
-            <button
-              type="button"
-              class="secondary"
-              @click="settingsOpen = false"
-            >
-              取消
-            </button>
-            <button
-              type="button"
-              class="primary"
-              @click="saveSettings"
-            >
-              完成
-            </button>
+            <button type="button" class="secondary" @click="settingsOpen = false">取消</button>
+            <button type="button" class="primary" @click="saveSettings">完成</button>
           </div>
         </section>
       </div>
@@ -1191,7 +1383,7 @@ onUnmounted(() => {
               placeholder="https://example.com"
               autofocus
               @keydown.enter="confirmInsertLink"
-            >
+            />
           </label>
           <label>
             <span>显示文本</span>
@@ -1200,16 +1392,10 @@ onUnmounted(() => {
               type="text"
               placeholder="可选，默认使用选中文本"
               @keydown.enter="confirmInsertLink"
-            >
+            />
           </label>
           <div class="settings-actions">
-            <button
-              type="button"
-              class="secondary"
-              @click="linkDialogOpen = false"
-            >
-              取消
-            </button>
+            <button type="button" class="secondary" @click="linkDialogOpen = false">取消</button>
             <button
               type="button"
               class="primary"
@@ -1237,7 +1423,7 @@ onUnmounted(() => {
               placeholder="URL 或相对路径"
               autofocus
               @keydown.enter="confirmInsertImage"
-            >
+            />
           </label>
           <label>
             <span>替代文本</span>
@@ -1246,23 +1432,13 @@ onUnmounted(() => {
               type="text"
               placeholder="可选"
               @keydown.enter="confirmInsertImage"
-            >
+            />
           </label>
-          <button
-            type="button"
-            class="local-file-button"
-            @click="selectImageFile"
-          >
+          <button type="button" class="local-file-button" @click="selectImageFile">
             选择本地图片
           </button>
           <div class="settings-actions">
-            <button
-              type="button"
-              class="secondary"
-              @click="imageDialogOpen = false"
-            >
-              取消
-            </button>
+            <button type="button" class="secondary" @click="imageDialogOpen = false">取消</button>
             <button
               type="button"
               class="primary"
@@ -1275,72 +1451,37 @@ onUnmounted(() => {
         </section>
       </div>
 
-      <div
-        v-if="shortcutsOpen"
-        class="help-overlay"
-        @mousedown.self="shortcutsOpen = false"
-      >
+      <div v-if="shortcutsOpen" class="help-overlay" @mousedown.self="shortcutsOpen = false">
         <section class="help-dialog shortcuts-dialog">
           <h2>快捷键速查</h2>
           <div class="shortcuts-grid">
-            <div
-              v-for="shortcut in shortcuts"
-              :key="shortcut.keys"
-              class="shortcut-row"
-            >
+            <div v-for="shortcut in shortcuts" :key="shortcut.keys" class="shortcut-row">
               <kbd>{{ shortcut.keys }}</kbd>
               <span>{{ shortcut.label }}</span>
             </div>
           </div>
           <div class="settings-actions">
-            <button
-              type="button"
-              class="primary"
-              @click="shortcutsOpen = false"
-            >
-              确定
-            </button>
+            <button type="button" class="primary" @click="shortcutsOpen = false">确定</button>
           </div>
         </section>
       </div>
 
-      <div
-        v-if="aboutOpen"
-        class="help-overlay"
-        @mousedown.self="aboutOpen = false"
-      >
+      <div v-if="aboutOpen" class="help-overlay" @mousedown.self="aboutOpen = false">
         <section class="help-dialog about-dialog">
-          <img
-            src="../../assets/logo.svg"
-            alt="Inkase"
-            class="about-logo"
-          >
+          <img src="../../assets/logo.svg" alt="Inkase" class="about-logo" />
           <h2>Inkase</h2>
-          <p class="about-version">
-            版本 {{ appVersion }}
-          </p>
+          <p class="about-version">版本 {{ appVersion }}</p>
           <p>一款以自包含 .mdx 文件格式为核心的轻量级文档工作台。</p>
-          <p class="about-copyright">
-            Copyright © 2026 Inkase Team
-          </p>
+          <p class="about-copyright">Copyright © 2026 Inkase Team</p>
           <div class="settings-actions">
-            <button
-              type="button"
-              class="primary"
-              @click="aboutOpen = false"
-            >
-              确定
-            </button>
+            <button type="button" class="primary" @click="aboutOpen = false">确定</button>
           </div>
         </section>
       </div>
     </teleport>
 
     <SyncPanel v-if="syncStore.panelOpen" />
-    <QuickOpenPalette
-      :visible="quickOpenVisible"
-      @close="quickOpenVisible = false"
-    />
+    <QuickOpenPalette :visible="quickOpenVisible" @close="quickOpenVisible = false" />
   </header>
 </template>
 
@@ -1381,7 +1522,9 @@ onUnmounted(() => {
   color: var(--color-text-secondary);
   cursor: pointer;
   user-select: none;
-  transition: background-color 0.2s, color 0.2s;
+  transition:
+    background-color 0.2s,
+    color 0.2s;
   white-space: nowrap;
 }
 
@@ -1577,7 +1720,9 @@ onUnmounted(() => {
   background: transparent;
   color: var(--color-text-tertiary);
   cursor: pointer;
-  transition: color 0.12s, background-color 0.12s;
+  transition:
+    color 0.12s,
+    background-color 0.12s;
 }
 
 .recent-remove:hover {

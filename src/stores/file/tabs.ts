@@ -72,7 +72,8 @@ export function createTabState(): TabState {
   })
   const displayTitle = computed(() => {
     stateVersion.value
-    const name = fileName.value.replace('.mdx', '')
+    // 已知扩展名都剥掉，避免 `.inkmind` 之类的后缀出现在窗口标题里
+    const name = fileName.value.replace(/\.(mdx|md|inkmind)$/i, '')
     return isModified.value ? `${name} *` : name
   })
   const imageAssets = computed(() => {
@@ -137,6 +138,8 @@ export interface TabOps {
   closeOtherTabs: (keepTabId: string) => Promise<void>
   closeAllTabs: () => Promise<void>
   moveTab: (tabId: string, insertIndex: number) => void
+  /** 按给定 id 顺序重排标签；未列出的标签按原顺序补在末尾，避免误删 */
+  reorderTabs: (orderedIds: string[]) => void
   confirmSaveForTab: (tab: TabInfo) => Promise<'save' | 'discard' | 'cancel'>
   confirmSaveBeforeClose: () => Promise<boolean>
 }
@@ -237,6 +240,33 @@ export function createTabOps(state: TabState, deps: TabOpsDeps): TabOps {
     deps.persistSession()
   }
 
+  /**
+   * 标签栏统一排序（文件标签与 AI 标签混排）：按 orderedIds 重排文件标签。
+   * 传入的 id 中不存在的会被忽略；未传入的标签保持原相对顺序补在末尾。
+   */
+  function reorderTabs(orderedIds: string[]): void {
+    if (tabs.value.length === 0 || orderedIds.length === 0) return
+    const remaining = new Map(tabs.value.map((tab) => [tab.id, tab]))
+    const ordered: TabInfo[] = []
+    for (const id of orderedIds) {
+      const tab = remaining.get(id)
+      if (!tab) continue
+      ordered.push(tab)
+      remaining.delete(id)
+    }
+    if (ordered.length === 0) return
+    if (remaining.size > 0) {
+      for (const tab of tabs.value) {
+        if (remaining.has(tab.id)) ordered.push(tab)
+      }
+    }
+    if (ordered.length !== tabs.value.length) return
+    const changed = ordered.some((tab, index) => tabs.value[index] !== tab)
+    if (!changed) return
+    tabs.value.splice(0, tabs.value.length, ...ordered)
+    deps.persistSession()
+  }
+
   async function confirmSaveBeforeClose(): Promise<boolean> {
     for (const tab of tabs.value) {
       const isTabDirty = tab.document && ((tab.fileInfo?.modified ?? false) || !tab.fileInfo?.path)
@@ -259,6 +289,7 @@ export function createTabOps(state: TabState, deps: TabOpsDeps): TabOps {
     closeOtherTabs,
     closeAllTabs,
     moveTab,
+    reorderTabs,
     confirmSaveForTab,
     confirmSaveBeforeClose
   }

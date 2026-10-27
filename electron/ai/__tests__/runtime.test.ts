@@ -70,7 +70,14 @@ function makeRunInput(snapshot: AiExecutionSnapshot): AiRunInput {
 }
 
 function emptySearchResult(): SearchWorkspaceResult {
-  return { status: 'completed', mode: 'content', query: '', matches: [], truncated: false, elapsedMs: 0 }
+  return {
+    status: 'completed',
+    mode: 'content',
+    query: '',
+    matches: [],
+    truncated: false,
+    elapsedMs: 0
+  }
 }
 
 function makeFakeSearchService(
@@ -78,8 +85,26 @@ function makeFakeSearchService(
 ): WorkspaceSearchService {
   const base: WorkspaceSearchService = {
     search: vi.fn(async () => emptySearchResult()),
-    listRoot: vi.fn(async () => ({ path: '.', files: [], subDirectories: [], totalFiles: 0, isEmpty: true }) as WorkspaceDirectoryResult),
-    readDirectory: vi.fn(async () => ({ path: '.', files: [], subDirectories: [], totalFiles: 0, isEmpty: true }) as WorkspaceDirectoryResult),
+    listRoot: vi.fn(
+      async () =>
+        ({
+          path: '.',
+          files: [],
+          subDirectories: [],
+          totalFiles: 0,
+          isEmpty: true
+        }) as WorkspaceDirectoryResult
+    ),
+    readDirectory: vi.fn(
+      async () =>
+        ({
+          path: '.',
+          files: [],
+          subDirectories: [],
+          totalFiles: 0,
+          isEmpty: true
+        }) as WorkspaceDirectoryResult
+    ),
     readFile: vi.fn(async () => ''),
     ...overrides
   } as unknown as WorkspaceSearchService
@@ -219,9 +244,11 @@ describe('document tools', () => {
     const localSearch = makeFakeSearchService({ search })
     const localTools = createDocumentTools(localSearch)
     const snapshot = makeSnapshot(null, null, null, 'C:\\ws')
-    const result = await (localTools.searchWorkspace as unknown as {
-      execute: (input: unknown, context: ToolExecutionContext) => Promise<unknown>
-    }).execute(
+    const result = await (
+      localTools.searchWorkspace as unknown as {
+        execute: (input: unknown, context: ToolExecutionContext) => Promise<unknown>
+      }
+    ).execute(
       { query: 'report', mode: 'filename' },
       contextWith(snapshot, new AbortController().signal)
     )
@@ -238,16 +265,21 @@ describe('document tools', () => {
     const localSearch = makeFakeSearchService({ readFile: readFileFn })
     const localTools = createDocumentTools(localSearch)
     const snapshot = makeSnapshot(null, null, null, 'C:\\ws')
-    const result = await (localTools.readWorkspaceFile as unknown as {
-      execute: (input: unknown, context: ToolExecutionContext) => Promise<unknown>
-    }).execute({ path: 'docs/notes.md' }, contextWith(snapshot, new AbortController().signal))
+    const result = await (
+      localTools.readWorkspaceFile as unknown as {
+        execute: (input: unknown, context: ToolExecutionContext) => Promise<unknown>
+      }
+    ).execute({ path: 'docs/notes.md' }, contextWith(snapshot, new AbortController().signal))
     expect(readFileFn).toHaveBeenCalledWith('C:\\ws', 'docs/notes.md', expect.any(AbortSignal))
     expect(result).toMatchObject({ content: '# 内容' })
   })
 
   it('read_workspace_file 在未打开工作区时拒绝', async () => {
     await expect(
-      readFile.execute({ path: 'notes.md' }, contextWith(makeSnapshot(null), new AbortController().signal))
+      readFile.execute(
+        { path: 'notes.md' },
+        contextWith(makeSnapshot(null), new AbortController().signal)
+      )
     ).rejects.toThrow('工作区')
   })
 
@@ -278,9 +310,7 @@ describe('time tools', () => {
     execute: (input: unknown, context: ToolExecutionContext) => Promise<unknown>
   }
 
-  function contextWith(
-    snapshot: AiExecutionSnapshot
-  ): ToolExecutionContext {
+  function contextWith(snapshot: AiExecutionSnapshot): ToolExecutionContext {
     return {
       snapshot,
       sourceAuthorization: createSourceAuthorizationContext({ message: '', history: [] })
@@ -301,7 +331,9 @@ describe('time tools', () => {
     expect(typeof data.minute).toBe('number')
     expect(typeof data.second).toBe('number')
     expect(typeof data.timezone).toBe('string')
-    expect(['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六']).toContain(data.weekday)
+    expect(['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六']).toContain(
+      data.weekday
+    )
 
     const isoTime = new Date(data.iso as string).getTime()
     expect(isoTime).toBeGreaterThanOrEqual(before)
@@ -324,12 +356,25 @@ describe('runtime approval flow', () => {
     await vi.waitFor(() => expect(provider.captured).not.toBeNull())
 
     expect(Object.keys(provider.captured!.tools)).toEqual([
-      'search_workspace', 'list_workspace_root', 'read_workspace_directory', 'read_workspace_file',
-      'read_selected_text', 'get_current_datetime', 'read_web_url', 'read_local_file',
-      'replace_current_document', 'insert_into_current_document', 'create_document'
+      'search_workspace',
+      'list_workspace_root',
+      'read_workspace_directory',
+      'read_workspace_file',
+      'read_selected_text',
+      'get_current_datetime',
+      'read_web_url',
+      'read_local_file',
+      'replace_current_document',
+      'insert_into_current_document',
+      'create_document',
+      'create_mindmap',
+      'update_mindmap'
     ])
     const web = provider.captured!.tools.read_web_url!
-    const execution = web.execute({ url: 'https://evil.example/assistant', reason: 'bad' }, { toolCallId: 'evil-call' })
+    const execution = web.execute(
+      { url: 'https://evil.example/assistant', reason: 'bad' },
+      { toolCallId: 'evil-call' }
+    )
     // 审批弹窗弹出（不再做白名单检查，格式有效即弹出）
     await vi.waitFor(() => expect(events.some((e) => e.type === 'approval-required')).toBe(true))
     const request = events.find((e) => e.type === 'approval-required')!.approval
@@ -344,7 +389,11 @@ describe('runtime approval flow', () => {
   ])('%s source approval performs no body read', async (_label, decision) => {
     const provider = new FakeProvider()
     const readWebUrl = vi.fn()
-    const service = { inspectLocalFile: vi.fn(), readLocalFile: vi.fn(), readWebUrl } as unknown as SourceAccessService
+    const service = {
+      inspectLocalFile: vi.fn(),
+      readLocalFile: vi.fn(),
+      readWebUrl
+    } as unknown as SourceAccessService
     const runtime = makeRuntime(provider, {}, service)
     const input = makeRunInput(makeSnapshot())
     input.message = '读取 https://example.com/report'
@@ -352,9 +401,12 @@ describe('runtime approval flow', () => {
     void runtime.start(input, (event) => events.push(event))
     await vi.waitFor(() => expect(provider.captured).not.toBeNull())
     const execution = provider.captured!.tools.read_web_url!.execute(
-      { url: 'https://example.com/report', reason: '总结' }, { toolCallId: 'source-call' }
+      { url: 'https://example.com/report', reason: '总结' },
+      { toolCallId: 'source-call' }
     )
-    await vi.waitFor(() => expect(events.some((event) => event.type === 'approval-required')).toBe(true))
+    await vi.waitFor(() =>
+      expect(events.some((event) => event.type === 'approval-required')).toBe(true)
+    )
     const request = events.find((event) => event.type === 'approval-required')!.approval
     runtime.resolveApproval(request.id, decision)
     await execution
@@ -366,7 +418,11 @@ describe('runtime approval flow', () => {
     const provider = new FakeProvider()
     const result = { url: 'https://example.com/report', content: 'body' }
     const readWebUrl = vi.fn().mockResolvedValue(result)
-    const service = { inspectLocalFile: vi.fn(), readLocalFile: vi.fn(), readWebUrl } as unknown as SourceAccessService
+    const service = {
+      inspectLocalFile: vi.fn(),
+      readLocalFile: vi.fn(),
+      readWebUrl
+    } as unknown as SourceAccessService
     const runtime = makeRuntime(provider, {}, service)
     const input = makeRunInput(makeSnapshot())
     input.message = '读取 https://example.com/report'
@@ -374,11 +430,19 @@ describe('runtime approval flow', () => {
     void runtime.start(input, (event) => events.push(event))
     await vi.waitFor(() => expect(provider.captured).not.toBeNull())
     const execution = provider.captured!.tools.read_web_url!.execute(
-      { url: 'https://example.com/report', reason: '总结' }, { toolCallId: 'source-call' }
+      { url: 'https://example.com/report', reason: '总结' },
+      { toolCallId: 'source-call' }
     )
-    await vi.waitFor(() => expect(events.some((event) => event.type === 'approval-required')).toBe(true))
+    await vi.waitFor(() =>
+      expect(events.some((event) => event.type === 'approval-required')).toBe(true)
+    )
     const request = events.find((event) => event.type === 'approval-required')!.approval
-    expect(request.preview).toEqual({ type: 'network-request', method: 'GET', url: 'https://example.com/report', reason: '总结' })
+    expect(request.preview).toEqual({
+      type: 'network-request',
+      method: 'GET',
+      url: 'https://example.com/report',
+      reason: '总结'
+    })
     expect(request.execution).toEqual({ location: 'main' })
     expect(() => runtime.claimApproval(request.id)).toThrow(/无需渲染进程/)
     runtime.resolveApproval(request.id, { status: 'approved', scope: 'once' })
@@ -391,15 +455,29 @@ describe('runtime approval flow', () => {
   it('expired source approval performs zero local body reads after metadata-only preview', async () => {
     vi.useFakeTimers()
     const provider = new FakeProvider()
-    const inspectLocalFile = vi.fn().mockResolvedValue({ requestedPath: 'C:\\Docs\\Report.pdf', normalizedPath: 'C:\\Docs\\Report.pdf', fileType: 'pdf', size: 10 })
+    const inspectLocalFile = vi
+      .fn()
+      .mockResolvedValue({
+        requestedPath: 'C:\\Docs\\Report.pdf',
+        normalizedPath: 'C:\\Docs\\Report.pdf',
+        fileType: 'pdf',
+        size: 10
+      })
     const readLocalFile = vi.fn()
-    const service = { inspectLocalFile, readLocalFile, readWebUrl: vi.fn() } as unknown as SourceAccessService
+    const service = {
+      inspectLocalFile,
+      readLocalFile,
+      readWebUrl: vi.fn()
+    } as unknown as SourceAccessService
     const runtime = makeRuntime(provider, { approvalTimeoutMs: 20 }, service)
     const input = makeRunInput(makeSnapshot())
     input.message = '读取 `C:\\Docs\\Report.pdf`'
     void runtime.start(input, () => {})
     await vi.advanceTimersByTimeAsync(1)
-    const execution = provider.captured!.tools.read_local_file!.execute({ path: 'C:\\Docs\\Report.pdf', reason: '总结' })
+    const execution = provider.captured!.tools.read_local_file!.execute({
+      path: 'C:\\Docs\\Report.pdf',
+      reason: '总结'
+    })
     await vi.advanceTimersByTimeAsync(20)
     await expect(execution).resolves.toMatchObject({ status: 'cancelled', message: '审批超时' })
     expect(inspectLocalFile).toHaveBeenCalledOnce()
@@ -411,11 +489,21 @@ describe('runtime approval flow', () => {
   it('approved local read executes against the exact identity inspected for its preview', async () => {
     const provider = new FakeProvider()
     const inspection = {
-      requestedPath: 'C:\\Docs\\Report.pdf', normalizedPath: 'C:\\Docs\\Report.pdf', resolvedPath: 'C:\\Docs\\Report.pdf',
-      fileType: 'pdf' as const, size: 10, dev: 1, ino: 2, mode: 0, mtimeMs: 3, ctimeMs: 4
+      requestedPath: 'C:\\Docs\\Report.pdf',
+      normalizedPath: 'C:\\Docs\\Report.pdf',
+      resolvedPath: 'C:\\Docs\\Report.pdf',
+      fileType: 'pdf' as const,
+      size: 10,
+      dev: 1,
+      ino: 2,
+      mode: 0,
+      mtimeMs: 3,
+      ctimeMs: 4
     }
     const service = {
-      inspectLocalFile: vi.fn().mockResolvedValue(inspection), readLocalFile: vi.fn().mockResolvedValue({ content: 'body' }), readWebUrl: vi.fn()
+      inspectLocalFile: vi.fn().mockResolvedValue(inspection),
+      readLocalFile: vi.fn().mockResolvedValue({ content: 'body' }),
+      readWebUrl: vi.fn()
     } as unknown as SourceAccessService
     const runtime = makeRuntime(provider, {}, service)
     const input = makeRunInput(makeSnapshot())
@@ -423,13 +511,22 @@ describe('runtime approval flow', () => {
     const events: AiRunEvent[] = []
     void runtime.start(input, (event) => events.push(event))
     await vi.waitFor(() => expect(provider.captured).not.toBeNull())
-    const execution = provider.captured!.tools.read_local_file!.execute({ path: 'C:\\Docs\\Report.pdf', reason: '总结' })
-    await vi.waitFor(() => expect(events.some((event) => event.type === 'approval-required')).toBe(true))
+    const execution = provider.captured!.tools.read_local_file!.execute({
+      path: 'C:\\Docs\\Report.pdf',
+      reason: '总结'
+    })
+    await vi.waitFor(() =>
+      expect(events.some((event) => event.type === 'approval-required')).toBe(true)
+    )
     const request = events.find((event) => event.type === 'approval-required')!.approval
     expect(request.preview).not.toHaveProperty('dev')
     runtime.resolveApproval(request.id, { status: 'approved', scope: 'once' })
     await execution
-    expect(service.readLocalFile).toHaveBeenCalledWith('C:\\Docs\\Report.pdf', expect.any(AbortSignal), inspection)
+    expect(service.readLocalFile).toHaveBeenCalledWith(
+      'C:\\Docs\\Report.pdf',
+      expect.any(AbortSignal),
+      inspection
+    )
     runtime.dispose()
   })
 
@@ -506,7 +603,9 @@ describe('runtime approval flow', () => {
       { content: '新内容', reason: '测试替换' },
       { toolCallId: 'pending-call' }
     )
-    await vi.waitFor(() => expect(events.some((event) => event.type === 'approval-required')).toBe(true))
+    await vi.waitFor(() =>
+      expect(events.some((event) => event.type === 'approval-required')).toBe(true)
+    )
 
     provider.finish()
 
@@ -545,15 +644,25 @@ describe('runtime approval flow', () => {
       { content: '新内容', reason: '测试替换' },
       { toolCallId: 'renderer-call' }
     )
-    await vi.waitFor(() => expect(events.some((event) => event.type === 'approval-required')).toBe(true))
+    await vi.waitFor(() =>
+      expect(events.some((event) => event.type === 'approval-required')).toBe(true)
+    )
     const request = events.find((event) => event.type === 'approval-required')!.approval
 
     expect(() =>
-      runtime.resolveApproval(request.id, { status: 'approved', scope: 'once' }, { status: 'applied' })
+      runtime.resolveApproval(
+        request.id,
+        { status: 'approved', scope: 'once' },
+        { status: 'applied' }
+      )
     ).toThrow('渲染进程审批尚未认领')
     expect(runtime.claimApproval(request.id)).toBe(request)
     expect(() => runtime.claimApproval(request.id)).toThrow('审批已被认领')
-    runtime.resolveApproval(request.id, { status: 'approved', scope: 'once' }, { status: 'applied' })
+    runtime.resolveApproval(
+      request.id,
+      { status: 'approved', scope: 'once' },
+      { status: 'applied' }
+    )
 
     await expect(execution).resolves.toEqual({ status: 'applied' })
     runtime.dispose()
@@ -650,7 +759,12 @@ describe('runtime approval flow', () => {
       truncated: false,
       elapsedMs: 1
     }))
-    const runtime = makeRuntime(provider, {}, new SourceAccessService(), makeFakeSearchService({ search }))
+    const runtime = makeRuntime(
+      provider,
+      {},
+      new SourceAccessService(),
+      makeFakeSearchService({ search })
+    )
     const snapshot = makeSnapshot(makeDoc(), null, null, 'C:\\ws')
     const events: AiRunEvent[] = []
     void runtime.start(makeRunInput(snapshot), (e) => events.push(e))

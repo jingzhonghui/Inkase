@@ -19,6 +19,12 @@ import { exportMdxFile } from '../mdx/export'
 import { addRecentFile as addRecent } from './file-handlers'
 import { clearRecoveryData } from '../recovery'
 import type { RecoverySnapshot } from '../recovery'
+import {
+  MINDMAP_ENTRY,
+  readArchive,
+  writeArchive,
+  writeArchiveFromDir
+} from '../mindmap/inkmind-archive'
 
 // 文件路径 → 临时目录的映射（主进程唯一持有的状态）
 const tempDirsByFile = new Map<string, string>()
@@ -71,6 +77,16 @@ function registerTempDir(filePath: string, tempDir: string): void {
 
 function unregisterTempDir(filePath: string): void {
   tempDirsByFile.delete(normalizeFilePath(filePath))
+}
+
+/**
+ * 取某个文件当前的临时解压目录（没有则 undefined）。
+ *
+ * 思维导图的资源插入需要往解压目录里写文件，而目录表归这里管：
+ * 与其在各处各存一份，不如只暴露一个只读入口。
+ */
+export function getTempDirForFile(filePath: string): string | undefined {
+  return tempDirsByFile.get(normalizeFilePath(filePath))
 }
 
 /** 从临时目录重新读取当前文档状态（assets 等可能已被资源类 handler 修改） */
@@ -144,6 +160,7 @@ export function registerMdxHandlers(): void {
           properties: ['openFile'],
           filters: [
             { name: 'Inkase 文档', extensions: ['mdx'] },
+            { name: 'Inkase 思维导图', extensions: ['inkmind'] },
             { name: 'Markdown 文件', extensions: ['md'] },
             { name: '所有文件', extensions: ['*'] }
           ]
@@ -155,6 +172,7 @@ export function registerMdxHandlers(): void {
       }
 
       const isMdx = path.extname(targetPath).toLowerCase() === '.mdx'
+      const isMindMap = path.extname(targetPath).toLowerCase() === '.inkmind'
       const imageMime = getImageMimeType(targetPath)
       const isPdf = path.extname(targetPath).toLowerCase() === '.pdf'
 
@@ -206,6 +224,32 @@ export function registerMdxHandlers(): void {
         }
       }
 
+      // 思维导图：ZIP 容器，解包后把 map.json 的文本交给编辑器
+      if (isMindMap) {
+        const archive = readArchive(targetPath)
+        if (!archive.ok) {
+          return { success: false, error: archive.error }
+        }
+        registerTempDir(targetPath, archive.tempDir)
+        const document = createMdxDocument(
+          path.basename(targetPath, path.extname(targetPath)),
+          archive.content
+        )
+        if (addToRecent) addRecent(targetPath)
+        return {
+          success: true,
+          data: {
+            document,
+            filePath: targetPath,
+            format: 'mindmap',
+            isNew: false,
+            largeFileWarning,
+            // 包里图片/附件的落点，渲染层据此拼可加载 URL
+            assetMap: archive.assetMap
+          }
+        }
+      }
+
       // 其余（.md 与任意文本文件，如冲突文件 .gitignore）按纯文本打开
       const buf = fs.readFileSync(targetPath)
       if (buf.includes(0)) {
@@ -232,6 +276,32 @@ export function registerMdxHandlers(): void {
       if (!filePath) return { success: false, error: 'NEW_FILE' }
 
       const isMdx = path.extname(filePath).toLowerCase() === '.mdx'
+      const isMindMap = path.extname(filePath).toLowerCase() === '.inkmind'
+
+      // 思维导图：写 map.json 回临时目录，再把整个目录打回容器。
+      // 资源文件一直在临时目录里，所以插入图片/附件不需要在保存时再搬运一次。
+      if (isMindMap) {
+        const normalized = normalizeFilePath(filePath)
+        const tempDir = tempDirsByFile.get(normalized)
+        if (!tempDir) {
+          // 新建后第一次保存：还没有临时目录，直接写一个只含 map.json 的容器
+          const created = writeArchive(filePath, content)
+          if (!created.ok) return { success: false, error: created.error }
+          if (addToRecent) addRecent(filePath)
+          return { success: true, data: filePath }
+        }
+        try {
+          fs.writeFileSync(path.join(tempDir, MINDMAP_ENTRY), content, 'utf-8')
+        } catch (error) {
+          const message = error instanceof Error ? error.message : '写入导图内容失败'
+          return { success: false, error: message }
+        }
+        const packed = writeArchiveFromDir(tempDir, filePath)
+        if (!packed.ok) return { success: false, error: packed.error }
+        if (addToRecent) addRecent(filePath)
+        return { success: true, data: filePath }
+      }
+
       if (!isMdx) {
         fs.writeFileSync(filePath, content, 'utf-8')
         if (addToRecent) addRecent(filePath)
@@ -268,18 +338,45 @@ export function registerMdxHandlers(): void {
   // ─── 另存为 ───
   ipcMain.handle(
     IPC_CHANNELS.FILE.SAVE_AS,
-    async (_, content?: string, title?: string, sourcePath?: string, addToRecent: boolean = true) => {
+    async (
+      _,
+      content?: string,
+      title?: string,
+      sourcePath?: string,
+      addToRecent: boolean = true,
+      format?: string
+    ) => {
       try {
         const { dialog } = await import('electron')
         const window = BrowserWindow.getFocusedWindow()
-        const sourceExtension = sourcePath && path.extname(sourcePath).toLowerCase() === '.md' ? '.md' : '.mdx'
+        // 新建但尚未落盘的文档没有路径可推断格式（尤其是思维导图，
+        // 若不显式传入就会按 Markdown 存成 .mdx），因此优先采用调用方声明的格式。
+        const explicitFormat =
+          format === 'mindmap' || format === 'markdown' || format === 'mdx' ? format : undefined
+        const sourceIsMindMap =
+          explicitFormat === 'mindmap' ||
+          (explicitFormat === undefined &&
+            !!sourcePath &&
+            path.extname(sourcePath).toLowerCase() === '.inkmind')
+        const sourceIsMarkdown =
+          !sourceIsMindMap &&
+          (explicitFormat === 'markdown' ||
+            (explicitFormat === undefined &&
+              !!sourcePath &&
+              path.extname(sourcePath).toLowerCase() === '.md'))
+        const sourceExtension = sourceIsMindMap ? '.inkmind' : sourceIsMarkdown ? '.md' : '.mdx'
         const defaultName = (title || path.basename(sourcePath || '', path.extname(sourcePath || '')) || '未命名文档') + sourceExtension
         const result = await dialog.showSaveDialog(window!, {
           defaultPath: defaultName,
-          filters: [
-            { name: 'Inkase 文档', extensions: ['mdx'] },
-            { name: 'Markdown 文件', extensions: ['md'] }
-          ]
+          filters: sourceIsMindMap
+            ? [
+                { name: 'Inkase 思维导图', extensions: ['inkmind'] },
+                { name: '所有文件', extensions: ['*'] }
+              ]
+            : [
+                { name: 'Inkase 文档', extensions: ['mdx'] },
+                { name: 'Markdown 文件', extensions: ['md'] }
+              ]
         })
 
         if (result.canceled || !result.filePath) {
@@ -287,37 +384,81 @@ export function registerMdxHandlers(): void {
         }
         let targetPath = result.filePath
 
-        const targetIsMarkdown = path.extname(targetPath).toLowerCase() === '.md'
-        if (!targetIsMarkdown && !targetPath.toLowerCase().endsWith('.mdx')) targetPath += '.mdx'
+        // 先补扩展名，再按**最终**路径判定目标类型：
+        // 否则用户只输入文件名时会误用 .mdx 的校验器而报「扩展名必须是 .mdx」
+        const lowerTarget = targetPath.toLowerCase()
+        if (!lowerTarget.endsWith('.md') && !lowerTarget.endsWith('.inkmind')) {
+          targetPath += sourceExtension
+        }
 
-        const validation = targetIsMarkdown
+        const finalTarget = targetPath.toLowerCase()
+        // .md 与 .inkmind 都不走 MDX 的 ZIP 校验：前者是纯文本，后者是自己的容器格式
+        const isTextTarget = finalTarget.endsWith('.md') || finalTarget.endsWith('.inkmind')
+        const validation = isTextTarget
           ? { valid: !/[<>:"|?*]/.test(path.basename(targetPath)), error: '文件名包含非法字符' }
           : validateFilePath(targetPath)
         if (!validation.valid) return { success: false, error: validation.error }
 
         let document: MdxDocument
         let assetsData: Map<string, Buffer> | undefined
+        /*
+         * 两条链路分开取临时目录：导图表里只有 `map.json`（没有 `mdx.json`），
+         * 按 MDX 文档去读会直接 ENOENT。
+         */
+        const sourceTempDir = sourcePath ? tempDirsByFile.get(normalizeFilePath(sourcePath)) : undefined
+        const mindmapTempDir = sourceIsMindMap ? sourceTempDir : undefined
 
-        if (sourcePath) {
-          const normalized = normalizeFilePath(sourcePath)
-          const sourceTempDir = tempDirsByFile.get(normalized)
-          if (sourceTempDir) {
-            document = readDocumentFromTempDir(sourceTempDir)
-            document.content = content || document.content
-            if (title) document.metadata.title = title
-            const { prepareAssetsData } = await import('../mdx/writer')
-            assetsData = prepareAssetsData(sourceTempDir, document)
-          } else {
-            document = createMdxDocument(title || path.basename(sourcePath, '.mdx'), content || '')
-          }
+        if (sourceTempDir && !sourceIsMindMap) {
+          document = readDocumentFromTempDir(sourceTempDir)
+          document.content = content || document.content
+          if (title) document.metadata.title = title
+          const { prepareAssetsData } = await import('../mdx/writer')
+          assetsData = prepareAssetsData(sourceTempDir, document)
         } else {
-          document = createMdxDocument(title || '未命名文档', content || '')
+          const fallbackTitle =
+            title || (sourcePath ? path.basename(sourcePath, path.extname(sourcePath)) : '未命名文档')
+          document = createMdxDocument(fallbackTitle, content || '')
         }
 
-        if (targetIsMarkdown) {
+        // Markdown 目标：直接写字符串
+        if (finalTarget.endsWith('.md')) {
           fs.writeFileSync(targetPath, document.content, 'utf-8')
           if (addToRecent) addRecent(targetPath)
           return { success: true, data: targetPath }
+        }
+
+        /*
+         * .inkmind 是 ZIP 容器。写成裸 JSON 的话，下次打开会被 readArchive 判成
+         * 「不是 Inkase 思维导图」；所以另存为必须真的打包：
+         * - 有源临时目录（从已打开的导图另存）：顺着它打包，图片与附件一起带走；
+         * - 新建导图还没有目录：写一个只含 map.json 的新容器。
+         */
+        if (finalTarget.endsWith('.inkmind')) {
+          let packed
+          if (mindmapTempDir) {
+            fs.writeFileSync(path.join(mindmapTempDir, MINDMAP_ENTRY), document.content, 'utf-8')
+            packed = writeArchiveFromDir(mindmapTempDir, targetPath)
+          } else {
+            packed = writeArchive(targetPath, document.content)
+          }
+          if (!packed.ok) return { success: false, error: packed.error }
+
+          /*
+           * 新路径必须有自己的临时解压目录：插入图片/附件都写在那里，
+           * 没有登记就会报「导图尚未打开」。能沿用源目录时就沿用，
+           * 已经解好的图片与附件不必再拷一遍。
+           */
+          let tempDir = mindmapTempDir
+          let assetMap: Record<string, string> | undefined
+          if (!tempDir) {
+            const opened = readArchive(targetPath)
+            if (!opened.ok) return { success: false, error: opened.error }
+            tempDir = opened.tempDir
+            assetMap = opened.assetMap
+          }
+          registerTempDir(targetPath, tempDir)
+          if (addToRecent) addRecent(targetPath)
+          return { success: true, data: targetPath, assetMap }
         }
 
         const saveResult = await saveMdx(targetPath, document, assetsData)

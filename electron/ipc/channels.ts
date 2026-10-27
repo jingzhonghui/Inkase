@@ -20,6 +20,8 @@ export const IPC_CHANNELS = {
     MOVE: 'file:move',
     DELETE: 'file:delete',
     REVEAL_IN_EXPLORER: 'file:revealInExplorer',
+    /** 导出二进制图片（思维导图 PNG / SVG） */
+    EXPORT_IMAGE: 'file:exportImage',
     SEARCH: 'file:search',
     CLIPBOARD_READ_FILES: 'file:clipboardReadFiles',
     CLIPBOARD_WRITE_FILES: 'file:clipboardWriteFiles',
@@ -44,6 +46,16 @@ export const IPC_CHANNELS = {
     READ_SOURCE: 'pdf:readSource',
     LIST_FOLDER: 'pdf:listFolder',
     PRINT: 'pdf:print'
+  },
+  MINDMAP: {
+    /** 导入 `.xmind`（新版 content.json）→ 落盘 `.inkmind` 并返回路径 */
+    IMPORT_XMIND: 'mindmap:importXmind',
+    /** 把当前导图导出为 `.xmind` */
+    EXPORT_XMIND: 'mindmap:exportXmind',
+    /** 选一张图片拷进 `<导图名>.assets/`，返回相对路径 */
+    ADD_ASSET: 'mindmap:addAsset',
+    OPEN_ASSET: 'mindmap:openAsset',
+    SAVE_ASSET_AS: 'mindmap:saveAssetAs'
   },
   APP: {
     PING: 'ping',
