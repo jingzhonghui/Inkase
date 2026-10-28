@@ -1,6 +1,6 @@
 # Inkase
 
-一款以自包含 `.mdx` 文件格式为核心的轻量级文档工作台——将 Markdown 内容与图片、附件打包为单一 ZIP 文件，同时支持纯文本/代码文件编辑与 PDF、图片查看。
+一款以自包含 `.mdx` 文件格式为核心的轻量级文档工作台——将 Markdown 内容与图片、附件打包为单一 ZIP 文件。除长文之外，还能画 `.inkmind` 思维导图与 `.drawio` 图表，并支持纯文本/代码文件编辑与 PDF、图片查看。
 
 官网：<https://jingzhonghui.github.io/Inkase/>（[English](https://jingzhonghui.github.io/Inkase/en/)）
 
@@ -12,6 +12,7 @@
 - 📁 文件夹工作区：资源管理器式浏览、新建、重命名、拖拽移动，多标签页编辑
 - 📄 多格式支持：DOCX / Markdown / 文件夹导入，Markdown / PDF 导出（支持批量），PDF 与图片只读查看
 - 🧠 思维导图：`.inkmind` 单文件容器，节点可带备注、标签、链接、图标、图片与附件，支持关系线、概要、画布内查找；笔记可一键转成导图，导图能导出为 Markdown 大纲、PNG/SVG 与 XMind
+- 🗺️ 图表：`.drawio` 纯文本 mxfile，内置自托管的 draw.io 画布（离线、不走端口），流程图 / 架构图 / ER 图 / UML 等随画随改，可导出 SVG / PNG
 - 🔍 基于 ripgrep 的工作区全文搜索与快速打开（`Ctrl+P`）
 - 🤖 内置 AI 助手：兼容 OpenAI 接口配置，文档读写与检索工具均可审批、可预览
 - 🔀 Git 同步：绑定仓库后一键拉取 / 推送，冲突可视化处理
@@ -42,6 +43,18 @@
 - **与笔记互通**：文件 › 新建 › 「由当前笔记生成」按标题层级与列表缩进生成导图（原文档不动）
 - **AI 与搜索**：AI 助手与工作区搜索读到的 `.inkmind` 是「主题 + 缩进」的大纲文本，而不是裸露的 JSON 括号
 
+## 图表
+
+第四种文档格式，和导图刚好相反：**不做容器**。`.drawio` 就是 draw.io 自己的一整份 mxfile XML（UTF-8 纯文本），因此能和外部工具、Git diff、issue 附件直接互通；代价是没有「资源随文件走」的能力——draw.io 的图片本来就是内嵌 base64 或外链。
+
+- **画布不是自己写的**：把自托管的 draw.io webapp 装进 iframe，双方只走官方 embed 协议（`?embed=1&proto=json`），换来完整的形状库、导出、快捷键与撤销栈，而不是一个残缺的仿制品
+- **托管方式**：用 `inkase-drawio://` 自定义协议服务本地 webapp，不占端口、不监听回环，断网可用
+- **入口**：文件 › 新建 › 图表（`Ctrl+Shift+D`）、资源管理器右键「新建 › 图表」、命令行 `inkase 流程.drawio` 直接打开（`.drawio` 没有注册 Windows 文件关联，双击不会拉起 Inkase；拖放目前只认 `.md` / `.mdx` / `.inkmind`）
+- **保存**：画布改动异步回写，`Ctrl+S` 之前会先冲刷最后一次自动保存，刚拖完框就保存也不会丢；焦点在画布内时快捷键由主进程统一拦截，照样生效
+- **导出**：顶栏一键导出 SVG / PNG（SVG 里 `html=1` 的标签是 `<foreignObject>`，个别外部渲染器认不出）
+- **状态栏**：图表显示「图元」数而不是字数
+- **多页**：一个 `.drawio` 可以有多页，不只是一张画布；状态栏的图元数按全部页累计
+
 ## 下载
 
 前往[官网](https://jingzhonghui.github.io/Inkase/)或 [GitHub Releases](https://github.com/jingzhonghui/Inkase/releases/latest) 获取最新版本安装包。
@@ -52,6 +65,8 @@
 - Vue 3 + TypeScript + Pinia
 - Tailwind CSS
 - CodeMirror 6（源码模式）+ ProseMirror（即时渲染）
+- mind-elixir（思维导图画布）
+- 自托管的 [draw.io](https://www.drawio.com/) webapp（图表画布，走官方 embed 协议）
 - markdown-it + Shiki + KaTeX（预览渲染与高亮）
 - electron-vite
 
@@ -60,6 +75,9 @@
 ```bash
 # 安装依赖（使用 pnpm）
 pnpm install
+
+# 拉取图表编辑器所需的 draw.io webapp（首次开发必做）
+pnpm run fetch:drawio
 
 # 开发模式
 pnpm run dev
@@ -107,16 +125,19 @@ inkase/
 │   ├── preload.ts       # 预加载脚本（contextBridge API）
 │   ├── ipc/             # IPC handlers（文件/MDX/PDF/同步/AI）
 │   ├── mdx/             # .mdx 读写、导入导出
+│   ├── mindmap/         # .inkmind 容器读写、XMind 互转
+│   ├── diagram/         # 图表协议（inkase-drawio:// 托管自托管 draw.io webapp）
 │   ├── ai/              # AI 运行时、工具、审批
 │   ├── sync/            # Git 同步引擎
 │   └── workspace/       # 工作区搜索（ripgrep）
 ├── src/                 # Vue 3 渲染进程
 │   ├── components/      # 组件（编辑器/布局/侧栏/AI/导出）
 │   ├── stores/          # Pinia 状态（file/ai/sync/appearance/theme 等）
-│   ├── utils/           # 工具集（markdown/ProseMirror/mindmap 等）
+│   ├── utils/           # 工具集（markdown/ProseMirror/mindmap/diagram 等）
 │   └── styles/          # 主题样式（CSS 变量）
 ├── website/             # 官网主页（GitHub Pages）
-├── shared/              # 主进程与渲染进程共享类型（含 mindmap 格式与大纲转换）
+├── shared/              # 主进程与渲染进程共享类型（mindmap / diagram 格式与转换）
+├── resources/drawio/    # draw.io webapp（`pnpm run fetch:drawio` 生成，不入库）
 ├── docs/                # 设计文档
 └── scripts/             # 构建/开发辅助脚本
 ```
