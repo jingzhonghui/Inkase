@@ -311,8 +311,12 @@ svg use { pointer-events: none; }
 /* ── 文档列 ── */
 .doc-col { margin-left: var(--w-sidebar); min-width: 0; }
 
-/* ── 标签栏（36px） ── */
+/* ── 标签栏（36px） ──
+   三个标签现在是真链接：跳转到对应章节，并跟着滚动同步高亮。 */
 .tabbar {
+  position: sticky;
+  top: var(--h-title);
+  z-index: 40;
   display: flex; align-items: stretch;
   height: var(--h-tab);
   background: var(--surface-3);
@@ -326,8 +330,12 @@ svg use { pointer-events: none; }
   border-right: 1px solid var(--edge);
   font-size: 12.5px;
   color: var(--ink-bar);
+  text-decoration: none;
   white-space: nowrap;
+  transition: background .12s var(--ease), color .12s var(--ease);
 }
+.tab:hover { background: var(--surface-2); color: var(--ink); }
+.tab:focus-visible { outline: 2px solid var(--signal); outline-offset: -2px; }
 .tab--active { background: var(--surface-1); color: var(--ink); }
 .tab--active::after {
   content: ''; position: absolute; inset: auto 0 0 0;
@@ -335,7 +343,7 @@ svg use { pointer-events: none; }
 }
 .tab__ico { width: 14px; height: 14px; color: var(--ink-bar); flex-shrink: 0; }
 .tab--active .tab__ico { color: var(--signal); }
-.tab__x { width: 11px; height: 11px; color: var(--ink-bar); }
+.tab__x { width: 11px; height: 11px; color: var(--ink-bar); pointer-events: none; opacity: .7; }
 .tabbar__outline-btn { display: none; }
 
 /* ── 主题切换（标题栏右侧，紧邻窗口控制） ──

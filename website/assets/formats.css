@@ -1,0 +1,429 @@
+/* ==========================================================================
+   formats.css — 三种文档：.mdx / .inkmind / .drawio
+   两块新面板（思维导图、图表）沿用 panels.css 的面板外壳语言：
+   顶栏 + 主体 + 脚注，内部还原真实界面。
+   ========================================================================== */
+
+/* ── 本节专用令牌 ───────────────────────────────────────────────────────
+   分支色与优先级色只在这里用，不放进 style.css 的主色板：
+   它们表达的是「画布上的分类」，与会话/模式色不是一回事。
+   浅色主题下逐个压深，保证在白底上读得清。 */
+:root {
+  --b0: #60a5fa;  /* 中心主题 */
+  --b1: #a78bfa;  /* 设计分支 */
+  --b2: #34d399;  /* 开发分支 */
+  --b3: #f59e0b;  /* 发布分支 */
+  --p1: #f87171;
+  --p2: #fb923c;
+  --p3: #fbbf24;
+}
+
+[data-theme="light"] {
+  --b0: #2563eb;
+  --b1: #6d28d9;
+  --b2: #047857;
+  --b3: #b45309;
+  --p1: #b91c1c;
+  --p2: #c2410c;
+  --p3: #a16207;
+}
+
+/* ══════════ 开篇 · 格式条 ══════════ */
+.formats {
+  display: flex; flex-wrap: wrap; gap: 10px;
+  margin-top: 30px;
+}
+.fmt {
+  display: flex; align-items: center; gap: 9px;
+  padding: 8px 14px 8px 11px;
+  background: var(--surface-1);
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+.fmt svg { width: 16px; height: 16px; color: var(--ink-3); flex-shrink: 0; }
+.fmt b {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.fmt--mind svg { color: var(--b1); }
+.fmt--flow svg { color: var(--b3); }
+
+/* ══════════ 两块面板共用外壳 ══════════ */
+.mind, .dgm {
+  margin-top: 30px;
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+  background: var(--surface-1);
+  overflow: hidden;
+}
+
+.mind__bar, .dgm__bar {
+  display: flex; align-items: center; gap: 10px;
+  min-height: var(--h-tool);
+  padding: 0 12px;
+  background: var(--surface-3);
+  border-bottom: 1px solid var(--edge);
+  font-size: 12.5px;
+  color: var(--ink-bar);
+}
+.mind__spring, .dgm__spring { flex: 1 1 auto; }
+.mind__title {
+  display: flex; align-items: center; gap: 7px;
+  color: var(--ink); font-weight: 500;
+}
+.mind__title svg { width: 15px; height: 15px; flex-shrink: 0; }
+
+.mind__note, .dgm__note {
+  padding: 11px 14px;
+  border-top: 1px solid var(--edge);
+  font-size: 11.5px;
+  line-height: 1.75;
+  color: var(--ink-3);
+}
+.mind__note code, .dgm__note code { font-family: var(--font-mono); color: var(--ink-2); }
+
+/* ══════════ §4 思维导图 ══════════ */
+.mind__body {
+  display: grid;
+  grid-template-columns: 1fr 232px;
+  min-width: 0;
+}
+
+.mind__canvas {
+  padding: 14px;
+  background: var(--surface-2);
+  overflow-x: auto;
+  min-width: 0;
+}
+
+/* 画布固定 620×340：节点用绝对定位摆位，连线由脚本按节点实际位置算，
+   所以这里不能是流式高度——换行会让坐标和连线对不上。 */
+.mind__stage {
+  position: relative;
+  width: 620px;
+  height: 340px;
+  margin: 0 auto;
+}
+
+.mind__wires {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  overflow: visible;
+}
+.mwire { fill: none; stroke-width: 1.6; stroke-linecap: round; opacity: .92; }
+.mwire--0 { stroke: var(--b0); }
+.mwire--1 { stroke: var(--b1); }
+.mwire--2 { stroke: var(--b2); }
+.mwire--3 { stroke: var(--b3); }
+
+.mnode {
+  position: absolute;
+  display: flex; align-items: center; justify-content: center;
+  height: 30px;
+  min-width: 62px;
+  max-width: 168px;
+  padding: 0 9px;
+  background: var(--surface-1);
+  border: 1px solid var(--edge-hi);
+  border-left: 2px solid var(--edge-hi);
+  border-radius: 7px;
+  font-size: 12.5px;
+  line-height: 1;
+  color: var(--ink-2);
+  white-space: nowrap;
+  transition: background .16s var(--ease), border-color .16s var(--ease),
+              color .16s var(--ease), box-shadow .16s var(--ease);
+}
+.mnode__text { overflow: hidden; text-overflow: ellipsis; }
+.mnode[data-branch="1"] { border-left-color: var(--b1); }
+.mnode[data-branch="2"] { border-left-color: var(--b2); }
+.mnode[data-branch="3"] { border-left-color: var(--b3); }
+
+.mnode:hover { color: var(--ink); border-color: var(--signal-hi); }
+.mnode:focus-visible { outline-offset: 2px; }
+
+.mnode--root {
+  background: var(--signal-deep);
+  color: var(--on-deep);
+  border-color: var(--signal);
+  border-left-color: var(--b0);
+  font-weight: 700;
+}
+
+.mnode.is-selected {
+  background: var(--signal-deep);
+  color: var(--on-deep);
+  border-color: var(--signal);
+  box-shadow: 0 0 0 3px rgba(96, 165, 250, .16);
+}
+[data-theme="light"] .mnode.is-selected { box-shadow: 0 0 0 3px rgba(37, 99, 235, .14); }
+
+.mnode.is-hidden { display: none; }
+
+/* 节点右下角的图标角标 / 左上角的折叠计数 */
+.mnode__mark, .mnode__more {
+  position: absolute;
+  display: none;
+  align-items: center; justify-content: center;
+  min-width: 15px; height: 15px;
+  padding: 0 3px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--edge-hi);
+  font-size: 9px;
+  line-height: 1;
+  color: var(--ink-2);
+}
+.mnode__mark { top: -8px; right: -5px; display: flex; }
+.mnode__more { top: -8px; left: -5px; font-family: var(--font-mono); }
+.mnode.is-collapsed .mnode__more { display: flex; }
+
+/* ── 折叠按钮 ── */
+.mind__ctl {
+  padding: 3px 10px;
+  border: 1px solid var(--edge-hi);
+  border-radius: 5px;
+  font-size: 11.5px;
+  color: var(--ink-bar);
+  white-space: nowrap;
+  transition: color .16s, border-color .16s;
+}
+.mind__ctl:hover { color: var(--ink); }
+.mind__ctl[aria-pressed="true"] { color: var(--signal-hi); border-color: var(--signal-hi); }
+
+/* ── 右侧属性栏（对齐真实编辑器的 Inspector） ── */
+.mind__inspect {
+  padding: 12px 14px;
+  border-left: 1px solid var(--edge);
+  background: var(--surface-1);
+  min-width: 0;
+}
+.mind__inspect-head {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+  padding-bottom: 9px;
+  border-bottom: 1px solid var(--edge);
+  font-size: 11px;
+  color: var(--ink-3);
+}
+.mind__inspect-id {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--ink-3);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.mind__props { display: grid; gap: 12px; margin-top: 12px; }
+.mprop dt {
+  margin-bottom: 3px;
+  font-size: 10.5px;
+  color: var(--ink-3);
+}
+.mprop dd {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.mprop dd.is-empty { color: var(--ink-3); }
+
+.mtag {
+  display: inline-flex; align-items: center;
+  margin: 0 4px 4px 0;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 600;
+  background: rgba(96, 165, 250, .14);
+  color: var(--signal-hi);
+}
+.mtag[data-p="P1"] { background: rgba(248, 113, 113, .16); color: var(--p1); }
+.mtag[data-p="P2"] { background: rgba(251, 146, 60, .16); color: var(--p2); }
+.mtag[data-p="P3"] { background: rgba(251, 191, 36, .16); color: var(--p3); }
+
+.micon {
+  display: inline-flex; align-items: center; gap: 5px;
+  margin: 0 6px 4px 0;
+  font-size: 11.5px;
+  color: var(--ink-2);
+}
+.micon b { font-weight: 400; font-size: 12px; }
+
+.mfile {
+  display: flex; align-items: center; gap: 6px;
+  margin-top: 5px;
+  padding: 5px 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+  font-size: 11.5px;
+  color: var(--ink-2);
+}
+.mfile svg { width: 12px; height: 12px; color: var(--ink-3); flex-shrink: 0; }
+.mfile span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mfile em {
+  margin-left: auto;
+  font-style: normal;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--ink-3);
+  flex-shrink: 0;
+}
+
+/* ══════════ §5 图表 ══════════ */
+.dgm__tabs {
+  display: flex; gap: 2px;
+  padding: 2px;
+  border-radius: 6px;
+  background: var(--surface-2);
+}
+.dgm__tab {
+  display: flex; align-items: center; gap: 5px;
+  padding: 3px 10px;
+  border-radius: 4px;
+  font-size: 11.5px;
+  color: var(--ink-bar);
+  white-space: nowrap;
+  transition: background .16s, color .16s;
+}
+.dgm__tab svg { width: 12px; height: 12px; }
+.dgm__tab:hover { color: var(--ink); }
+.dgm__tab.is-active { background: var(--surface-1); color: var(--ink); }
+.dgm__hint { font-size: 11px; color: var(--ink-bar); white-space: nowrap; }
+
+.dgm__body {
+  display: grid;
+  grid-template-columns: 100px 1fr;
+  min-width: 0;
+}
+
+/* 左侧图形库：只在视觉上还原 draw.io 的调色板，不承载交互 */
+.dgm__palette {
+  display: flex; flex-direction: column; gap: 7px;
+  padding: 12px 10px;
+  border-right: 1px solid var(--edge);
+  background: var(--surface-1);
+}
+.dgm__palette-label {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.dgm__palette-label + .dgm__palette-label,
+.dgm__palette-grid + .dgm__palette-label { margin-top: 6px; }
+.dgm__palette-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+
+.dshape {
+  display: block;
+  height: 17px;
+  border: 1px solid var(--edge-hi);
+  border-radius: 2px;
+  background: var(--surface-2);
+}
+.dshape--round { border-radius: 7px; }
+.dshape--diamond { width: 13px; height: 13px; margin: 2px auto; transform: rotate(45deg); }
+.dshape--circle { width: 14px; height: 14px; margin: 2px auto; border-radius: 50%; }
+.dshape--db { border-radius: 50% / 34%; }
+.dshape--note { border-radius: 2px 7px 2px 2px; }
+.dshape--arrow, .dshape--dash { position: relative; border: 0; background: none; }
+.dshape--arrow::before {
+  content: ''; position: absolute; left: 2px; right: 6px; top: 50%;
+  height: 1px; background: var(--edge-hi);
+}
+.dshape--arrow::after {
+  content: ''; position: absolute; right: 2px; top: 50%;
+  margin-top: -3px;
+  border: 3px solid transparent;
+  border-left-color: var(--edge-hi);
+}
+.dshape--dash::before {
+  content: ''; position: absolute; left: 2px; right: 2px; top: 50%;
+  border-top: 1px dashed var(--edge-hi);
+}
+
+.dgm__stage {
+  padding: 18px;
+  background: var(--surface-2);
+  min-width: 0;
+}
+.dgm__pane[hidden] { display: none; }
+.dgm__svg { display: block; width: 100%; max-width: 700px; height: auto; margin: 0 auto; }
+
+/* SVG 里的图形全部走 CSS 变量，跟着主题一起翻 */
+.dgm__svg text {
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  fill: var(--ink);
+}
+.dgm__svg .box { fill: var(--surface-1); stroke: var(--edge-hi); stroke-width: 1.3; }
+.dgm__svg .ttl { font-weight: 700; }
+.dgm__svg .sub { font-size: 10.5px; fill: var(--ink-3); }
+.dgm__svg .row { font-family: var(--font-mono); font-size: 11px; fill: var(--ink-2); }
+.dgm__svg .sep { stroke: var(--edge); stroke-width: 1; }
+.dgm__svg .edge {
+  fill: none;
+  stroke: var(--edge-hi);
+  stroke-width: 1.3;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.dgm__svg .head {
+  fill: none;
+  stroke: var(--edge-hi);
+  stroke-width: 1.3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.dgm__svg .lbl { font-size: 10.5px; fill: var(--ink-3); }
+
+.dgm-shape { cursor: pointer; }
+.dgm-shape:hover .box { stroke: var(--signal-hi); }
+.dgm-shape.is-selected .box { stroke: var(--signal); stroke-width: 2; }
+
+/* 文件头：一行 mxfile XML，说明它不是私有容器 */
+.dgm__xml {
+  margin: 0;
+  padding: 9px 14px;
+  border-top: 1px solid var(--edge);
+  background: var(--surface-1);
+  overflow-x: auto;
+}
+.dgm__xml code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+/* ══════════ 响应式 ══════════ */
+@media (max-width: 1080px) {
+  .mind__body { grid-template-columns: 1fr 208px; }
+}
+
+@media (max-width: 900px) {
+  .mind__body { grid-template-columns: 1fr; }
+  .mind__inspect { border-left: 0; border-top: 1px solid var(--edge); }
+  .mind__props { grid-template-columns: 1fr 1fr; gap: 12px 20px; }
+  .dgm__hint { display: none; }
+}
+
+@media (max-width: 720px) {
+  .mind__props { grid-template-columns: 1fr; }
+  .dgm__body { grid-template-columns: 1fr; }
+  .dgm__palette { display: none; }
+  .dgm__stage { padding: 12px; }
+  .dgm__tab { padding: 3px 8px; }
+  .dgm__tab svg { display: none; }
+  .fmt span { display: none; }
+  /* 标签栏也要收：先去掉图表标签，再窄就去掉导图标签，别让标签挤成一条缝 */
+  .tab--flow { display: none; }
+}
+
+@media (max-width: 470px) {
+  .tab--mind { display: none; }
+}

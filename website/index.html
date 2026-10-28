@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Inkase — 一篇文档，就是一个文件 | 自包含 .mdx 文档工作台</title>
-<meta name="description" content="Inkase 是一款免费开源的 Markdown 编辑器与文档工作台，把正文、图片和附件打包进单个 .mdx 文件。支持即时渲染、源码编辑、分屏预览三种模式，可只读查看 PDF 与图片、批量导出，内置每次调用都可审批的 AI 助手，并支持 Git 与 WebDAV 同步。">
-<meta name="keywords" content="Markdown 编辑器, MD 编辑器, 单文件文档, mdx 格式, 所见即所得 Markdown, PDF 阅读器, AI 助手, WebDAV 同步, Git 同步, 免费开源笔记软件, Electron 文档工作台">
+<meta name="description" content="Inkase 是一款免费开源的文档工作台：正文、图片和附件打包进单个 .mdx 文件，思维导图存成单文件 .inkmind，图表直接是 draw.io 的 .drawio。支持即时渲染、源码编辑、分屏预览三种模式，可只读查看 PDF 与图片、批量导出，内置每次调用都可审批的 AI 助手，并支持 Git 与 WebDAV 同步。">
+<meta name="keywords" content="Markdown 编辑器, MD 编辑器, 单文件文档, mdx 格式, 所见即所得 Markdown, 思维导图, inkmind, XMind 导入导出, drawio, 流程图, 架构图, ER 图, PDF 阅读器, AI 助手, WebDAV 同步, Git 同步, 免费开源笔记软件, Electron 文档工作台">
 <meta name="theme-color" id="themeColor" content="#08090c">
 <link rel="canonical" href="https://jingzhonghui.github.io/Inkase/">
 <link rel="alternate" hreflang="zh-CN" href="https://jingzhonghui.github.io/Inkase/">
@@ -14,13 +14,13 @@
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Inkase">
 <meta property="og:title" content="Inkase — 一篇文档，就是一个文件">
-<meta property="og:description" content="把正文、图片和附件打包进单个 .mdx 文件。拷走一个文件，就是带走整篇文档。">
+<meta property="og:description" content="正文、图片和附件打包进单个 .mdx 文件；思维导图是单文件 .inkmind，图表就是 draw.io 的 .drawio。三种文档，一个窗口。">
 <meta property="og:url" content="https://jingzhonghui.github.io/Inkase/">
 <meta property="og:image" content="https://jingzhonghui.github.io/Inkase/assets/icon.png">
 <meta property="og:locale" content="zh_CN">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="Inkase — 一篇文档，就是一个文件">
-<meta name="twitter:description" content="把正文、图片和附件打包进单个 .mdx 文件。拷走一个文件，就是带走整篇文档。">
+<meta name="twitter:description" content="正文、图片和附件打包进单个 .mdx 文件；思维导图是单文件 .inkmind，图表就是 draw.io 的 .drawio。三种文档，一个窗口。">
 <meta name="twitter:image" content="https://jingzhonghui.github.io/Inkase/assets/icon.png">
 <script type="application/ld+json" id="ldjson">
 {
@@ -31,7 +31,15 @@
   "operatingSystem": "Windows, Linux",
   "softwareVersion": "0.3.6",
   "license": "https://www.apache.org/licenses/LICENSE-2.0",
-  "description": "Inkase 是一款免费开源的 Markdown 编辑器与文档工作台，把正文、图片和附件打包进单个 .mdx 文件。",
+  "description": "Inkase 是一款免费开源的文档工作台：正文、图片和附件打包进单个 .mdx 文件，思维导图存成单文件 .inkmind，图表直接用 draw.io 的 .drawio。",
+  "featureList": [
+    "自包含的 .mdx 文档：正文、图片与附件在同一个 ZIP 里",
+    "思维导图 .inkmind：单文件容器，节点可带备注、标签、图片与附件",
+    "图表 .drawio：自托管 draw.io 编辑器，离线可用，纯文本 XML",
+    "三种编辑模式：即时渲染、源码编辑、分屏预览",
+    "AI 助手：每次工具调用都可审批",
+    "Git 与 WebDAV 同步"
+  ],
   "url": "https://jingzhonghui.github.io/Inkase/",
   "image": "https://jingzhonghui.github.io/Inkase/assets/icon.png",
   "offers": { "@type": "Offer", "price": "0", "priceCurrency": "CNY" }
@@ -41,6 +49,8 @@
 <link rel="stylesheet" href="./assets/style.css">
 <link rel="stylesheet" href="./assets/demo.css">
 <link rel="stylesheet" href="./assets/panels.css">
+<link rel="stylesheet" href="./assets/formats.css">
+  <link rel="stylesheet" href="./assets/shell.css">
 <script>
 /* 主题必须在首次绘制前定好，否则会闪一下深色再跳浅色。
    默认深色——不跟随系统偏好；只有访客自己切过，才按 localStorage 里的选择来。 */
@@ -78,6 +88,9 @@
   <symbol id="i-file" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M9 2.2H4.6a1.4 1.4 0 0 0-1.4 1.4v8.8a1.4 1.4 0 0 0 1.4 1.4h6.8a1.4 1.4 0 0 0 1.4-1.4V5.8Z"/><path d="M9 2.2v3.6h3.8"/></symbol>
   <symbol id="i-pkg" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M8 1.8 14 5v6L8 14.2 2 11V5Z"/><path d="M2 5l6 3.2L14 5M8 8.2v6"/></symbol>
   <symbol id="i-outline" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2.5 3.5h11M2.5 8h7.5M2.5 12.5h9.5"/></symbol>
+  <symbol id="i-mind" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="6.4" width="4.6" height="3.2" rx=".9"/><rect x="10.4" y="1.6" width="4.6" height="2.8" rx=".9"/><rect x="10.4" y="6.6" width="4.6" height="2.8" rx=".9"/><rect x="10.4" y="11.6" width="4.6" height="2.8" rx=".9"/><path d="M5.6 8h2.4M8 8V3h2.4M8 8h2.4M8 8v5h2.4"/></symbol>
+  <symbol id="i-flow" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><rect x="2" y="1.8" width="12" height="4" rx="1"/><rect x="5" y="10.2" width="6" height="4" rx="1"/><path d="M8 5.8v4.4" stroke-linecap="round"/></symbol>
+  <symbol id="i-clip" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M12.2 7.4 7.6 12a2.9 2.9 0 0 1-4.1-4.1l5.3-5.3a2.2 2.2 0 0 1 3.1 3.1L6.7 10.9a.9.9 0 0 1-1.3-1.3l4.7-4.7"/></symbol>
 </defs></svg>
 
 <!-- ══════════ 应用窗口 ══════════ -->
@@ -86,13 +99,17 @@
   <!-- 标题栏 -->
   <header class="titlebar">
     <span class="titlebar__logo" aria-hidden="true"><svg><use href="#i-drop"/></svg></span>
-    <nav class="titlebar__menu" aria-hidden="true">
-      <span class="is-open">文件</span><span>编辑</span><span>视图</span><span>插入</span><span>帮助</span>
-    </nav>
+          <nav class="menubar" id="menubar" aria-label="主菜单">
+        <button class="menubar__item" type="button" data-menu="file" aria-haspopup="menu" aria-expanded="false" aria-controls="menu-file">文件</button>
+        <button class="menubar__item" type="button" data-menu="edit" aria-haspopup="menu" aria-expanded="false" aria-controls="menu-edit">编辑</button>
+        <button class="menubar__item" type="button" data-menu="view" aria-haspopup="menu" aria-expanded="false" aria-controls="menu-view">视图</button>
+        <button class="menubar__item" type="button" data-menu="insert" aria-haspopup="menu" aria-expanded="false" aria-controls="menu-insert">插入</button>
+        <button class="menubar__item" type="button" data-menu="help" aria-haspopup="menu" aria-expanded="false" aria-controls="menu-help">帮助</button>
+      </nav>
     <span class="titlebar__spring"></span>
-    <span class="titlebar__tools" aria-hidden="true">
-      <span class="icon-btn"><svg><use href="#i-sync"/></svg></span>
-      <span class="icon-btn"><svg><use href="#i-chat"/></svg></span>
+        <span class="titlebar__tools">
+      <button class="icon-btn" type="button" data-surface="sync" aria-label="同步" aria-haspopup="dialog"><svg aria-hidden="true"><use href="#i-sync"/></svg></button>
+      <button class="icon-btn" type="button" data-surface="ai" aria-label="AI 助手" aria-haspopup="dialog"><svg aria-hidden="true"><use href="#i-chat"/></svg></button>
     </span>
     <button class="theme-btn" id="themeBtn" type="button" aria-pressed="false">
       <svg class="theme-btn__sun" aria-hidden="true"><use href="#i-sun"/></svg>
@@ -105,6 +122,113 @@
       <span class="win-btn win-btn--close"><svg><use href="#i-close"/></svg></span>
     </span>
   </header>
+
+    <div class="menu-layer" id="menuLayer" hidden>
+      <div class="menu" id="menu-file" role="menu" aria-label="文件" data-menu="file" hidden>
+        <button class="menu__item menu__item--sub" type="button" role="menuitem" aria-haspopup="menu" aria-expanded="false" aria-controls="sub-file-new" data-sub="sub-file-new">
+          <span>新建</span><span class="menu__arrow" aria-hidden="true">›</span>
+        </button>
+        <div class="menu menu--sub" id="sub-file-new" role="menu" aria-label="新建" hidden>
+          <button class="menu__item" type="button" role="menuitem"><span>文件</span><span class="menu__kw">Ctrl+N</span></button>
+          <button class="menu__item" type="button" role="menuitem"><span>思维导图</span><span class="menu__kw">Ctrl+Shift+N</span></button>
+          <button class="menu__item" type="button" role="menuitem"><span>图表</span><span class="menu__kw">Ctrl+Shift+D</span></button>
+          <button class="menu__item" type="button" role="menuitem"><span>由当前笔记生成</span></button>
+        </div>
+        <button class="menu__item menu__item--sub" type="button" role="menuitem" aria-haspopup="menu" aria-expanded="false" aria-controls="sub-file-open" data-sub="sub-file-open">
+          <span>打开</span><span class="menu__arrow" aria-hidden="true">›</span>
+        </button>
+        <div class="menu menu--sub" id="sub-file-open" role="menu" aria-label="打开" hidden>
+          <button class="menu__item" type="button" role="menuitem"><span>文件</span><span class="menu__kw">Ctrl+O</span></button>
+          <button class="menu__item" type="button" role="menuitem"><span>文件夹</span></button>
+          <button class="menu__item" type="button" role="menuitem"><span>快速打开</span><span class="menu__kw">Ctrl+P</span></button>
+          <button class="menu__item" type="button" role="menuitem"><span>关闭文件夹</span></button>
+        </div>
+        <button class="menu__item menu__item--sub" type="button" role="menuitem" aria-haspopup="menu" aria-expanded="false" aria-controls="sub-file-import" data-sub="sub-file-import">
+          <span>导入</span><span class="menu__arrow" aria-hidden="true">›</span>
+        </button>
+        <div class="menu menu--sub" id="sub-file-import" role="menu" aria-label="导入" hidden>
+          <button class="menu__item" type="button" role="menuitem"><span>Markdown</span></button>
+          <button class="menu__item" type="button" role="menuitem"><span>Word 文档</span></button>
+          <button class="menu__item" type="button" role="menuitem"><span>XMind 文件</span></button>
+          <button class="menu__item" type="button" role="menuitem"><span>文件夹</span></button>
+        </div>
+        <button class="menu__item menu__item--sub" type="button" role="menuitem" aria-haspopup="menu" aria-expanded="false" aria-controls="sub-file-export" data-sub="sub-file-export">
+          <span>导出</span><span class="menu__arrow" aria-hidden="true">›</span>
+        </button>
+        <div class="menu menu--sub" id="sub-file-export" role="menu" aria-label="导出" hidden>
+          <button class="menu__item" type="button" role="menuitem"><span>Markdown</span></button>
+          <button class="menu__item" type="button" role="menuitem"><span>XMind 文件</span></button>
+          <button class="menu__item" type="button" role="menuitem"><span>思维导图大纲</span></button>
+          <button class="menu__item" type="button" role="menuitem"><span>PNG 图片</span></button>
+          <button class="menu__item" type="button" role="menuitem"><span>SVG 矢量图</span></button>
+          <button class="menu__item" type="button" role="menuitem"><span>PDF</span></button>
+          <button class="menu__item" type="button" role="menuitem"><span>批量 PDF</span></button>
+        </div>
+        <div class="menu__sep" role="separator"></div>
+        <button class="menu__item" type="button" role="menuitem"><span>保存</span><span class="menu__kw">Ctrl+S</span></button>
+        <button class="menu__item" type="button" role="menuitem"><span>另存为</span><span class="menu__kw">Ctrl+Shift+S</span></button>
+        <button class="menu__item" type="button" role="menuitem" data-surface="sync"><span>同步</span></button>
+        <button class="menu__item menu__item--sub" type="button" role="menuitem" aria-haspopup="menu" aria-expanded="false" aria-controls="sub-file-recent" data-sub="sub-file-recent">
+          <span>最近文件</span><span class="menu__arrow" aria-hidden="true">›</span>
+        </button>
+        <div class="menu menu--sub" id="sub-file-recent" role="menu" aria-label="最近文件" hidden>
+          <button class="menu__item" type="button" role="menuitem"><span>项目规划.mdx</span></button>
+          <button class="menu__item" type="button" role="menuitem"><span>需求说明.mdx</span></button>
+          <button class="menu__item" type="button" role="menuitem"><span>发布计划.inkmind</span></button>
+        </div>
+        <div class="menu__sep" role="separator"></div>
+        <button class="menu__item" type="button" role="menuitem"><span>退出</span></button>
+      </div>
+      <div class="menu" id="menu-edit" role="menu" aria-label="编辑" data-menu="edit" hidden>
+        <button class="menu__item" type="button" role="menuitem"><span>撤销</span><span class="menu__kw">Ctrl+Z</span></button>
+        <button class="menu__item" type="button" role="menuitem"><span>重做</span><span class="menu__kw">Ctrl+Y</span></button>
+        <div class="menu__sep" role="separator"></div>
+        <button class="menu__item" type="button" role="menuitem"><span>剪切</span><span class="menu__kw">Ctrl+X</span></button>
+        <button class="menu__item" type="button" role="menuitem"><span>复制</span><span class="menu__kw">Ctrl+C</span></button>
+        <button class="menu__item" type="button" role="menuitem"><span>粘贴</span><span class="menu__kw">Ctrl+V</span></button>
+        <div class="menu__sep" role="separator"></div>
+        <button class="menu__item" type="button" role="menuitem"><span>查找</span><span class="menu__kw">Ctrl+F</span></button>
+        <button class="menu__item" type="button" role="menuitem"><span>替换</span><span class="menu__kw">Ctrl+H</span></button>
+      </div>
+      <div class="menu" id="menu-view" role="menu" aria-label="视图" data-menu="view" hidden>
+        <button class="menu__item menu__item--sub" type="button" role="menuitem" aria-haspopup="menu" aria-expanded="false" aria-controls="sub-view-mode" data-sub="sub-view-mode">
+          <span>编辑器模式</span><span class="menu__arrow" aria-hidden="true">›</span>
+        </button>
+        <div class="menu menu--sub" id="sub-view-mode" role="menu" aria-label="编辑器模式" hidden>
+          <button class="menu__item" type="button" role="menuitem"><span>即时渲染</span></button>
+          <button class="menu__item" type="button" role="menuitem"><span>源码编辑</span></button>
+          <button class="menu__item" type="button" role="menuitem"><span>分屏预览</span></button>
+        </div>
+        <button class="menu__item menu__item--sub" type="button" role="menuitem" aria-haspopup="menu" aria-expanded="false" aria-controls="sub-view-theme" data-sub="sub-view-theme">
+          <span>主题</span><span class="menu__arrow" aria-hidden="true">›</span>
+        </button>
+        <div class="menu menu--sub" id="sub-view-theme" role="menu" aria-label="主题" hidden>
+          <button class="menu__item" type="button" role="menuitem" data-theme-set="light"><span>浅色</span></button>
+          <button class="menu__item" type="button" role="menuitem" data-theme-set="dark"><span>深色</span></button>
+          <button class="menu__item" type="button" role="menuitem" data-theme-set="system"><span>跟随系统</span></button>
+        </div>
+        <div class="menu__sep" role="separator"></div>
+        <button class="menu__item" type="button" role="menuitem" aria-checked="true"><span class="menu__check" aria-hidden="true">✓</span><span>显示侧边栏</span></button>
+        <button class="menu__item" type="button" role="menuitem" data-surface="ai"><span>AI 助手</span></button>
+        <div class="menu__sep" role="separator"></div>
+        <button class="menu__item" type="button" role="menuitem" data-surface="settings"><span>设置</span><span class="menu__kw">Ctrl+,</span></button>
+      </div>
+      <div class="menu" id="menu-insert" role="menu" aria-label="插入" data-menu="insert" hidden>
+        <button class="menu__item" type="button" role="menuitem"><span>图片</span><span class="menu__kw">Ctrl+Shift+K</span></button>
+        <button class="menu__item" type="button" role="menuitem"><span>链接</span><span class="menu__kw">Ctrl+K</span></button>
+        <button class="menu__item" type="button" role="menuitem"><span>表格</span></button>
+        <button class="menu__item" type="button" role="menuitem"><span>代码块</span></button>
+        <button class="menu__item" type="button" role="menuitem"><span>分割线</span></button>
+        <button class="menu__item" type="button" role="menuitem"><span>附件</span></button>
+      </div>
+      <div class="menu" id="menu-help" role="menu" aria-label="帮助" data-menu="help" hidden>
+        <button class="menu__item" type="button" role="menuitem"><span>检查更新</span></button>
+        <button class="menu__item" type="button" role="menuitem" data-surface="shortcuts"><span>快捷键速查</span></button>
+        <button class="menu__item" type="button" role="menuitem"><span>使用文档</span></button>
+        <div class="menu__sep" role="separator"></div>
+        <button class="menu__item" type="button" role="menuitem" data-surface="about"><span>关于 Inkase</span></button>
+      </div>
+    </div>
 
   <div class="workspace">
 
@@ -123,6 +247,12 @@
         </a>
         <a class="outline__item outline__item--h2" href="#sec-modes">
           <span class="outline__mark">##</span><span class="outline__text">三种编辑模式</span>
+        </a>
+        <a class="outline__item outline__item--h2" href="#sec-mind">
+          <span class="outline__mark">##</span><span class="outline__text">思维导图</span>
+        </a>
+        <a class="outline__item outline__item--h2" href="#sec-diagram">
+          <span class="outline__mark">##</span><span class="outline__text">图表</span>
         </a>
         <a class="outline__item outline__item--h2" href="#sec-view">
           <span class="outline__mark">##</span><span class="outline__text">PDF 与图片</span>
@@ -151,9 +281,10 @@
     <div class="doc-col">
 
       <!-- 标签栏 -->
-      <div class="tabbar" aria-hidden="true">
-        <div class="tab tab--active"><svg class="tab__ico"><use href="#i-file"/></svg>项目规划.mdx<span class="tab__x"><svg><use href="#i-close"/></svg></span></div>
-        <div class="tab"><svg class="tab__ico"><use href="#i-file"/></svg>设计文档.mdx<span class="tab__x"><svg><use href="#i-close"/></svg></span></div>
+      <div class="tabbar">
+        <a class="tab tab--active" href="#sec-open" data-tab="sec-open"><svg class="tab__ico"><use href="#i-file"/></svg>项目规划.mdx<span class="tab__x" aria-hidden="true"><svg><use href="#i-close"/></svg></span></a>
+        <a class="tab tab--mind" href="#sec-mind" data-tab="sec-mind"><svg class="tab__ico"><use href="#i-mind"/></svg>发布计划.inkmind<span class="tab__x" aria-hidden="true"><svg><use href="#i-close"/></svg></span></a>
+        <a class="tab tab--flow" href="#sec-diagram" data-tab="sec-diagram"><svg class="tab__ico"><use href="#i-flow"/></svg>发布流程.drawio<span class="tab__x" aria-hidden="true"><svg><use href="#i-close"/></svg></span></a>
         <button class="tabbar__outline-btn" id="outlineBtn" type="button" aria-label="打开大纲" aria-controls="sidebar" aria-expanded="false"><svg><use href="#i-outline"/></svg></button>
       </div>
 
@@ -166,12 +297,18 @@
         <section class="sec sec--open" id="sec-open">
           <p class="eyebrow" data-reveal>Inkase · 自包含文档工作台 · <span class="js-ver">v0.3.6</span></p>
           <h1 class="h1" data-reveal><span class="gm">#</span>一篇文档，就是一个文件</h1>
-          <p class="lede" data-reveal>Inkase 是一款 Markdown 编辑器。它把正文、图片和附件一起打包进单个 <code>.mdx</code> 文件——拷走它，整篇文档就完整地带走了，不会出现「图丢了」。</p>
+          <p class="lede" data-reveal>Inkase 是一款文档工作台。它把正文、图片和附件一起打包进单个 <code>.mdx</code> 文件——拷走它，整篇文档就完整地带走了，不会出现「图丢了」。思维导图和图表也一样：导图存成单文件 <code>.inkmind</code>，图表直接用 draw.io 的 <code>.drawio</code>，三种文档在同一个窗口里并存。</p>
 
           <div class="actions" data-reveal>
             <a class="btn btn--primary" href="#sec-save">免费下载</a>
             <a class="btn btn--ghost" href="https://github.com/jingzhonghui/Inkase" target="_blank" rel="noopener">查看源码</a>
           </div>
+
+          <ul class="formats" data-reveal>
+            <li class="fmt"><svg aria-hidden="true"><use href="#i-file"/></svg><b>.mdx</b><span>长文 · 自包含</span></li>
+            <li class="fmt fmt--mind"><svg aria-hidden="true"><use href="#i-mind"/></svg><b>.inkmind</b><span>导图 · 自包含</span></li>
+            <li class="fmt fmt--flow"><svg aria-hidden="true"><use href="#i-flow"/></svg><b>.drawio</b><span>图表 · 纯文本</span></li>
+          </ul>
 
           <figure class="unpack" data-reveal>
             <div class="unpack__card">
@@ -340,7 +477,260 @@
 
         <hr class="rule">
 
-        <!-- ── §4 PDF 与图片 ── -->
+        <!-- ── §4 思维导图 ── -->
+        <section class="sec" id="sec-mind">
+          <h2 class="h2" data-reveal><span class="gm">##</span>思维导图<span class="tag-new">新增</span></h2>
+          <p class="lede" data-reveal>第三种文档：<code>.inkmind</code>。和 <code>.mdx</code> 一样是 ZIP 容器——导图结构、节点图片和附件一起打包。拷走一个文件，整张图连同素材都还在。</p>
+
+          <div class="mind" data-reveal>
+            <div class="mind__bar">
+              <span class="mind__title"><svg aria-hidden="true"><use href="#i-mind"/></svg>发布计划.inkmind</span>
+              <span class="mind__spring"></span>
+              <button class="mind__ctl" id="mind-collapse" type="button" aria-pressed="false">折叠「开发」</button>
+            </div>
+
+            <div class="mind__body">
+              <div class="mind__canvas">
+                <div class="mind__stage" id="mind-stage">
+                  <!-- 连线由 app.js 按节点实际位置生成，这里不写死路径 -->
+                  <svg class="mind__wires" id="mind-wires" aria-hidden="true" focusable="false"></svg>
+
+                  <button class="mnode mnode--root is-selected" type="button" data-node="root" data-id="n_root" aria-pressed="true" style="left:16px;top:155px"><span class="mnode__text">发布计划</span><span class="mnode__mark" aria-hidden="true">⭐</span></button>
+
+                  <button class="mnode" type="button" data-node="design" data-parent="root" data-branch="1" data-id="n_4a1c" aria-pressed="false" style="left:176px;top:55px"><span class="mnode__text">设计</span></button>
+                  <button class="mnode" type="button" data-node="design-a" data-parent="design" data-branch="1" data-id="n_4a1d" aria-pressed="false" style="left:300px;top:33px"><span class="mnode__text">信息架构</span></button>
+                  <button class="mnode" type="button" data-node="design-b" data-parent="design" data-branch="1" data-id="n_4a1e" aria-pressed="false" style="left:300px;top:77px"><span class="mnode__text">视觉稿</span><span class="mnode__mark" aria-hidden="true">❗</span></button>
+
+                  <button class="mnode" type="button" data-node="dev" data-parent="root" data-branch="2" data-id="n_7b20" aria-pressed="false" style="left:176px;top:155px"><span class="mnode__text">开发</span><span class="mnode__more" aria-hidden="true">+3</span></button>
+                  <button class="mnode" type="button" data-node="dev-a" data-parent="dev" data-branch="2" data-id="n_7b21" aria-pressed="false" style="left:300px;top:133px"><span class="mnode__text">编辑器</span><span class="mnode__mark" aria-hidden="true">⭐</span></button>
+                  <button class="mnode" type="button" data-node="dev-a1" data-parent="dev-a" data-branch="2" data-id="n_7b22" aria-pressed="false" style="left:428px;top:133px"><span class="mnode__text">快捷命令</span></button>
+                  <button class="mnode" type="button" data-node="dev-b" data-parent="dev" data-branch="2" data-id="n_7b23" aria-pressed="false" style="left:300px;top:177px"><span class="mnode__text">导出</span><span class="mnode__mark" aria-hidden="true">✅</span></button>
+
+                  <button class="mnode" type="button" data-node="rel" data-parent="root" data-branch="3" data-id="n_9c30" aria-pressed="false" style="left:176px;top:255px"><span class="mnode__text">发布</span></button>
+                  <button class="mnode" type="button" data-node="rel-a" data-parent="rel" data-branch="3" data-id="n_9c31" aria-pressed="false" style="left:300px;top:233px"><span class="mnode__text">商店页</span></button>
+                  <button class="mnode" type="button" data-node="rel-b" data-parent="rel" data-branch="3" data-id="n_9c32" aria-pressed="false" style="left:300px;top:277px"><span class="mnode__text">公告</span></button>
+                </div>
+              </div>
+
+              <aside class="mind__inspect" aria-label="主题属性">
+                <div class="mind__inspect-head">
+                  <span>主题属性</span>
+                  <span class="mind__inspect-id" id="mi-id">n_root</span>
+                </div>
+                <dl class="mind__props">
+                  <div class="mprop"><dt>主题</dt><dd id="mi-text">发布计划</dd></div>
+                  <div class="mprop"><dt>备注</dt><dd id="mi-note"></dd></div>
+                  <div class="mprop"><dt>标签</dt><dd id="mi-tags"></dd></div>
+                  <div class="mprop"><dt>图标</dt><dd id="mi-icons"></dd></div>
+                  <div class="mprop"><dt>附件</dt><dd id="mi-files"></dd></div>
+                </dl>
+              </aside>
+            </div>
+
+            <p class="mind__note">包内只有 <code>map.json</code> 与 <code>assets/{images,files}/</code>。<code>map.json</code> 仍是可读 JSON，要为 Git 做比对时解包即可，不必打开应用。点画布上的主题，右侧就是它的属性。</p>
+          </div>
+
+          <ul class="points">
+            <li class="point" data-reveal>
+              <span class="point__mark">✓</span>
+              <div><h3>一个文件带走整张图</h3><p>另存为写出的是完整容器，节点图片与附件一并带走，不会出现「图在、附件没了」。</p></div>
+            </li>
+            <li class="point" data-reveal>
+              <span class="point__mark">✓</span>
+              <div><h3>主题承载的不止一行字</h3><p>备注、标签（<code>P1</code>／<code>P2</code>／<code>P3</code> 自动套优先级配色）、链接、图标、图片、附件（每主题 10 个，单个 50 MB）都能挂在节点上；关系线、概要、分支折叠也在右键菜单里。</p></div>
+            </li>
+            <li class="point" data-reveal>
+              <span class="point__mark">✓</span>
+              <div><h3>与笔记、XMind 互通</h3><p>按标题层级和列表缩进把当前笔记生成导图（原文档不动），反向导出 Markdown 大纲；<code>.xmind</code> 可直接打开与另存，标记和标签原样带回。</p></div>
+            </li>
+          </ul>
+        </section>
+
+        <hr class="rule">
+
+        <!-- ── §5 图表 ── -->
+        <section class="sec" id="sec-diagram">
+          <h2 class="h2" data-reveal><span class="gm">##</span>图表<span class="tag-new">新增</span></h2>
+          <p class="lede" data-reveal>流程图、架构图、数据模型都存成 <code>.drawio</code>——draw.io 自己的那份纯文本 XML。它不套私有容器，所以能进 Git diff、能贴进 issue，也能用 draw.io 桌面版直接打开。</p>
+
+          <div class="dgm" data-reveal>
+            <div class="dgm__bar">
+              <div class="dgm__tabs" role="tablist" aria-label="图表示例">
+                <button class="dgm__tab is-active" role="tab" id="dtab-flow" aria-controls="dpane-flow" aria-selected="true" data-sample="flow"><svg aria-hidden="true"><use href="#i-flow"/></svg>流程图</button>
+                <button class="dgm__tab" role="tab" id="dtab-arch" aria-controls="dpane-arch" aria-selected="false" tabindex="-1" data-sample="arch">架构图</button>
+                <button class="dgm__tab" role="tab" id="dtab-er" aria-controls="dpane-er" aria-selected="false" tabindex="-1" data-sample="er">数据模型</button>
+              </div>
+              <span class="dgm__spring"></span>
+              <span class="dgm__hint">双击图形编辑文字 · 从左侧拖入形状</span>
+            </div>
+
+            <div class="dgm__body">
+              <aside class="dgm__palette" aria-hidden="true">
+                <span class="dgm__palette-label">通用</span>
+                <div class="dgm__palette-grid">
+                  <span class="dshape dshape--rect"></span>
+                  <span class="dshape dshape--round"></span>
+                  <span class="dshape dshape--diamond"></span>
+                  <span class="dshape dshape--circle"></span>
+                  <span class="dshape dshape--db"></span>
+                  <span class="dshape dshape--note"></span>
+                </div>
+                <span class="dgm__palette-label">连接</span>
+                <div class="dgm__palette-grid">
+                  <span class="dshape dshape--arrow"></span>
+                  <span class="dshape dshape--dash"></span>
+                </div>
+              </aside>
+
+              <div class="dgm__stage">
+                <div class="dgm__pane" role="tabpanel" id="dpane-flow" aria-labelledby="dtab-flow">
+                  <svg class="dgm__svg" viewBox="0 0 640 300" role="img" focusable="false" aria-label="流程图示例">
+                    <g class="dgm-shape" data-shape="需求评审">
+                      <rect class="box" x="16" y="28" width="110" height="40" rx="6"/>
+                      <text class="ttl" x="71" y="52" text-anchor="middle">需求评审</text>
+                    </g>
+                    <g class="dgm-shape" data-shape="方案设计">
+                      <rect class="box" x="160" y="28" width="110" height="40" rx="6"/>
+                      <text class="ttl" x="215" y="52" text-anchor="middle">方案设计</text>
+                    </g>
+                    <g class="dgm-shape" data-shape="开发">
+                      <rect class="box" x="304" y="28" width="110" height="40" rx="6"/>
+                      <text class="ttl" x="359" y="52" text-anchor="middle">开发</text>
+                    </g>
+                    <g class="dgm-shape" data-shape="验收">
+                      <rect class="box" x="448" y="28" width="110" height="40" rx="6"/>
+                      <text class="ttl" x="503" y="52" text-anchor="middle">验收</text>
+                    </g>
+                    <g class="dgm-shape" data-shape="通过？">
+                      <polygon class="box" points="503,118 577,158 503,198 429,158"/>
+                      <text class="ttl" x="503" y="162" text-anchor="middle">通过？</text>
+                    </g>
+                    <g class="dgm-shape" data-shape="发布">
+                      <rect class="box" x="448" y="234" width="110" height="40" rx="6"/>
+                      <text class="ttl" x="503" y="258" text-anchor="middle">发布</text>
+                    </g>
+
+                    <path class="edge" d="M126 48H152"/>
+                    <path class="head" d="M147 44.6L153 48L147 51.4"/>
+                    <path class="edge" d="M270 48H296"/>
+                    <path class="head" d="M291 44.6L297 48L291 51.4"/>
+                    <path class="edge" d="M414 48H440"/>
+                    <path class="head" d="M435 44.6L441 48L435 51.4"/>
+                    <path class="edge" d="M503 68V112"/>
+                    <path class="head" d="M499.6 107L503 113L506.4 107"/>
+                    <path class="edge" d="M503 198V228"/>
+                    <path class="head" d="M499.6 223L503 229L506.4 223"/>
+                    <path class="edge" d="M429 158H320V72"/>
+                    <path class="head" d="M316.4 73L320 68L323.6 73"/>
+                    <text class="lbl" x="370" y="150" text-anchor="middle">否</text>
+                    <text class="lbl" x="512" y="218">是</text>
+                  </svg>
+                </div>
+
+                <div class="dgm__pane" role="tabpanel" id="dpane-arch" aria-labelledby="dtab-arch" hidden>
+                  <svg class="dgm__svg" viewBox="0 0 640 300" role="img" focusable="false" aria-label="架构图示例">
+                    <g class="dgm-shape" data-shape="编辑器">
+                      <rect class="box" x="56" y="28" width="190" height="46" rx="6"/>
+                      <text class="ttl" x="151" y="48" text-anchor="middle">编辑器</text>
+                      <text class="sub" x="151" y="64" text-anchor="middle">源码 · 即时渲染 · 分屏</text>
+                    </g>
+                    <g class="dgm-shape" data-shape="画布">
+                      <rect class="box" x="296" y="28" width="240" height="46" rx="6"/>
+                      <text class="ttl" x="416" y="48" text-anchor="middle">画布</text>
+                      <text class="sub" x="416" y="64" text-anchor="middle">思维导图 · 图表</text>
+                    </g>
+                    <g class="dgm-shape" data-shape="主进程">
+                      <rect class="box" x="56" y="124" width="480" height="50" rx="6"/>
+                      <text class="ttl" x="296" y="146" text-anchor="middle">主进程</text>
+                      <text class="sub" x="296" y="162" text-anchor="middle">文件 I/O · .mdx 容器 · .inkmind 打包 · 图表协议</text>
+                    </g>
+                    <g class="dgm-shape" data-shape="工作区目录">
+                      <rect class="box" x="56" y="232" width="140" height="38" rx="6"/>
+                      <text class="ttl" x="126" y="255" text-anchor="middle">工作区目录</text>
+                    </g>
+                    <g class="dgm-shape" data-shape=".inkmind">
+                      <rect class="box" x="216" y="232" width="140" height="38" rx="6"/>
+                      <text class="row" x="286" y="255" text-anchor="middle">.inkmind</text>
+                    </g>
+                    <g class="dgm-shape" data-shape=".drawio">
+                      <rect class="box" x="376" y="232" width="140" height="38" rx="6"/>
+                      <text class="row" x="446" y="255" text-anchor="middle">.drawio</text>
+                    </g>
+
+                    <path class="edge" d="M151 74V112"/>
+                    <path class="head" d="M147.6 107L151 113L154.4 107"/>
+                    <path class="edge" d="M416 74V112"/>
+                    <path class="head" d="M412.6 107L416 113L419.4 107"/>
+                    <path class="edge" d="M126 174V226"/>
+                    <path class="head" d="M122.6 221L126 227L129.4 221"/>
+                    <path class="edge" d="M286 174V226"/>
+                    <path class="head" d="M282.6 221L286 227L289.4 221"/>
+                    <path class="edge" d="M446 174V226"/>
+                    <path class="head" d="M442.6 221L446 227L449.4 221"/>
+                  </svg>
+                </div>
+
+                <div class="dgm__pane" role="tabpanel" id="dpane-er" aria-labelledby="dtab-er" hidden>
+                  <svg class="dgm__svg" viewBox="0 0 640 300" role="img" focusable="false" aria-label="数据模型示例">
+                    <g class="dgm-shape" data-shape=".mdx 文档">
+                      <rect class="box" x="24" y="32" width="175" height="104" rx="6"/>
+                      <line class="sep" x1="24" y1="62" x2="199" y2="62"/>
+                      <text class="ttl" x="38" y="54">.mdx 文档</text>
+                      <text class="row" x="38" y="84">id</text>
+                      <text class="row" x="38" y="106">title</text>
+                      <text class="row" x="38" y="128">assets[]</text>
+                    </g>
+                    <g class="dgm-shape" data-shape="导图节点">
+                      <rect class="box" x="441" y="32" width="175" height="104" rx="6"/>
+                      <line class="sep" x1="441" y1="62" x2="616" y2="62"/>
+                      <text class="ttl" x="455" y="54">导图节点</text>
+                      <text class="row" x="455" y="84">id</text>
+                      <text class="row" x="455" y="106">text</text>
+                      <text class="row" x="455" y="128">tags[]</text>
+                    </g>
+                    <g class="dgm-shape" data-shape="节点附件">
+                      <rect class="box" x="441" y="196" width="175" height="84" rx="6"/>
+                      <line class="sep" x1="441" y1="226" x2="616" y2="226"/>
+                      <text class="ttl" x="455" y="218">节点附件</text>
+                      <text class="row" x="455" y="248">name</text>
+                      <text class="row" x="455" y="268">size</text>
+                    </g>
+
+                    <path class="edge" d="M199 108H320V86H440"/>
+                    <path class="head" d="M434 82.6L440 86L434 89.4"/>
+                    <text class="lbl" x="330" y="78" text-anchor="middle">1 : N</text>
+
+                    <path class="edge" d="M528 136V190"/>
+                    <path class="head" d="M524.6 185L528 191L531.4 185"/>
+                    <text class="lbl" x="538" y="168">1 : N</text>
+                  </svg>
+                </div>
+              </div>
+            </div>
+
+            <p class="dgm__xml"><code>&lt;mxfile&gt;&lt;diagram name="发布流程"&gt;&lt;mxGraphModel&gt;…&lt;/mxGraphModel&gt;&lt;/diagram&gt;&lt;/mxfile&gt;</code></p>
+            <p class="dgm__note">纯文本 XML：Git 里能逐行 diff，贴进 issue 能预览，用 draw.io 桌面版打开也是同一份东西。画布可以导出 SVG 或 PNG，状态栏显示的是「图元」数量而不是字数。</p>
+          </div>
+
+          <ul class="points">
+            <li class="point" data-reveal>
+              <span class="point__mark">✓</span>
+              <div><h3>完整形状库，不是精简版</h3><p>编辑器是本地自托管的 draw.io：UML、BPMN、网络与云厂商图标都在，吸附、对齐、撤销栈也都是原版那一套。</p></div>
+            </li>
+            <li class="point" data-reveal>
+              <span class="point__mark">✓</span>
+              <div><h3>完全离线</h3><p>走自定义协议 <code>inkase-drawio://</code> 在本机加载，不占端口、不监听回环、不连外网。断网也能画。</p></div>
+            </li>
+            <li class="point" data-reveal>
+              <span class="point__mark">✓</span>
+              <div><h3>与外部工具同一份格式</h3><p>别人用 draw.io 改过的 <code>.drawio</code>，拖进来照样能打开；你导出的文件，他们那边也不用转换。</p></div>
+            </li>
+          </ul>
+        </section>
+
+        <hr class="rule">
+
+        <!-- ── §6 PDF 与图片 ── -->
         <section class="sec" id="sec-view">
           <h2 class="h2" data-reveal><span class="gm">##</span>PDF 与图片</h2>
           <p class="lede" data-reveal>PDF、图片直接在标签页里只读打开，不转换格式、不改动原文件。深色模式下整页反色，夜里翻长文档不刺眼。</p>
@@ -390,7 +780,7 @@
         <!-- ── §5 AI 助手 ── -->
         <section class="sec" id="sec-ai">
           <h2 class="h2" data-reveal><span class="gm">##</span>AI 助手</h2>
-          <p class="lede" data-reveal>接一个 OpenAI 兼容的接口，它就能读写你的文档、检索整个工作区。每一次动手之前，都先把要做的事摊开给你看。</p>
+          <p class="lede" data-reveal>接一个 OpenAI 兼容的接口，它就能读写你的文档、检索整个工作区，也能照着大纲给你画一张导图。每一次动手之前，都先把要做的事摊开给你看。</p>
 
           <div class="ai" data-reveal>
             <div class="ai__bar">
@@ -561,6 +951,7 @@
             <div class="spec__group" data-reveal>
               <h3 class="spec__label">管理</h3>
               <dl class="spec__list">
+                <div class="spec__row"><dt>三种文档</dt><dd>长文 <code>.mdx</code>、导图 <code>.inkmind</code>、图表 <code>.drawio</code> 各有专用编辑器，在同一个标签栏里共存。</dd></div>
                 <div class="spec__row"><dt>文件夹工作区</dt><dd>像资源管理器一样浏览、新建、重命名、拖拽移动。</dd></div>
                 <div class="spec__row"><dt>多标签页</dt><dd>同时打开多篇文档，标签之间随意切换。</dd></div>
                 <div class="spec__row"><dt>全文搜索</dt><dd>基于 ripgrep 跨文件查找内容；<kbd>Ctrl</kbd>+<kbd>P</kbd> 毫秒级快速打开。</dd></div>
@@ -570,8 +961,8 @@
             <div class="spec__group" data-reveal>
               <h3 class="spec__label">互通</h3>
               <dl class="spec__list">
-                <div class="spec__row"><dt>导入</dt><dd>DOCX、Markdown 文件，以及整个文件夹。</dd></div>
-                <div class="spec__row"><dt>导出</dt><dd>Markdown 与 PDF，支持批量导出。</dd></div>
+                <div class="spec__row"><dt>导入</dt><dd>DOCX、Markdown、XMind 导图，以及整个文件夹。</dd></div>
+                <div class="spec__row"><dt>导出</dt><dd>Markdown 与 PDF，支持批量导出；导图与图表可导出 PNG / SVG，导图还能另存为 XMind 或 Markdown 大纲。</dd></div>
                 <div class="spec__row"><dt>外部修改监听</dt><dd>文件在 Inkase 之外被改动时自动察觉，提示重载而不是默默覆盖。</dd></div>
               </dl>
             </div>
@@ -678,6 +1069,240 @@
   </div>
 </div>
 
+<!-- ══════════ 壳层浮层：同步浮层 / AI 面板 / 对话框 / toast ══════════ -->
+
+  <!-- 同步：浮层 -->
+
+    <!-- 同步：标题栏图标下的浮层，与 SyncPanel.vue 同构 -->
+  <div class="sync-panel" id="syncPanel" role="dialog" aria-label="同步" hidden>
+    <div class="sync-panel__head">
+      <span class="sync-panel__title">同步</span>
+      <span class="sync-panel__status" data-status="upToDate">已同步</span>
+      <span class="sync-panel__branch">main</span>
+      <button class="sync-panel__close" type="button" data-close aria-label="关闭"><svg aria-hidden="true"><use href="#i-close"/></svg></button>
+    </div>
+    <div class="sync-panel__actions">
+      <button class="sp-btn sp-btn--success" type="button" data-surface-act="pull">拉取</button>
+      <button class="sp-btn sp-btn--primary" type="button" data-surface-act="push">推送</button>
+      <button class="sp-btn sp-btn--danger" type="button" data-surface-act="disable">停用同步</button>
+    </div>
+    <div class="sync-panel__checks">
+      <label class="sp-check"><input type="checkbox" checked> 自动提交本地变更</label>
+      <label class="sp-check"><input type="checkbox" checked> 启动时自动拉取</label>
+      <label class="sp-check"><input type="checkbox"> 自动推送</label>
+    </div>
+  </div>
+
+  <!-- AI 助手：整块面板 -->
+    <!-- AI 助手：整块占据工作区，左侧会话列表 + 右侧消息流（对齐 AiPanel.vue） -->
+  <section class="ai-panel" id="aiPanel" role="dialog" aria-label="AI 助手" hidden>
+    <aside class="conv-sidebar" aria-label="会话">
+      <div class="conv-sidebar__head">
+        <span>会话</span>
+        <button type="button" data-surface-act="new-chat">新建</button>
+      </div>
+      <ul class="conv-list">
+      <li class="conv-item is-active">
+        <div class="conv-item__main">
+          <div class="conv-item__title">发布计划梳理</div>
+          <div class="conv-item__time">2026-10-28 11:20</div>
+        </div>
+        <div class="conv-item__acts">
+          <button type="button" class="conv-act" aria-label="重命名">✎</button>
+          <button type="button" class="conv-act" aria-label="删除">✕</button>
+        </div>
+      </li>
+      <li class="conv-item">
+        <div class="conv-item__main">
+          <div class="conv-item__title">图表配色建议</div>
+          <div class="conv-item__time">2026-10-27 16:40</div>
+        </div>
+        <div class="conv-item__acts">
+          <button type="button" class="conv-act" aria-label="重命名">✎</button>
+          <button type="button" class="conv-act" aria-label="删除">✕</button>
+        </div>
+      </li>
+      <li class="conv-item">
+        <div class="conv-item__main">
+          <div class="conv-item__title">导图节点重排</div>
+          <div class="conv-item__time">2026-10-26 09:05</div>
+        </div>
+        <div class="conv-item__acts">
+          <button type="button" class="conv-act" aria-label="重命名">✎</button>
+          <button type="button" class="conv-act" aria-label="删除">✕</button>
+        </div>
+      </li>
+      </ul>
+      <div class="conv-sidebar__foot">~/Documents/notes</div>
+    </aside>
+    <div class="ai-workbench">
+      <header class="ai-header">
+        <div class="ai-header__left">
+          <strong>AI 助手</strong>
+          <span class="ai-ready">配置可用</span>
+        </div>
+        <div class="ai-header__right">
+          <button type="button" data-surface="settings">设置</button>
+        </div>
+      </header>
+      <div class="ai-message-list" id="aiLog" aria-live="polite">
+        <div class="ai-thread">
+          <article class="ai-msg ai-msg--user">
+            <span class="ai-avatar" role="img" aria-label="你">👤</span>
+            <div class="ai-msg__content">
+              <div class="ai-bubble ai-bubble--user"><div class="ai-body">把这篇文档的标题层级转成思维导图</div></div>
+            </div>
+          </article>
+          <article class="ai-msg ai-msg--assistant">
+            <span class="ai-avatar ai-avatar--bot" role="img" aria-label="AI 助手">✦</span>
+            <div class="ai-msg__content">
+              <div class="ai-bubble ai-bubble--assistant">
+          <details class="tool-card">
+            <summary>
+              <span class="tool-label"><span class="tool-icon">⚙</span><span class="tool-name">read_document</span></span>
+              <span class="tool-badge completed">已完成</span>
+              <span class="chevron">▾</span>
+            </summary>
+            <pre class="tool-result">content.md · 2.1 KB</pre>
+          </details>
+          <details class="tool-card">
+            <summary>
+              <span class="tool-label"><span class="tool-icon">⚙</span><span class="tool-name">extract_headings</span></span>
+              <span class="tool-badge completed">已完成</span>
+              <span class="chevron">▾</span>
+            </summary>
+            <pre class="tool-result">6 个标题 · 3 级</pre>
+          </details>
+          <details class="tool-card">
+            <summary>
+              <span class="tool-label"><span class="tool-icon">⚙</span><span class="tool-name">create_mindmap</span></span>
+              <span class="tool-badge completed">已完成</span>
+              <span class="chevron">▾</span>
+            </summary>
+            <pre class="tool-result">发布计划.inkmind · 11 个主题</pre>
+          </details>
+                <div class="ai-body">已按标题层级生成 发布计划.inkmind，共 11 个主题。原文档没有改动。</div>
+              </div>
+            </div>
+          </article>
+        </div>
+      </div>
+      <div class="ai-composer-wrap">
+        <form class="ai-composer" id="aiForm">
+          <textarea id="aiInput" rows="2" placeholder="与文稿协作…" aria-label="AI 消息" spellcheck="false"></textarea>
+          <button type="submit" class="ai-send" id="aiSend">发送</button>
+          <button type="button" class="ai-stop" id="aiStop" hidden>停止</button>
+        </form>
+      </div>
+    </div>
+  </section>
+
+  <!-- 设置对话框 -->
+  <div class="dlg-layer" id="dlg-settings" role="dialog" aria-modal="true" aria-labelledby="settings-title" hidden>
+    <div class="dlg">
+      <div class="dlg__head">
+        <span class="dlg__title" id="settings-title">设置</span>
+          <button class="x-btn" type="button" data-close aria-label="关闭"><svg aria-hidden="true"><use href="#i-close"/></svg></button>
+      </div>
+      <div class="dlg__body">
+        <div class="dlg__nav" role="tablist" aria-label="设置">
+          <button class="dlg__tab" type="button" role="tab" id="stab-0" aria-selected="true" aria-controls="spane-0">通用</button>
+          <button class="dlg__tab" type="button" role="tab" id="stab-1" aria-selected="false" aria-controls="spane-1">外观</button>
+          <button class="dlg__tab" type="button" role="tab" id="stab-2" aria-selected="false" aria-controls="spane-2">编辑器</button>
+          <button class="dlg__tab" type="button" role="tab" id="stab-3" aria-selected="false" aria-controls="spane-3">AI</button>
+          <button class="dlg__tab" type="button" role="tab" id="stab-4" aria-selected="false" aria-controls="spane-4">同步</button>
+        </div>
+        <div class="dlg__panes">
+        <div class="dlg__pane" id="spane-0" role="tabpanel" aria-labelledby="stab-0">
+          <div class="field"><span class="field__label">启动时恢复上次会话</span><button class="switch" type="button" role="switch" aria-checked="true" aria-label="启动时恢复上次会话"></button></div>
+          <div class="field"><span class="field__label">自动保存间隔</span><select class="select" aria-label="自动保存间隔"><option>30 秒</option><option>1 分钟</option><option>5 分钟</option></select></div>
+          <div class="field"><span class="field__label">自动检查更新</span><button class="switch" type="button" role="switch" aria-checked="true" aria-label="自动检查更新"></button></div>
+        </div>
+        <div class="dlg__pane" id="spane-1" role="tabpanel" aria-labelledby="stab-1" hidden>
+          <div class="field"><span class="field__label">主题</span><div class="seg" role="group" aria-label="主题"><button class="seg__opt" type="button" aria-pressed="false">浅色</button><button class="seg__opt" type="button" aria-pressed="true">深色</button><button class="seg__opt" type="button" aria-pressed="false">跟随系统</button></div></div>
+          <div class="field"><span class="field__label">界面字体</span><select class="select" aria-label="界面字体"><option>系统默认</option><option>无衬线</option><option>衬线</option></select></div>
+          <div class="field"><span class="field__label">编辑区字号</span><input class="range" type="range" min="12" max="24" step="1" value="15" data-out="outFontSize" data-unit=" px" aria-label="编辑区字号"><span class="field__val" id="outFontSize">15 px</span></div>
+        </div>
+        <div class="dlg__pane" id="spane-2" role="tabpanel" aria-labelledby="stab-2" hidden>
+          <div class="field"><span class="field__label">默认编辑模式</span><div class="seg" role="group" aria-label="默认编辑模式"><button class="seg__opt" type="button" aria-pressed="true">即时渲染</button><button class="seg__opt" type="button" aria-pressed="false">源码编辑</button><button class="seg__opt" type="button" aria-pressed="false">分屏预览</button></div></div>
+          <div class="field"><span class="field__label">行高</span><input class="range" type="range" min="1.2" max="2.4" step="0.05" value="1.7" data-out="outLineHeight" aria-label="行高"><span class="field__val" id="outLineHeight">1.7</span></div>
+          <div class="field"><span class="field__label">显示行号</span><button class="switch" type="button" role="switch" aria-checked="true" aria-label="显示行号"></button></div>
+        </div>
+        <div class="dlg__pane" id="spane-3" role="tabpanel" aria-labelledby="stab-3" hidden>
+          <div class="field"><span class="field__label">接口地址</span><input class="text-input" type="text" value="https://api.openai.com/v1" aria-label="接口地址"></div>
+          <div class="field"><span class="field__label">模型</span><input class="text-input" type="text" value="gpt-4o-mini" aria-label="模型"></div>
+          <div class="field"><span class="field__label">密钥</span><input class="text-input" type="text" value="••••••••••••" aria-label="密钥"></div>
+        </div>
+        <div class="dlg__pane" id="spane-4" role="tabpanel" aria-labelledby="stab-4" hidden>
+          <div class="field"><span class="field__label">仓库地址</span><input class="text-input" type="text" value="git@github.com:jingzhonghui/notes.git" aria-label="仓库地址"></div>
+          <div class="field"><span class="field__label">分支</span><input class="text-input" type="text" value="main" aria-label="分支"></div>
+          <div class="field"><span class="field__label">自动拉取</span><button class="switch" type="button" role="switch" aria-checked="true" aria-label="自动拉取"></button></div>
+        </div>
+        </div>
+      </div>
+      <div class="dlg__foot">
+        <button class="btn-sm" type="button" data-close>取消</button>
+        <button class="btn-sm btn-sm--primary" type="button" data-surface-act="settings-save">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 快捷键速查 -->
+  <div class="dlg-layer" id="dlg-shortcuts" role="dialog" aria-modal="true" aria-labelledby="shortcuts-title" hidden>
+    <div class="dlg dlg--sm">
+      <div class="dlg__head">
+        <span class="dlg__title" id="shortcuts-title">快捷键速查</span>
+          <button class="x-btn" type="button" data-close aria-label="关闭"><svg aria-hidden="true"><use href="#i-close"/></svg></button>
+      </div>
+      <div class="dlg__body">
+        <div class="dlg__panes">
+          <div class="keys">
+          <div class="keys__row"><span class="keys__k">Ctrl+N</span><span class="keys__t">新建文件</span></div>
+          <div class="keys__row"><span class="keys__k">Ctrl+Shift+N</span><span class="keys__t">新建思维导图</span></div>
+          <div class="keys__row"><span class="keys__k">Ctrl+Shift+D</span><span class="keys__t">新建图表</span></div>
+          <div class="keys__row"><span class="keys__k">Ctrl+O</span><span class="keys__t">打开文件</span></div>
+          <div class="keys__row"><span class="keys__k">Ctrl+S</span><span class="keys__t">保存</span></div>
+          <div class="keys__row"><span class="keys__k">Ctrl+Shift+S</span><span class="keys__t">另存为</span></div>
+          <div class="keys__row"><span class="keys__k">Ctrl+Z</span><span class="keys__t">撤销</span></div>
+          <div class="keys__row"><span class="keys__k">Ctrl+Y</span><span class="keys__t">重做</span></div>
+          <div class="keys__row"><span class="keys__k">Ctrl+F</span><span class="keys__t">查找</span></div>
+          <div class="keys__row"><span class="keys__k">Ctrl+P</span><span class="keys__t">快速打开</span></div>
+          <div class="keys__row"><span class="keys__k">Ctrl+,</span><span class="keys__t">设置</span></div>
+          <div class="keys__row"><span class="keys__k">Ctrl+/</span><span class="keys__t">切换编辑模式</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="dlg__foot">
+        <button class="btn-sm" type="button" data-close>关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 关于 -->
+  <div class="dlg-layer" id="dlg-about" role="dialog" aria-modal="true" aria-labelledby="about-title" hidden>
+    <div class="dlg dlg--sm">
+      <div class="dlg__head">
+        <span class="dlg__title" id="about-title">关于 Inkase</span>
+          <button class="x-btn" type="button" data-close aria-label="关闭"><svg aria-hidden="true"><use href="#i-close"/></svg></button>
+      </div>
+      <div class="dlg__body">
+        <div class="dlg__panes">
+          <div class="about-box">
+            <span class="about-logo" aria-hidden="true"><svg><use href="#i-drop"/></svg></span>
+            <span class="about-name">Inkase</span>
+            <p class="about-desc">一个把正文、图片、附件打包进单个文件的文档工作台。思维导图与图表也是同一种思路。</p>
+            <span class="about-meta">Inkase <span class="js-ver">v0.3.6</span></span>
+            <p><a class="btn-sm" href="https://github.com/jingzhonghui/Inkase" target="_blank" rel="noopener">GitHub</a></p>
+          </div>
+        </div>
+      </div>
+      <div class="dlg__foot">
+        <button class="btn-sm" type="button" data-close>关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <script src="./assets/markdown.js"></script>
 <script src="./assets/app.js"></script>
 </body>
