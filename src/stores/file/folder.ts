@@ -9,6 +9,8 @@ export interface FolderDeps {
   activeTabId: Ref<string | null>
   stateVersion: Ref<number>
   editorResetVersion: Ref<number>
+  /** 磁盘库发生变化（文件树刷新、增删改名）：图谱据此重建索引 */
+  touchLibrary: () => void
   error: Ref<string | null>
   isLoading: Ref<boolean>
   openFile: (filePath?: string, options?: { addToRecent?: boolean; excludeFromRecent?: boolean }) => Promise<boolean>
@@ -190,6 +192,8 @@ export function useFolder(deps: FolderDeps) {
         }
 
         pruneSelection()
+        // 文件树刚跟磁盘对齐（新建/删除/改名/外部改动都走这里），图谱索引已过期
+        deps.touchLibrary()
         return true
       }
       return false

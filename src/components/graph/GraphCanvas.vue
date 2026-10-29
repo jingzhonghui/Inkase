@@ -466,17 +466,37 @@ onBeforeUnmount(() => {
   simulation.value = null
 })
 
+// 换了工作区 → 这是另一张图，自动适配重新获得授权
+watch(
+  () => graphStore.builtRoot,
+  () => {
+    userTouchedView = false
+  }
+)
+
+// 记住上一次看到的是哪一份索引：用来区分「后台重建」与「换模式/换中心」
+let lastSeenPayload = graphStore.effectivePayload
+
 // 数据或模式变化 → 节点集合变了就重建，否则只重绘
 watch(
   () => [graphStore.effectivePayload, graphStore.mode, graphStore.localResult] as const,
-  () => {
+  ([payload]) => {
+    const payloadChanged = payload !== lastSeenPayload
+    lastSeenPayload = payload
     if (simulationSignature() === lastSignature) {
       draw()
       return
     }
-    pendingFit = true
-    // 布局要重新跑一遍，收敛后还得再对一次才算居中
-    settledFitPending = true
+    /*
+     * 后台重建（存盘后刷新索引）不该把人正在看的地方甩走：用户自己掌过视口，
+     * 就不再做自动适配，要回正中请自己点「适应内容」。换模式、换局部中心
+     * 仍然照旧对齐——否则那一屏可能整个落在视口外。
+     */
+    if (!userTouchedView || !payloadChanged) {
+      pendingFit = true
+      // 布局要重新跑一遍，收敛后还得再对一次才算居中
+      settledFitPending = true
+    }
     rebuildSimulation()
   }
 )

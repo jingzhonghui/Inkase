@@ -256,6 +256,34 @@ describe('构建与错误态', () => {
     expect(api.buildGraph).toHaveBeenCalledTimes(2)
   })
 
+  it('静默刷新不把画布换成加载态（保存后重建不该闪一下转圈）', async () => {
+    const api = installApi()
+    const store = useGraphStore()
+    await store.build(true)
+    expect(store.hasGraph).toBe(true)
+
+    const pending = store.refresh(true)
+    // 重建进行中：画布上已经有图，loading 不能翻起来，否则整块画布被转圈盖住
+    expect(store.loading).toBe(false)
+
+    await pending
+    expect(store.loading).toBe(false)
+    expect(api.buildGraph).toHaveBeenCalledTimes(2)
+  })
+
+  it('静默刷新在没有图时仍然显示加载态', async () => {
+    const api = installApi()
+    const store = useGraphStore()
+
+    const pending = store.refresh(true)
+    // 第一次构建没有旧图可以留着，必须让用户看到在干活
+    expect(store.loading).toBe(true)
+
+    await pending
+    expect(store.loading).toBe(false)
+    expect(api.buildGraph).toHaveBeenCalledTimes(1)
+  })
+
   it('TC-STORE-009 工作区切换后旧数据作废并重建', async () => {
     const api = installApi()
     const store = useGraphStore()
@@ -519,6 +547,23 @@ describe('过滤（TC-STORE-008）', () => {
     expect(store.isFiltered).toBe(false)
 
     store.setQuery('a')
+    expect(store.isFiltered).toBe(true)
+  })
+
+  it('只关掉一种格式也算「已过滤」（五种格式都得算数）', async () => {
+    const store = await filteredStore()
+    expect(store.isFiltered).toBe(false)
+
+    // 曾经按 `formats.length < 4` 判断：关掉一种变成 4 个仍然报「没过滤」，
+    // 侧栏那枚「重置筛选」的入口就不出现。
+    store.toggleFormat('attachment')
+    expect(store.filters.formats).toHaveLength(4)
+    expect(store.isFiltered).toBe(true)
+
+    // 换成关掉另一种（同样的数量、不同的集合）也必须认出来
+    store.toggleFormat('attachment')
+    store.toggleFormat('diagram')
+    expect(store.filters.formats).toHaveLength(4)
     expect(store.isFiltered).toBe(true)
   })
 

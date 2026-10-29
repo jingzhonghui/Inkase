@@ -90,6 +90,17 @@ export const useFileStore = defineStore('file', () => {
   const cursorLine = ref(1)
   const cursorColumn = ref(1)
   const editorResetVersion = ref(0)
+  /**
+   * 磁盘上「这个库」的版本号：保存、外部改动、文件树增删改名都会 +1。
+   *
+   * 图谱索引是对磁盘的快照，文档一存盘它就可能过期（新增/删除的链接、新文件）。
+   * 单独一个计数器而不是让图谱监听 `stateVersion`：后者每次按键都会变，
+   * 那样图谱会被打字拖垮。
+   */
+  const libraryRevision = ref(0)
+  function touchLibrary(): void {
+    libraryRevision.value++
+  }
   // 归一化的编辑器选区快照（供 AI 运行读取当前选区/光标）
   const editorSelection = ref<EditorSelectionSnapshot | null>(null)
 
@@ -396,6 +407,8 @@ export const useFileStore = defineStore('file', () => {
       stateVersion.value++
       updateWordCount()
       externalWatch.markExternalHandled(filePath)
+      // 磁盘上的正文换了，链接关系跟着换，图谱要重建
+      touchLibrary()
       return true
     }
     return false
@@ -770,6 +783,8 @@ export const useFileStore = defineStore('file', () => {
           stateVersion.value++
           await writeRecoverySnapshot()
         }
+        // 正文落盘 → 文档之间的链接可能变了，图谱需要重建
+        touchLibrary()
         return true
       } else if (result.error === 'NEW_FILE') {
         return await saveAsFile()
@@ -873,6 +888,8 @@ export const useFileStore = defineStore('file', () => {
         }
         await loadRecentFiles()
         await writeRecoverySnapshot()
+        // 另存为可能往工作区里放了一个新文件（也可能改了这一篇的链接），图谱要重建
+        touchLibrary()
         return true
       } else if (result.error === '用户取消') {
         return false
@@ -942,6 +959,7 @@ export const useFileStore = defineStore('file', () => {
     activeTabId,
     stateVersion,
     editorResetVersion,
+    touchLibrary,
     error,
     isLoading,
     openFile,
@@ -1665,6 +1683,8 @@ export const useFileStore = defineStore('file', () => {
     cursorLine,
     cursorColumn,
     editorResetVersion,
+    // 磁盘库版本：保存 / 外部改动 / 文件树增删改名后 +1，图谱据此重建索引
+    libraryRevision,
     editorSelection,
     pdfBatchProgress: pdf.pdfBatchProgress,
 

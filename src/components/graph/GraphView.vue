@@ -6,6 +6,7 @@ import { encodeLinkTarget } from '../../../shared/graph/link-resolve'
 import { GRAPH_FORMAT_LABELS } from '../../../shared/graph/types'
 import { useFileStore } from '../../stores/file'
 import { useGraphStore } from '../../stores/graph'
+import { useWorkspaceStore } from '../../stores/workspace'
 import { nodeShape } from '../../utils/graph/shape'
 import GraphCanvas from './GraphCanvas.vue'
 import GraphIssues from './GraphIssues.vue'
@@ -25,6 +26,7 @@ import GraphSidebar from './GraphSidebar.vue'
 
 const graphStore = useGraphStore()
 const fileStore = useFileStore()
+const workspaceStore = useWorkspaceStore()
 
 /**
  * 嵌进工作台时：
@@ -341,6 +343,7 @@ onMounted(() => {
 // 面板现在可以反复开关（v-if），文档级监听必须跟着卸载，
 // 否则每次重开都多挂一个已销毁组件的 handler
 onBeforeUnmount(() => {
+  if (rebuildTimer !== null) clearTimeout(rebuildTimer)
   document.removeEventListener('click', closeMenu)
 })
 
@@ -370,6 +373,51 @@ watch(
     if (request) canvasRef.value?.centerOnNode(request.id)
   }
 )
+
+// ===== 索引跟随磁盘 =====
+/**
+ * 保存、外部改动、文件树增删改名都会把 `libraryRevision` 推一格。
+ *
+ * 图谱是对磁盘的一次性快照：文档存盘后新增/删除的链接、新文件，不重建就看不到。
+ * 三条约束：
+ * - 防抖：连按 Ctrl+S 不该扫三遍；
+ * - 静默：画布上有图时不要换成转圈，叫 `refresh(true)`；
+ * - 不在后台白扫：图谱没在眼前时只记一个待办，等它再露面时补建。
+ */
+const GRAPH_REBUILD_DEBOUNCE_MS = 500
+const pendingRebuild = ref(false)
+let rebuildTimer: ReturnType<typeof setTimeout> | null = null
+
+const isShowing = computed(() =>
+  props.embedded ? workspaceStore.isGraph : graphStore.panelActive
+)
+
+function scheduleRebuild(): void {
+  if (rebuildTimer !== null) clearTimeout(rebuildTimer)
+  rebuildTimer = setTimeout(() => {
+    rebuildTimer = null
+    if (!graphStore.hasGraph) return
+    void graphStore.refresh(true)
+  }, GRAPH_REBUILD_DEBOUNCE_MS)
+}
+
+watch(
+  () => fileStore.libraryRevision,
+  () => {
+    if (!graphStore.panelOpen) return
+    if (!isShowing.value) {
+      pendingRebuild.value = true
+      return
+    }
+    scheduleRebuild()
+  }
+)
+
+watch(isShowing, (showing) => {
+  if (!showing || !pendingRebuild.value) return
+  pendingRebuild.value = false
+  scheduleRebuild()
+})
 </script>
 
 <template>

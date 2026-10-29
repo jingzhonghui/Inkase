@@ -33,10 +33,25 @@ export interface GraphFilters {
 /** 递归目录在过滤 chips 里的显示名 */
 export const ROOT_FOLDER_CHIP = ''
 
+/**
+ * 全部格式，默认全开。
+ *
+ * 「是否被过滤过」必须跟这份清单比，不能写死数字：格式一共五种，
+ * 早先按 `length < 4` 判断，关掉一种之后仍然报「没过滤」，
+ * 侧栏那枚「重置筛选」的入口就不出现了。
+ */
+export const ALL_GRAPH_FORMATS: readonly GraphNodeFormat[] = [
+  'mdx',
+  'markdown',
+  'mindmap',
+  'diagram',
+  'attachment'
+]
+
 function createDefaultFilters(): GraphFilters {
   return {
     folders: [],
-    formats: ['mdx', 'markdown', 'mindmap', 'diagram', 'attachment'],
+    formats: [...ALL_GRAPH_FORMATS],
     showUnresolved: true,
     query: ''
   }
@@ -203,7 +218,7 @@ export const useGraphStore = defineStore('graph', () => {
     return (
       current.query.trim().length > 0 ||
       current.folders.length > 0 ||
-      current.formats.length < 4 ||
+      ALL_GRAPH_FORMATS.some((format) => !current.formats.includes(format)) ||
       !current.showUnresolved
     )
   })
@@ -268,7 +283,11 @@ export const useGraphStore = defineStore('graph', () => {
   }
 
   // ===== 构建 =====
-  async function build(force = false): Promise<void> {
+  /**
+   * @param force 忽略「同一次工作区已建过」的短路
+   * @param silent 后台刷新：保留画布上的旧图，不让 `loading` 把整块画布换成转圈
+   */
+  async function build(force = false, silent = false): Promise<void> {
     const fileStore = useFileStore()
     const root = fileStore.openedFolderPath
 
@@ -285,7 +304,8 @@ export const useGraphStore = defineStore('graph', () => {
     }
 
     ensureProgressListener()
-    loading.value = true
+    const showSpinner = !silent || !payload.value
+    if (showSpinner) loading.value = true
     error.value = null
     progress.value = null
 
@@ -318,8 +338,8 @@ export const useGraphStore = defineStore('graph', () => {
     }
   }
 
-  async function refresh(): Promise<void> {
-    await build(true)
+  async function refresh(silent = false): Promise<void> {
+    await build(true, silent)
   }
 
   // ===== 交互 =====

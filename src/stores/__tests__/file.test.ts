@@ -1040,6 +1040,27 @@ describe('file store', () => {
       expect(electronAPI.saveAsFile).toHaveBeenCalledWith('content', 'Doc', undefined, false, 'mdx')
     })
 
+    it('保存成功后推进磁盘库版本，编辑本身不推进', async () => {
+      const doc = makeDoc('Doc', 'before')
+      electronAPI.openFile.mockResolvedValue({
+        success: true,
+        data: { document: doc, filePath: 'C:/docs/doc.mdx', format: 'mdx' }
+      })
+      electronAPI.saveFile.mockResolvedValue({ success: true, data: 'C:/docs/doc.mdx' })
+
+      const store = useFileStore()
+      await store.openFile('C:/docs/doc.mdx')
+      const before = store.libraryRevision
+
+      // 打字不该让图谱重建：图谱监听的是「磁盘库版本」，不是编辑器状态
+      store.updateContent('[新链接](other.md)')
+      expect(store.libraryRevision).toBe(before)
+
+      await store.saveFile()
+
+      expect(store.libraryRevision).toBe(before + 1)
+    })
+
     it('改名为 1 之后标签跟着变成 1.mdx，文档标题也不再是未命名', async () => {
       const doc = makeDoc('未命名文档', 'content')
       electronAPI.newFile.mockResolvedValue({ success: true, data: { document: doc, isNew: true } })

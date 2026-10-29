@@ -231,6 +231,8 @@ src/
 - **外观设置**: `appearance` store 将编辑区字号/字体族/行高以 CSS 变量注入根节点（`--editor-font-size` / `--editor-font-family` / `--editor-mono-font-family` / `--editor-line-height`），消费端带默认回退；编辑器内 Ctrl+滚轮 步进缩放字号（`useEditorFontZoom`）
 - **Git 同步自愈**: `.inkase/`（本机私有配置）自动写入工作区 `.gitignore`；若已被跟踪则 `git rm --cached` 并提交移除，commit 暂存时排除 `.inkase`；旧用户的 `.markdownPlus` 目录在 attach/授权时自动迁移
 - **IR 尾部空行往返**: `serializeMarkdown` 按尾部连续空段落数补足尾随换行（k 段 ↔ 2k 个 `\n`），`parseMarkdown` 逆向补偿，保证 IR 模式末尾空行保存/重开不丢失
+- **图谱索引跟着磁盘走**: 图谱是对磁盘的一次性快照，文档一存盘它就可能过期（新增/删除的链接、另存为多出来的文件）。`fileStore.libraryRevision` 是唯一的「磁盘库版本」——保存、另存为、外部改动重载、`readFolder`（文件树刷新与新建/删除/改名都经过它）各推一格，**编辑器打字不推**（否则图谱会被每次按键拖垮）。`GraphView` 监听它：防抖 500 ms、走 `refresh(true)` 静默重建（画布上有图时不要换成转圈），图谱没在眼前时只记 `pendingRebuild`，等 `isShowing` 变真再补建。画布一侧用 `graphStore.builtRoot` 区分「换工作区」与「后台重建」：用户自己掌过视口就不再自动适配，否则存一次盘就把人正在看的地方甩走
+- **`isFiltered` 跟格式清单比，不写死数字**: 格式一共五种（mdx / markdown / mindmap / diagram / attachment），`ALL_GRAPH_FORMATS` 同时充当默认值与判定依据。早先按 `formats.length < 4` 判断，关掉一种后仍然报「没过滤」，侧栏那枚「重置筛选」的入口就不出现
 - **IR 回写必须「读当前文档」**: `IrEditor` 用 `requestAnimationFrame` 把文档序列化回 store（避免每次按键都全文档序列化）。两个铁律：① rAF 回调里序列化 `viewRef.value.state`，**不要**序列化调度时刻传进来的快照——同一帧内连打几个字符（快速键入、按键重复、输入法一次提交多个字符）时快照已经落后，回写会让 store 落后于编辑器；② store 的同步 watcher 见到「store 内容 ≠ 当前序列化」时**不能无条件整篇重建**（`EditorState.create` 的选区默认落在文档开头，表现为「光标莫名跳回开头」且吞掉刚打的字），先用 `lastPushedMarkdown` 判定这是不是自己上一帧写出去的回声，是就补一次回写、以编辑器为准。回写前还要校验 `editorTabId === activeTabId`，否则切标签时旧实例会把上一篇的内容写进新标签。回归用例：`src/components/editor/__tests__/ir-fast-typing-cursor.test.ts`
 
 ### MDX 文件结构
