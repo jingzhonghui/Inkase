@@ -4,3 +4,5 @@ allowBuilds:
   esbuild: true
   sharp: true
   vue-demi: true
+patchedDependencies:
+  esbuild@0.25.0: patches/esbuild@0.25.0.patch

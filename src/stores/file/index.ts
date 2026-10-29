@@ -16,6 +16,7 @@ import type { DocumentFormat, MdxDocument } from '../../types/mdx'
 import { createMdxDocument } from '../../types/mdx'
 import { loadSessionState, saveSessionState } from '../session'
 import { useAiStore } from '../ai'
+import { useWorkspaceStore } from '../workspace'
 import { requestDialog } from '../../utils/dialog'
 import type { FileInfo, EditorMode, EditorSelectionSnapshot, RecentItem, TabInfo } from './types'
 import { createTabState, createTabOps } from './tabs'
@@ -703,6 +704,25 @@ export const useFileStore = defineStore('file', () => {
     }
   }
 
+  /**
+   * 保存失败必须让人看见。
+   *
+   * 以前只写 `error` 状态，而文档界面里没有任何组件读它——保存失败看起来
+   * 就是「什么都没发生，文件也没变」，极难自查。保存本身是用户明确发起的
+   * 动作，失败要当场说清原因。
+   */
+  async function reportSaveFailure(message: string): Promise<void> {
+    try {
+      await requestDialog({
+        title: '保存失败',
+        message,
+        buttons: [{ label: '知道了', value: 0, primary: true }]
+      })
+    } catch {
+      /* 弹窗本身失败不影响返回值 */
+    }
+  }
+
   async function saveFile(): Promise<boolean> {
     isLoading.value = true
     error.value = null
@@ -754,11 +774,15 @@ export const useFileStore = defineStore('file', () => {
       } else if (result.error === 'NEW_FILE') {
         return await saveAsFile()
       } else {
-        error.value = result.error || '保存文件失败'
+        const message = result.error || '保存文件失败'
+        error.value = message
+        await reportSaveFailure(message)
         return false
       }
     } catch (err) {
-      error.value = err instanceof Error ? err.message : '保存文件失败'
+      const message = err instanceof Error ? err.message : '保存文件失败'
+      error.value = message
+      await reportSaveFailure(message)
       return false
     } finally {
       isLoading.value = false
@@ -829,6 +853,18 @@ export const useFileStore = defineStore('file', () => {
           }
         }
         /*
+         * 文档标题跟着新文件名走。
+         *
+         * 新建文档的标题是「未命名文档」，它只用于另存对话框的默认名；
+         * 不改的话用户存成 1.mdx 之后再另存，默认名还是「未命名文档」，
+         * 窗口标题也和文件名对不上。打开文件时本来就是用文件名当标题，
+         * 这里保持一致。
+         */
+        const savedBaseName = (savePath.split(/[/\\]/).pop() || '').replace(/\.[^.]+$/, '')
+        if (tab.document && savedBaseName) {
+          tab.document.metadata.title = savedBaseName
+        }
+        /*
          * 导图另存为会得到一个新的 ZIP 容器（资源重新解到自己的目录）：
          * 主进程把这张表一起带回来，渲染层换成它，画布上的图片才不会指向旧目录。
          */
@@ -841,11 +877,15 @@ export const useFileStore = defineStore('file', () => {
       } else if (result.error === '用户取消') {
         return false
       } else {
-        error.value = result.error || '保存文件失败'
+        const message = result.error || '保存文件失败'
+        error.value = message
+        await reportSaveFailure(message)
         return false
       }
     } catch (err) {
-      error.value = err instanceof Error ? err.message : '保存文件失败'
+      const message = err instanceof Error ? err.message : '保存文件失败'
+      error.value = message
+      await reportSaveFailure(message)
       return false
     } finally {
       isLoading.value = false
@@ -1057,6 +1097,10 @@ export const useFileStore = defineStore('file', () => {
       useAiStore().openPanel()
       if (state.aiPanelActive === false) {
         useAiStore().deactivatePanel()
+      } else if (!state.activeFilePath) {
+        // 上次停在 AI 段（没有活动文档）：恢复到工作台的 AI 段，
+        // 否则 AI 面板会被挂载却不显示，用户看到的是空白
+        useWorkspaceStore().open('ai')
       }
     }
 

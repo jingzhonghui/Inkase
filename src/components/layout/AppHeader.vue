@@ -5,18 +5,18 @@ import {
   IconCopy,
   IconFile,
   IconFolder,
-  IconMessageChatbot,
   IconMinus,
   IconMoon,
   IconRefresh,
   IconSquare,
   IconSun,
+  IconWorld,
   IconX
 } from '@tabler/icons-vue'
 import { useFileStore, type EditorMode } from '../../stores/file'
 import { useThemeStore } from '../../stores/theme'
 import { useUpdateStore } from '../../stores/update'
-import { useAiStore } from '../../stores/ai'
+import { useWorkspaceStore } from '../../stores/workspace'
 import { buildBarItems } from '../../utils/tab-order'
 import { useSyncStore } from '../../stores/sync'
 import {
@@ -40,11 +40,29 @@ import Tooltip from '../common/Tooltip.vue'
 const fileStore = useFileStore()
 const themeStore = useThemeStore()
 const updateStore = useUpdateStore()
-const aiStore = useAiStore()
+const workspaceStore = useWorkspaceStore()
 const syncStore = useSyncStore()
 const appearanceStore = useAppearanceStore()
 const isMaximized = ref(false)
 const quickOpenVisible = ref(false)
+
+/** 官网地址（README 与安装包里对外的那个入口） */
+const OFFICIAL_SITE_URL = 'https://jingzhonghui.github.io/Inkase/'
+
+/**
+ * 用系统浏览器打开官网。
+ *
+ * 不用 `target="_blank"`：Electron 的窗口没有标签页，那样只会在应用内开一个
+ * 新窗口。统一走主进程的 openLink → shell.openExternal，交给默认浏览器。
+ * 没有 electronAPI 时（浏览器里调试）退回 window.open。
+ */
+function openOfficialSite(): void {
+  if (window.electronAPI?.openLink) {
+    void window.electronAPI.openLink(OFFICIAL_SITE_URL)
+    return
+  }
+  window.open(OFFICIAL_SITE_URL, '_blank')
+}
 
 /** 快速打开文件（Ctrl+P）：未打开文件夹时给出提示 */
 async function openQuickOpen(): Promise<void> {
@@ -204,6 +222,8 @@ const fileMenu = computed<MenuItem[]>(() => {
     { kind: 'divider' },
     { kind: 'item', label: '保存', action: 'save', shortcut: 'Ctrl+S' },
     { kind: 'item', label: '另存为', action: 'save-as', shortcut: 'Ctrl+Shift+S' },
+    // 与保存同组：关标签页是收尾动作，不需要单独一段
+    { kind: 'item', label: '关闭标签页', action: 'close-tab', shortcut: 'Ctrl+W' },
     { kind: 'divider' },
     importMenu,
     exportMenu,
@@ -359,7 +379,7 @@ const viewMenu = computed<MenuItem[]>(() => [
     action: 'toggle-sidebar',
     checked: !fileStore.sidebarCollapsed
   },
-  { kind: 'item', label: 'AI 助手', action: 'open-ai', checked: aiStore.panelOpen },
+  { kind: 'item', label: 'AI 助手', action: 'open-ai', checked: workspaceStore.isAi },
   { kind: 'divider' },
   { kind: 'item', label: '设置', action: 'settings', shortcut: 'Ctrl+,' }
 ])
@@ -391,6 +411,7 @@ const shortcuts = [
   { keys: 'Ctrl+P', label: '快速打开文件' },
   { keys: 'Ctrl+S', label: '保存文件' },
   { keys: 'Ctrl+Shift+S', label: '另存为' },
+  { keys: 'Ctrl+W', label: '关闭标签页' },
   { keys: 'Ctrl+Z', label: '撤销' },
   { keys: 'Ctrl+Y', label: '重做' },
   { keys: 'Ctrl+X', label: '剪切' },
@@ -404,6 +425,7 @@ const shortcuts = [
   { keys: 'Ctrl+H', label: '替换' },
   { keys: 'Shift+Alt+F', label: '格式化文档（代码/纯文本）' },
   { keys: 'Ctrl+/', label: '切换编辑模式' },
+  { keys: 'Ctrl+Shift+G', label: '打开知识图谱' },
   { keys: 'Ctrl+←/→', label: '切换标签' },
   { keys: 'Ctrl+滚轮', label: '缩放编辑区字号' },
   { keys: 'Ctrl+,', label: '打开设置' }
@@ -537,6 +559,19 @@ async function saveAsFile(): Promise<void> {
   await fileStore.saveAsFile()
 }
 
+/**
+ * 关闭当前标签页（Ctrl+W）。
+ *
+ * 走 store 的 closeTab 而不是直接移除：它自带「未保存先问」的确认流程，
+ * 与点标签上的 × 是同一条路径。没有活动标签时什么都不做——工作台本身就是
+ * 那个「没有文档也还在」的家，不需要被关掉。
+ */
+async function closeActiveTab(): Promise<void> {
+  const tabId = fileStore.activeTabId
+  if (!tabId) return
+  await fileStore.closeTab(tabId)
+}
+
 async function exportCurrentPdf(): Promise<void> {
   const tabId = fileStore.activeTabId
   if (!tabId) return
@@ -632,6 +667,9 @@ async function runMenuItem(item: MenuItem): Promise<void> {
     case 'save-as':
       await saveAsFile()
       break
+    case 'close-tab':
+      await closeActiveTab()
+      break
     case 'import-md':
       await fileStore.importMarkdown()
       break
@@ -691,7 +729,7 @@ async function runMenuItem(item: MenuItem): Promise<void> {
       fileStore.toggleSidebar()
       break
     case 'open-ai':
-      aiStore.openPanel()
+      openAiPanel()
       break
     case 'sync':
       syncStore.openPanel()
@@ -886,12 +924,24 @@ function toggleTheme(): void {
   themeStore.toggleTheme()
 }
 
-function toggleAiPanel(): void {
-  if (aiStore.panelOpen) {
-    void aiStore.requestClosePanel()
-  } else {
-    aiStore.openPanel()
-  }
+/**
+ * 打开 AI 助手。
+ *
+ * AI 已经不是独立标签，而是工作台的一段；「打开 AI」翻译成「打开工作台并切到
+ * AI 段」。菜单、工具栏、快捷键三个入口都走这里，落点只有一处。
+ */
+function openAiPanel(): void {
+  workspaceStore.open('ai')
+}
+
+/**
+ * 跳到工作台的图谱段（Ctrl+Shift+G）。
+ *
+ * 已经建过索引就只切段，不重建——用户从图谱跳去改文档再回来，
+ * 不该再等一次全库扫描。
+ */
+function openGraphPanel(): void {
+  workspaceStore.open('graph')
 }
 
 const syncTooltip = computed(() => {
@@ -948,21 +998,30 @@ function handleTabNavigationKeydown(event: KeyboardEvent): boolean {
   // 仍保留原生行为，由 handleTabNavigationCapture 过滤
   if (!event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return false
 
-  const items = buildBarItems(fileStore.tabs, aiStore.panelOpen, aiStore.tabIndex)
-  if (items.length < 2) return false
+  // 标签栏的序列是「工作台」+「文件标签」：工作台固定在第 0 位，
+  // 因此键盘切换用同一份序列，否则会「跳到看不见的项」
+  const fileItems = buildBarItems(fileStore.tabs, false, null)
+  const total = fileItems.length + 1
+  if (total < 2) return false
 
-  const currentIndex = aiStore.panelActive
-    ? items.findIndex((item) => item.kind === 'ai')
-    : items.findIndex((item) => item.kind === 'file' && item.tab.id === fileStore.activeTabId)
+  const currentIndex = workspaceStore.active
+    ? 0
+    : 1 +
+      fileItems.findIndex(
+        (item) => item.kind === 'file' && item.tab.id === fileStore.activeTabId
+      )
   const offset = event.key === 'ArrowRight' ? 1 : -1
-  const nextIndex =
-    ((currentIndex === -1 ? 0 : currentIndex) + offset + items.length) % items.length
-  const next = items[nextIndex]
+  const nextIndex = ((currentIndex < 0 ? 0 : currentIndex) + offset + total) % total
   event.preventDefault()
-  if (next.kind === 'ai') {
-    aiStore.activatePanel()
-  } else {
-    if (aiStore.panelActive) aiStore.deactivatePanel()
+
+  if (nextIndex === 0) {
+    workspaceStore.activate()
+    return true
+  }
+
+  const next = fileItems[nextIndex - 1]
+  if (next?.kind === 'file') {
+    workspaceStore.close()
     void fileStore.setActiveTab(next.tab.id)
   }
   return true
@@ -974,15 +1033,23 @@ function handleTabNavigationCapture(event: KeyboardEvent): void {
   if (handleTabNavigationKeydown(event)) event.stopPropagation()
 }
 
+/** 是否有任一对话框开着（Escape 与 Ctrl+W 都要看这个） */
+function isAnyDialogOpen(): boolean {
+  return (
+    settingsOpen.value ||
+    linkDialogOpen.value ||
+    imageDialogOpen.value ||
+    shortcutsOpen.value ||
+    aboutOpen.value
+  )
+}
+
 function handleKeydown(event: KeyboardEvent): void {
+  // 输入法组合期间按键属于候选词选择（含 Escape），不能当成应用快捷键
+  if (event.isComposing) return
+
   if (event.key === 'Escape') {
-    if (
-      settingsOpen.value ||
-      linkDialogOpen.value ||
-      imageDialogOpen.value ||
-      shortcutsOpen.value ||
-      aboutOpen.value
-    ) {
+    if (isAnyDialogOpen()) {
       settingsOpen.value = false
       linkDialogOpen.value = false
       imageDialogOpen.value = false
@@ -1011,6 +1078,10 @@ function handleKeydown(event: KeyboardEvent): void {
     // Ctrl+Shift+D：新建图表（D = diagram），与 Ctrl+Shift+N 的新建导图并列
     event.preventDefault()
     void fileStore.newDiagram()
+  } else if (key === 'g' && event.shiftKey) {
+    // Ctrl+Shift+G：知识图谱（G = graph）。编辑器没有同名组合，不会抢键
+    event.preventDefault()
+    openGraphPanel()
   } else if (key === 'o') {
     event.preventDefault()
     openFile()
@@ -1024,6 +1095,12 @@ function handleKeydown(event: KeyboardEvent): void {
     } else {
       saveFile()
     }
+  } else if (key === 'w' && !event.shiftKey) {
+    // Ctrl+W：关闭当前标签页。Shift 组合留给窗口层（Ctrl+Shift+W 不进这里）
+    // 有对话框开着时不响应：那时用户想关的多半是对话框，误关掉文档代价太大。
+    if (isAnyDialogOpen()) return
+    event.preventDefault()
+    void closeActiveTab()
   } else if (event.key === ',') {
     event.preventDefault()
     openSettings()
@@ -1059,13 +1136,14 @@ onMounted(async () => {
       isMaximized.value = false
     }) ?? null
 
-  // 保存快捷键由主进程统一拦截后转发：图表画布在跨域 iframe 里，
-  // 那里的 keydown 到不了页面，只有这条通道能让 Ctrl+S 仍然有效。
+  // 保存/关闭标签页由主进程统一拦截后转发：图表画布在跨域 iframe 里，
+  // 那里的 keydown 到不了页面，只有这条通道能让 Ctrl+S / Ctrl+W 仍然有效。
   // 用 `?.` 保护方法本身：单测与旧版 preload 上没有 onAppShortcut，
   // 只判 electronAPI 是否存在会让这里直接抛 TypeError。
   removeShortcutListener =
     window.electronAPI?.onAppShortcut?.((shortcut) => {
-      if (shortcut === 'save-as') void saveAsFile()
+      if (shortcut === 'close-tab') void closeActiveTab()
+      else if (shortcut === 'save-as') void saveAsFile()
       else void saveFile()
     }) ?? null
 })
@@ -1121,17 +1199,6 @@ onUnmounted(() => {
             class="icon"
             :class="{ spinning: syncStore.syncing }"
           />
-        </button>
-      </Tooltip>
-
-      <Tooltip :content="aiStore.panelOpen ? '关闭 AI 助手' : 'AI 助手'">
-        <button
-          class="icon-btn"
-          :aria-label="aiStore.panelOpen ? '关闭 AI 助手' : 'AI 助手'"
-          :class="{ active: aiStore.panelOpen }"
-          @click="toggleAiPanel"
-        >
-          <IconMessageChatbot class="icon" />
         </button>
       </Tooltip>
 
@@ -1635,6 +1702,20 @@ onUnmounted(() => {
             版本 {{ appVersion }}
           </p>
           <p>一款以自包含 .mdx 文件格式为核心的轻量级文档工作台。</p>
+          <p class="about-links">
+            <a
+              :href="OFFICIAL_SITE_URL"
+              class="about-site-link"
+              @click.prevent="openOfficialSite"
+            >
+              <IconWorld
+                :size="14"
+                stroke="1.8"
+              />
+              <span>官网</span>
+              <span class="about-site-url">jingzhonghui.github.io/Inkase</span>
+            </a>
+          </p>
           <p class="about-copyright">
             Copyright © 2026 Inkase Team
           </p>
@@ -2104,6 +2185,40 @@ onUnmounted(() => {
 .about-version {
   margin-bottom: 14px !important;
   color: var(--color-text-tertiary) !important;
+}
+
+/* 官网入口：一行胶囊，悬停才浮起来，避免和版权行抢视线 */
+.about-links {
+  margin-top: 12px !important;
+}
+
+.about-site-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  color: var(--color-text-secondary) !important;
+  font-size: calc(var(--ui-font-size) - 1px);
+  text-decoration: none;
+  transition: color 0.15s, border-color 0.15s, background-color 0.15s;
+}
+
+.about-site-link:hover {
+  border-color: var(--color-primary);
+  background-color: var(--color-bg-hover);
+  color: var(--color-primary) !important;
+}
+
+.about-site-url {
+  color: var(--color-text-tertiary);
+  font-family: var(--font-mono);
+  font-size: calc(var(--ui-font-size) - 2px);
+}
+
+.about-site-link:hover .about-site-url {
+  color: var(--color-primary);
 }
 
 .about-copyright {

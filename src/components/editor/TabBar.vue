@@ -1,21 +1,23 @@
 <script setup lang="ts">
 import { ref, reactive, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import {
-  IconMessageChatbot,
+  IconHome,
   IconX,
   type Icon
 } from '@tabler/icons-vue'
 import { useFileStore } from '../../stores/file'
 import { useAiStore } from '../../stores/ai'
+import { useWorkspaceStore } from '../../stores/workspace'
 import { useAppearanceStore } from '../../stores/appearance'
 import type { TabInfo } from '../../stores/file'
 import { FILE_ICON_COMPONENTS, getFileIconKey, type FileIconKey } from '../../utils/file-icons'
 import { fitMiddleEllipsis } from '../../utils/middle-ellipsis'
-import { buildBarItems } from '../../utils/tab-order'
+import { buildBarItems, type BarItem } from '../../utils/tab-order'
 import Tooltip from '../common/Tooltip.vue'
 
 const fileStore = useFileStore()
 const aiStore = useAiStore()
+const workspaceStore = useWorkspaceStore()
 const appearanceStore = useAppearanceStore()
 
 // 标签过多时，自动把当前活动标签滚动到可见区域
@@ -30,20 +32,9 @@ watch(
   }
 )
 
-// 标签不再压缩后，标签栏可能横向滚动；AI 面板激活时把 AI 标签带回可见区域
-watch(
-  () => aiStore.panelActive,
-  (active) => {
-    if (!active) return
-    nextTick(() => {
-      const el = document.querySelector('[data-testid="ai-tab"]') as HTMLElement | null
-      el?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
-    })
-  }
-)
-
 async function handleTabClick(tabId: string): Promise<void> {
-  aiStore.deactivatePanel()
+  // 切到文档就把工作台收起：工作台是「家」，不是与文档并列的另一种标签
+  workspaceStore.close()
   await fileStore.setActiveTab(tabId)
 }
 
@@ -53,17 +44,6 @@ function handleTabDblClick(tabId: string): Promise<void> {
     fileStore.pinActivePreviewTab()
   }
   return Promise.resolve()
-}
-
-function handleAiMiddleClick(event: MouseEvent): void {
-  if (event.button !== 1) return
-  event.preventDefault()
-  void aiStore.requestClosePanel()
-}
-
-function handleAiClose(event: MouseEvent): void {
-  event.stopPropagation()
-  void aiStore.requestClosePanel()
 }
 
 function handleMiddleClick(tabId: string, event: MouseEvent): void {
@@ -79,7 +59,8 @@ async function handleCloseTab(tabId: string, event: MouseEvent): Promise<void> {
 }
 
 // ========== 拖动排序 ==========
-const barItems = computed(() => buildBarItems(fileStore.tabs, aiStore.panelOpen, aiStore.tabIndex))
+// 标签栏现在只有文件，AI 与图谱已经收进工作台，因此不再需要「合成标签」的位置推导
+const barItems = computed<BarItem[]>(() => buildBarItems(fileStore.tabs, false, null))
 
 const dragTabId = ref<string | null>(null)
 const dropIndex = ref<number | null>(null)
@@ -125,12 +106,6 @@ function onTabDrop(event: DragEvent): void {
   const [moved] = next.splice(from, 1)
   next.splice(from < to ? to - 1 : to, 0, moved)
 
-  // AI 位置按统一序列重新推导：文件标签跨过 AI 时也必须更新 AI 索引，
-  // 否则「文件相对顺序不变」会导致拖拽结果丢失
-  const aiIndex = next.findIndex((item) => item.kind === 'ai')
-  if (aiIndex !== -1 && aiIndex !== items.findIndex((item) => item.kind === 'ai')) {
-    aiStore.setTabIndex(aiIndex)
-  }
   fileStore.reorderTabs(next.filter((item) => item.kind === 'file').map((item) => item.key))
 }
 
@@ -139,7 +114,10 @@ function onTabDragEnd(): void {
 }
 
 function getTabLabel(tab: TabInfo): string {
-  return tab.fileInfo?.name || '未命名.mdx'
+  if (tab.fileInfo?.name) return tab.fileInfo.name
+  // 名字缺失但已有路径时按路径兜底：标签绝不能停在「未命名」上
+  if (tab.fileInfo?.path) return tab.fileInfo.path.split(/[/\\]/).pop() || '未命名.mdx'
+  return '未命名.mdx'
 }
 
 // ========== 文件名中间省略 ==========
@@ -199,14 +177,32 @@ function getLabelMaxWidth(tab: TabInfo): number {
   return Math.max(0, TAB_MAX_WIDTH - TAB_CHROME_WIDTH - dotWidth - TAB_LABEL_SAFETY)
 }
 
-/** 逐标签缓存显示文本：只有超宽的文件名才做中间省略，tooltip 始终用完整名称 */
-const tabDisplayLabels = computed<Record<string, string>>(() => {
-  const labels: Record<string, string> = {}
-  for (const tab of fileStore.tabs) {
-    labels[tab.id] = fitMiddleEllipsis(getTabLabel(tab), getLabelMaxWidth(tab), measureLabelWidth)
-  }
-  return labels
-})
+/**
+ * 标签显示文本（超宽时中间省略）。
+ *
+ * 以前这里是一个 `computed`，把「标签 id → 显示串」整体缓存起来。表面上看
+ * 依赖 `fileStore.tabs` 就够了，实际却踩过坑：另存成 1.mdx 之后，悬停提示
+ * （模板里直接调 `getTabLabel`）已经变成新名字，标签上的文字还是「未命名.mdx」
+ * ——只要文件名那次写入没有触发依赖收集，computed 就一直是旧值，组件因为
+ * 别的原因重渲染时也不会重算。
+ *
+ * 所以现在按「文本 + 可用宽度 + 字号」缓存：键里带着文本，内容一变必然重算，
+ * 又不至于每次渲染都重新测量。
+ */
+const labelCache = new Map<string, string>()
+
+function displayTabLabel(tab: TabInfo): string {
+  const text = getTabLabel(tab)
+  const maxWidth = getLabelMaxWidth(tab)
+  const key = `${appearanceStore.uiFontSize}\u0000${maxWidth}\u0000${text}`
+  const cached = labelCache.get(key)
+  if (cached !== undefined) return cached
+
+  const fitted = fitMiddleEllipsis(text, maxWidth, measureLabelWidth)
+  if (labelCache.size > 200) labelCache.clear()
+  labelCache.set(key, fitted)
+  return fitted
+}
 
 function getTabIconKey(tab: TabInfo): FileIconKey {
   return getFileIconKey(getTabLabel(tab), false)
@@ -299,10 +295,41 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div
-    v-if="barItems.length > 0"
-    class="tab-bar"
-  >
+  <div class="tab-bar">
+    <!-- 工作台：常驻、固定最左、不在可拖拽序列里，也没有关闭按钮 -->
+    <div
+      class="tab workspace-tab"
+      :class="{ active: workspaceStore.active }"
+      data-testid="workspace-tab"
+      title="工作台：知识图谱与 AI 助手"
+      @click="workspaceStore.activate()"
+    >
+      <IconHome
+        class="tab-icon"
+        :size="16"
+        stroke="1.8"
+      />
+      <span class="tab-label">工作台</span>
+      <Tooltip
+        v-if="aiStore.pendingApprovals.length > 0"
+        content="等待审批"
+      >
+        <span
+          class="ai-status-marker approval"
+          data-testid="ai-approval-marker"
+        >!</span>
+      </Tooltip>
+      <Tooltip
+        v-else-if="aiStore.running"
+        content="正在生成"
+      >
+        <span
+          class="ai-status-marker running"
+          data-testid="ai-running-marker"
+        />
+      </Tooltip>
+    </div>
+
     <template
       v-for="(item, index) in barItems"
       :key="item.key"
@@ -311,7 +338,7 @@ onUnmounted(() => {
         v-if="item.kind === 'file'"
         :data-tab-id="item.tab.id"
         class="tab"
-        :class="{ active: !aiStore.panelActive && item.tab.id === fileStore.activeTabId, preview: item.tab.isPreview, dragging: dragTabId === item.key }"
+        :class="{ active: !workspaceStore.active && item.tab.id === fileStore.activeTabId, preview: item.tab.isPreview, dragging: dragTabId === item.key }"
         draggable="true"
         @click="handleTabClick(item.tab.id)"
         @dblclick="handleTabDblClick(item.tab.id)"
@@ -342,7 +369,7 @@ onUnmounted(() => {
             stroke="1.8"
           />
 
-          <span class="tab-label">{{ tabDisplayLabels[item.tab.id] ?? getTabLabel(item.tab) }}</span>
+          <span class="tab-label">{{ displayTabLabel(item.tab) }}</span>
 
           <!-- 修改指示器（未保存时显示圆点） -->
           <span
@@ -359,64 +386,6 @@ onUnmounted(() => {
         >
           <IconX :size="14" />
         </button>
-      </div>
-
-      <div
-        v-else
-        class="tab ai-tab"
-        :class="{ active: aiStore.panelActive, dragging: dragTabId === item.key }"
-        data-testid="ai-tab"
-        draggable="true"
-        @click="aiStore.activatePanel()"
-        @mousedown="handleAiMiddleClick"
-        @dragstart="onTabDragStart(item.key, $event)"
-        @dragover="onTabDragOver(index, $event)"
-        @drop="onTabDrop"
-        @dragend="onTabDragEnd"
-      >
-        <span
-          v-if="dropIndex === index"
-          class="drop-indicator drop-indicator-start"
-        />
-        <span
-          v-if="dropIndex === index + 1"
-          class="drop-indicator drop-indicator-end"
-        />
-
-        <IconMessageChatbot
-          class="tab-icon"
-          :size="16"
-          stroke="1.8"
-        />
-        <span class="tab-label">AI 助手</span>
-        <Tooltip
-          v-if="aiStore.pendingApprovals.length > 0"
-          content="等待审批"
-        >
-          <span
-            class="ai-status-marker approval"
-            data-testid="ai-approval-marker"
-          >!</span>
-        </Tooltip>
-        <Tooltip
-          v-else-if="aiStore.running"
-          content="正在生成"
-        >
-          <span
-            class="ai-status-marker running"
-            data-testid="ai-running-marker"
-          />
-        </Tooltip>
-        <Tooltip content="关闭 AI 助手">
-          <button
-            class="tab-close-btn"
-            data-testid="ai-tab-close"
-            draggable="false"
-            @click="handleAiClose"
-          >
-            <IconX :size="14" />
-          </button>
-        </Tooltip>
       </div>
     </template>
   </div>
@@ -505,8 +474,8 @@ onUnmounted(() => {
 }
 
 /* 图标 + 文件名 + 修改圆点所在的 Tooltip 触发器：撑满标签内容区。
-   AI 标签里的 Tooltip 只包状态标记，不能参与拉伸，故排除 .ai-tab */
-.tab:not(.ai-tab) :deep(.tooltip-trigger) {
+   工作台标签里的 Tooltip 只包状态标记，不能参与拉伸，故排除 .workspace-tab */
+.tab:not(.workspace-tab) :deep(.tooltip-trigger) {
   flex: 1 1 auto;
   align-items: center;
   gap: 6px;
@@ -560,7 +529,27 @@ onUnmounted(() => {
 
 /* Tooltip 的根节点是 fragment（span + Teleport），父组件的 scoped 选择器
    只有配合 :deep 才能命中；否则状态标记所在的触发器会被撑开 */
-.ai-tab :deep(.tooltip-trigger) {
+.ai-tab :deep(.tooltip-trigger),
+.workspace-tab :deep(.tooltip-trigger) {
+  flex: 0 0 auto;
+}
+
+/* ===== 工作台标签：常驻的家，视觉上比文件标签「沉」一点 ===== */
+.workspace-tab {
+  flex-shrink: 0;
+  gap: 6px;
+  max-width: none;
+  padding-right: 10px;
+  /* 与文件标签拉开距离：它不是同一条流水线上的文档 */
+  margin-right: 6px;
+  border-style: dashed;
+}
+
+.workspace-tab.active {
+  border-style: solid;
+}
+
+.workspace-tab .tab-label {
   flex: 0 0 auto;
 }
 

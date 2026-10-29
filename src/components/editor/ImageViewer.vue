@@ -2,8 +2,17 @@
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import Tooltip from '../common/Tooltip.vue'
 import { useFileStore } from '../../stores/file'
+import { useThemeStore } from '../../stores/theme'
+import { themedCursor } from '../../utils/cursor'
 
 const fileStore = useFileStore()
+const themeStore = useThemeStore()
+
+/**
+ * 拖动时的光标：原生 `grabbing` 是白色手形位图，浅色主题下压在亮图片上就看不见了。
+ * 换成按主题配色的自绘四向箭头（`utils/cursor.ts`），兜底仍是黑白双色的系统 `move`。
+ */
+const panCursor = computed(() => themedCursor(themeStore.isDark, 'move', true))
 
 const activeTab = computed(() => fileStore.activeTab)
 const imageDataUrl = computed(() => activeTab.value?.imageDataUrl ?? '')
@@ -175,6 +184,7 @@ onUnmounted(() => {
       ref="stageRef"
       class="image-stage"
       :class="{ 'is-panning': isPanning }"
+      :style="{ '--pan-cursor': panCursor }"
       @pointerdown="onStagePointerDown"
       @pointermove="onStagePointerMove"
       @pointerup="onStagePointerUp"
@@ -271,7 +281,8 @@ onUnmounted(() => {
 }
 
 .image-stage.is-panning {
-  cursor: grabbing;
+  /* 自绘光标按主题取色；平台不认 SVG 光标时回退到系统 move（黑白双色，任何底色可见） */
+  cursor: var(--pan-cursor, move);
   user-select: none;
 }
 

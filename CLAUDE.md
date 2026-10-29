@@ -38,6 +38,54 @@ pnpm run build:linux  # Linux
 pnpm test             # vitest
 ```
 
+### 依赖补丁：`patches/esbuild@0.25.0.patch`
+
+用 `pnpm patch` 打的本地补丁，`pnpm-workspace.yaml` 的 `patchedDependencies` 里登记，**改完依赖记得 `pnpm install` 才会应用**。
+
+补掉的是一个 Windows 上会随机构建失败的上游行为：esbuild 的 JS API 对超过 1 MiB 的 `transform()` 输入不直接走 stdin，而是先写到 `%TEMP%\esbuild-<随机 hex>`，再把路径交给 Go 侧读，读完由 Go 自己 `os.Remove`。一旦这次删除被瞬时占用（杀软实时监控新写的文件），esbuild 直接抛 `remove <temp>: Access is denied.`，整个构建失败。
+
+本项目主进程 chunk 是 1,098,335 字节 —— 刚过 1 MiB 那条线，所以每次 `vite:esbuild-transpile` 都会走临时文件，`pnpm run dev` / `pnpm run build` 随机报：
+
+```
+ERROR  [vite:esbuild-transpile] remove C:\Users\...\Temp\esbuild-<hex>: Access is denied.
+```
+
+补丁把那个分支直接关掉（`if (false)`），输入留在内存里走 pipe —— `build` API 本来就能用同一条 pipe 传任意大小的输入，所以行为不变，产物也不变（主进程仍是压缩后的 948 kB）。**升级 esbuild（含 `vite` 带的版本）后补丁可能失效**，届时会出现「`An error occurred while applying patch`」或老错误复现，需要重新 `pnpm patch` 对齐行号；也可以不改代码，改为在杀软信任区里排除 `%TEMP%` 与本仓库目录。
+
+### 开发服务器端口：为什么不用固定的 5173
+
+`pnpm run dev` 不写死端口。`scripts/dev.mjs` 会先**实探**一个能真正 bind 的端口，再通过 `INKASE_DEV_PORT` 传给 `electron.vite.config.ts` 的 `renderer.server`（那边是 `strictPort: true`）。
+
+原因：Windows 上 5173 经常落在 Hyper-V / WinNAT 的保留端口段里，
+
+```bash
+netsh interface ipv4 show excludedportrange protocol=tcp
+# 协议 tcp 端口排除范围
+#     5159        5258      ← 5173、5174 都在里面
+```
+
+落在保留段里时 bind 返回的是 **`EACCES`（permission denied）而不是 `EADDRINUSE`**，而 Vite 只会对 `EADDRINUSE` 自动顺延端口，于是直接抛：
+
+```
+Error: listen EACCES: permission denied ::1:5173
+[ELIFECYCLE] Command failed with exit code 1.
+```
+
+落到 4173/5460/6006/8080/9000 之类的备用端口时会打印一行提示。想指定端口就设 `INKASE_DEV_PORT=<port>`，或直接 `electron-vite dev --port <port>`（此时脚本不再干预）。
+
+`strictPort` 不能关：electron-vite 拼 `ELECTRON_RENDERER_URL` 用的是 **config 里的 `port` 而不是实际监听端口**（`lib-*.mjs` 里 `const port = conf.port`），一旦顺延就会把窗口指向一个空地址。
+
+同一处还剥掉了继承来的 `ELECTRON_RUN_AS_NODE`：从 Electron 内嵌终端（VS Code 扩展宿主等）启动时这个变量会让 `electron.exe` 退化成普通 Node 运行 `main.cjs`，`require('electron')` 拿到路径字符串而不是 `app`，崩在 `@electron-toolkit/utils` 的 `Cannot read properties of undefined (reading 'isPackaged')`。
+
+想彻底收回被保留的端口（需要管理员，且会影响其他依赖 Hyper-V 的程序）：
+
+```bash
+net stop winnat
+netsh int ipv4 set dynamicport tcp start=49152 num=16384
+netsh int ipv6 set dynamicport tcp start=49152 num=16384
+net start winnat
+```
+
 ## Architecture
 
 ### 进程模型（Electron 双进程）
@@ -175,6 +223,7 @@ src/
 ### 关键设计决策
 
 - **多标签页**: `fileStore.tabs` 数组 + `activeTabId`，向后兼容通过 computed 代理到 `activeTab`
+- **工作台双段**: 标签栏只有「文件 + 一个固定的家」。工作台内部是 `graph` / `ai` 两段，靠 `v-show` 保活（图谱的仿真坐标活在组件实例里，销毁重建会重新播种跳位），**默认落在图谱**——工作台的意义是「看你的库」，AI 是按需打开的第二段。AI 收起或关掉最后一个文档时都退回图谱段。曾经的「概览」段已移除。注意首屏跟着落在图谱时，会话恢复是异步的，`GraphView` 里有一个 `openedFolderPath` watcher 负责在 root 到位后补建索引（否则会停在「先打开一个文件夹」且不再自试）。
 - **`.mdx` 文件格式**: ZIP 压缩包，内含 `mdx.json`（元数据）+ `content.md` + `assets/images/`。打开时解压到系统临时目录，保存时重新打包
 - **图片处理**: 通过 `sharp` 库可选压缩，使用 `adm-zip` 打包进 MDX，读取时通过 IPC 获取 Buffer 转为 Data URL
 - **会话持久化**: localStorage 保存打开的文件路径、编辑器模式、侧边栏状态，启动时自动恢复
@@ -182,6 +231,7 @@ src/
 - **外观设置**: `appearance` store 将编辑区字号/字体族/行高以 CSS 变量注入根节点（`--editor-font-size` / `--editor-font-family` / `--editor-mono-font-family` / `--editor-line-height`），消费端带默认回退；编辑器内 Ctrl+滚轮 步进缩放字号（`useEditorFontZoom`）
 - **Git 同步自愈**: `.inkase/`（本机私有配置）自动写入工作区 `.gitignore`；若已被跟踪则 `git rm --cached` 并提交移除，commit 暂存时排除 `.inkase`；旧用户的 `.markdownPlus` 目录在 attach/授权时自动迁移
 - **IR 尾部空行往返**: `serializeMarkdown` 按尾部连续空段落数补足尾随换行（k 段 ↔ 2k 个 `\n`），`parseMarkdown` 逆向补偿，保证 IR 模式末尾空行保存/重开不丢失
+- **IR 回写必须「读当前文档」**: `IrEditor` 用 `requestAnimationFrame` 把文档序列化回 store（避免每次按键都全文档序列化）。两个铁律：① rAF 回调里序列化 `viewRef.value.state`，**不要**序列化调度时刻传进来的快照——同一帧内连打几个字符（快速键入、按键重复、输入法一次提交多个字符）时快照已经落后，回写会让 store 落后于编辑器；② store 的同步 watcher 见到「store 内容 ≠ 当前序列化」时**不能无条件整篇重建**（`EditorState.create` 的选区默认落在文档开头，表现为「光标莫名跳回开头」且吞掉刚打的字），先用 `lastPushedMarkdown` 判定这是不是自己上一帧写出去的回声，是就补一次回写、以编辑器为准。回写前还要校验 `editorTabId === activeTabId`，否则切标签时旧实例会把上一篇的内容写进新标签。回归用例：`src/components/editor/__tests__/ir-fast-typing-cursor.test.ts`
 
 ### MDX 文件结构
 
@@ -238,7 +288,7 @@ map.inkmind (ZIP)
 - **桥接**：`src/utils/diagram/bridge.ts` 只管收发消息与请求配对，不碰 Pinia。三个实测得来的约束写在代码里：`format:'xml'` 的导出结果在 `payload.xml` 而非 `data`；一次编辑会连发**两条** autosave（第一条是中间态），所以按去抖合并、取最后一条；`EditorUi` 是闭包变量挂不到 `window`，任何程序化操作只能走用户输入或协议
 - **真相在 store**：`tab.content` 是唯一真相，画布是它的视图。改动经 autosave 回写；只有**不是自己写**的变更（重新打开、外部改文件、AI 改正文）才回灌给 iframe，否则「写回 → 监听到变化 → 再加载」会活锁。回灌会记在 `loadChain` 上，保存前冲刷要等它，否则会把装载前的旧模型写进文件
 - **保存前冲刷**：draw.io 的 autosave 是异步且去抖的，`Ctrl+S` 读的是 `tab.content`，刚拖完框就保存会丢最后一次改动。`src/utils/diagram/flush.ts` 是一张「标签 id → 冲刷函数」的登记表，`saveFile`/`saveAsFile` 写盘前按需冲一次；图表编辑器挂载时登记、卸载时先 `flushPendingAutosave()` 再注销
-- **快捷键跨域问题**：画布在跨域 iframe 里，那里的 keydown 不会冒泡到页面，`Ctrl+S` 会「按了没反应」。`electron/main.ts` 用 `webContents.on('before-input-event')` 统一拦截保存快捷键，`preventDefault()` 之后转 `app:shortcut` 给渲染层——`preventDefault` 保证这次按键只被处理一次，不会重复保存
+- **快捷键跨域问题**：画布在跨域 iframe 里，那里的 keydown 不会冒泡到页面，`Ctrl+S` 会「按了没反应」。`electron/main.ts` 用 `webContents.on('before-input-event')` 统一拦截保存/关闭标签页快捷键（`save` / `save-as` / `close-tab`），`preventDefault()` 之后转 `app:shortcut` 给渲染层——`preventDefault` 保证这次按键只被处理一次，不会重复保存、更不会一次关掉两个标签。`Ctrl+W` 必须走这条通道：Chromium 对它没有任何默认行为，不拦就完全没反应；有对话框开着时渲染层不响应，免得用户想关对话框却关掉了文档
 - **导出**：工具栏的 SVG/PNG 走协议 `export`，拿回 data URL 后解码，复用 `exportMindMapImage`（`FILE.EXPORT_IMAGE`）写盘。注意 SVG 里 `html=1` 的标签是 `<foreignObject>`，部分外部渲染器不认
 - **计数**：状态栏对图表显示「图元」而不是「字数」（`countDiagramCells` 数 `<mxCell>` 再减掉每页两个根 cell）
 - **组件缺失时**：`diagram:info` 告诉渲染层 webapp 是否就位；缺了就显示「运行 `pnpm run fetch:drawio`」的空状态，而不是白屏

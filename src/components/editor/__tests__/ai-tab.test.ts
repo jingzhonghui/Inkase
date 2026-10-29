@@ -9,13 +9,24 @@ import EditorPanel from '../EditorPanel.vue'
 import AppHeader from '../../layout/AppHeader.vue'
 import { useAiStore } from '../../../stores/ai'
 import { useFileStore } from '../../../stores/file'
-import { createMdxDocument } from '../../../types/mdx'
+import { useGraphStore } from '../../../stores/graph'
+import { useWorkspaceStore } from '../../../stores/workspace'
+
+/**
+ * 工作台（原「AI 标签」测试）。
+ *
+ * AI 助手与知识图谱不再是标签栏里的合成标签，而是工作台的段；标签栏只剩
+ * 「工作台 + 文档」两类语义。这组用例守住三件事：
+ * 1. 工作台标签常驻、固定最左、没有关闭按钮；
+ * 2. 点文件标签会收起工作台，点工作台会回到前台；
+ * 3. AI 的运行/审批状态仍然在标签栏上可见（挪到了工作台标签里）。
+ */
 
 function mountTabBar() {
   return mount(TabBar)
 }
 
-describe('AI tab', () => {
+describe('工作台标签', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.stubGlobal('localStorage', {
@@ -25,77 +36,67 @@ describe('AI tab', () => {
     })
   })
 
-  it('is absent by default and remains available without file tabs', async () => {
+  it('常驻且固定在最左，没有关闭按钮', () => {
     const wrapper = mountTabBar()
-    const aiStore = useAiStore()
+    const tabs = wrapper.findAll('.tab')
 
-    expect(wrapper.find('[data-testid="ai-tab"]').exists()).toBe(false)
-
-    aiStore.openPanel()
-    await nextTick()
-
-    expect(wrapper.get('[data-testid="ai-tab"]').text()).toContain('AI 助手')
-    expect(wrapper.get('[data-testid="ai-tab"]').classes()).toContain('active')
+    expect(tabs.length).toBe(1)
+    expect(tabs[0].attributes('data-testid')).toBe('workspace-tab')
+    expect(tabs[0].text()).toContain('工作台')
+    expect(tabs[0].find('.tab-close-btn').exists()).toBe(false)
   })
 
-  it('closes from its close button and middle click', async () => {
-    const wrapper = mountTabBar()
-    const aiStore = useAiStore()
-    const close = vi.spyOn(aiStore, 'requestClosePanel').mockResolvedValue()
-    aiStore.openPanel()
-    await nextTick()
-
-    await wrapper.get('[data-testid="ai-tab-close"]').trigger('click')
-    expect(close).toHaveBeenCalledTimes(1)
-
-    await wrapper.get('[data-testid="ai-tab"]').trigger('mousedown', { button: 1 })
-    expect(close).toHaveBeenCalledTimes(2)
-  })
-
-  it('deactivates AI and activates the selected file tab', async () => {
-    const wrapper = mountTabBar()
-    const aiStore = useAiStore()
+  it('有文件时仍然排在最前，文件标签跟在后面', async () => {
     const fileStore = useFileStore()
+    fileStore.createGeneratedDocument('一', 'a', 'markdown')
+    const wrapper = mountTabBar()
+    await nextTick()
+
+    const order = wrapper
+      .findAll('.tab')
+      .map((tab) => tab.attributes('data-testid') ?? tab.attributes('data-tab-id'))
+
+    expect(order[0]).toBe('workspace-tab')
+    expect(order.length).toBe(2)
+  })
+
+  it('点击工作台把它提到前台', async () => {
+    const wrapper = mountTabBar()
+    const workspace = useWorkspaceStore()
+    expect(workspace.active).toBe(false)
+
+    await wrapper.get('[data-testid="workspace-tab"]').trigger('click')
+
+    expect(workspace.active).toBe(true)
+    expect(wrapper.get('[data-testid="workspace-tab"]').classes()).toContain('active')
+  })
+
+  it('选中文件标签后工作台收起，文件成为活动标签', async () => {
+    const fileStore = useFileStore()
+    const workspace = useWorkspaceStore()
     const tab = fileStore.createGeneratedDocument('文档', 'content', 'markdown')
-    aiStore.openPanel()
+    const wrapper = mountTabBar()
+    workspace.open('graph')
     await nextTick()
 
     await wrapper.get(`[data-tab-id="${tab.id}"]`).trigger('click')
 
-    expect(aiStore.panelActive).toBe(false)
+    expect(workspace.active).toBe(false)
     expect(fileStore.activeTabId).toBe(tab.id)
   })
 
-  it('deactivates AI when a file is opened while the AI tab is active', async () => {
-    const fileStore = useFileStore()
+  it('AI 没有运行时，标签上不显示状态标记', async () => {
+    const wrapper = mountTabBar()
     const aiStore = useAiStore()
     aiStore.openPanel()
+    aiStore.deactivatePanel()
     await nextTick()
 
-    const originalElectronApi = window.electronAPI
-    window.electronAPI = {
-      openFile: vi.fn().mockResolvedValue({
-        success: true,
-        data: { document: createMdxDocument('已打开', 'hi'), filePath: '/tmp/已打开.mdx', format: 'mdx' }
-      }),
-      getRecentFiles: vi.fn().mockResolvedValue({ success: true, data: [] })
-    }
-    try {
-      await fileStore.openFile('/tmp/已打开.mdx')
-
-      expect(fileStore.activeTabId).not.toBeNull()
-      expect(aiStore.panelActive).toBe(false)
-
-      const wrapper = mountTabBar()
-      await nextTick()
-      expect(wrapper.get(`[data-tab-id="${fileStore.activeTabId}"]`).classes()).toContain('active')
-      expect(wrapper.get('[data-testid="ai-tab"]').classes()).not.toContain('active')
-    } finally {
-      window.electronAPI = originalElectronApi
-    }
+    expect(wrapper.find('[data-testid="ai-running-marker"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="ai-approval-marker"]').exists()).toBe(false)
   })
 
-  it('shows distinct running and pending-approval markers', async () => {
+  it('AI 运行与待审批状态显示在工作台标签上', async () => {
     const wrapper = mountTabBar()
     const aiStore = useAiStore()
     aiStore.openPanel()
@@ -110,78 +111,9 @@ describe('AI tab', () => {
     expect(wrapper.find('[data-testid="ai-running-marker"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="ai-approval-marker"]').exists()).toBe(true)
   })
-
-  it('can be dragged to a position before the file tabs', async () => {
-    const wrapper = mountTabBar()
-    const aiStore = useAiStore()
-    const fileStore = useFileStore()
-    const first = fileStore.createGeneratedDocument('一', 'a', 'markdown')
-    const second = fileStore.createGeneratedDocument('二', 'b', 'markdown')
-    aiStore.openPanel()
-    await nextTick()
-
-    const order = () =>
-      wrapper.findAll('.tab').map((tab) => tab.attributes('data-testid') ?? tab.attributes('data-tab-id'))
-
-    expect(order()).toEqual([first.id, second.id, 'ai-tab'])
-
-    await wrapper.get('[data-testid="ai-tab"]').trigger('dragstart')
-    const firstTab = wrapper.get(`[data-tab-id="${first.id}"]`)
-    await firstTab.trigger('dragover', { clientX: 0 })
-    await firstTab.trigger('drop')
-
-    expect(aiStore.tabIndex).toBe(0)
-    expect(order()).toEqual(['ai-tab', first.id, second.id])
-    // AI 位置变化不应打乱文件标签相对顺序
-    expect(fileStore.tabs.map((tab) => tab.id)).toEqual([first.id, second.id])
-  })
-
-  it('can be dragged to a position between file tabs', async () => {
-    const wrapper = mountTabBar()
-    const aiStore = useAiStore()
-    const fileStore = useFileStore()
-    const first = fileStore.createGeneratedDocument('一', 'a', 'markdown')
-    const second = fileStore.createGeneratedDocument('二', 'b', 'markdown')
-    aiStore.openPanel()
-    await nextTick()
-
-    await wrapper.get('[data-testid="ai-tab"]').trigger('dragstart')
-    const secondTab = wrapper.get(`[data-tab-id="${second.id}"]`)
-    await secondTab.trigger('dragover', { clientX: 0 })
-    await secondTab.trigger('drop')
-
-    expect(aiStore.tabIndex).toBe(1)
-    expect(
-      wrapper.findAll('.tab').map((tab) => tab.attributes('data-testid') ?? tab.attributes('data-tab-id'))
-    ).toEqual([first.id, 'ai-tab', second.id])
-  })
-
-  it('moves a file tab across the AI tab', async () => {
-    const wrapper = mountTabBar()
-    const aiStore = useAiStore()
-    const fileStore = useFileStore()
-    const first = fileStore.createGeneratedDocument('一', 'a', 'markdown')
-    const second = fileStore.createGeneratedDocument('二', 'b', 'markdown')
-    aiStore.openPanel()
-    aiStore.setTabIndex(1)
-    await nextTick()
-
-    const order = () =>
-      wrapper.findAll('.tab').map((tab) => tab.attributes('data-testid') ?? tab.attributes('data-tab-id'))
-    expect(order()).toEqual([first.id, 'ai-tab', second.id])
-
-    const firstTab = wrapper.get(`[data-tab-id="${first.id}"]`)
-    await firstTab.trigger('dragstart')
-    const secondTab = wrapper.get(`[data-tab-id="${second.id}"]`)
-    await secondTab.trigger('dragover', { clientX: 100 })
-    await secondTab.trigger('drop')
-
-    expect(aiStore.tabIndex).toBe(0)
-    expect(order()).toEqual(['ai-tab', second.id, first.id])
-  })
 })
 
-describe('AI editor view', () => {
+describe('工作台视图', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.stubGlobal('localStorage', {
@@ -191,7 +123,7 @@ describe('AI editor view', () => {
     })
   })
 
-  it('shows AiPanel while keeping an open document editor mounted', async () => {
+  it('AI 段显示 AiPanel，同时保留已打开的文档编辑器', async () => {
     const fileStore = useFileStore()
     fileStore.createGeneratedDocument('文档', 'content', 'markdown')
     const wrapper = mount(EditorPanel, {
@@ -205,27 +137,30 @@ describe('AI editor view', () => {
         }
       }
     })
-    const aiStore = useAiStore()
-    aiStore.openPanel()
+    const workspace = useWorkspaceStore()
+    workspace.open('ai')
     await nextTick()
 
     expect(wrapper.get('[data-testid="ai-panel"]').isVisible()).toBe(true)
     expect(wrapper.find('[data-testid="document-editor"]').exists()).toBe(true)
   })
 
-  it('passes reactive readiness to AiPanel and forwards settings requests', async () => {
+  it('把 ready 透传给 AiPanel，并转发设置请求', async () => {
     const wrapper = mount(EditorPanel, {
       props: { aiReady: false },
-      global: { stubs: {
-        TabBar: true,
-        AiPanel: {
-          props: ['ready'], emits: ['open-settings'],
-          template: '<button data-testid="ai-panel" :data-ready="ready" @click="$emit(\'open-settings\')" />'
+      global: {
+        stubs: {
+          TabBar: true,
+          AiPanel: {
+            props: ['ready'],
+            emits: ['open-settings'],
+            template:
+              '<button data-testid="ai-panel" :data-ready="ready" @click="$emit(\'open-settings\')" />'
+          }
         }
-      } }
+      }
     })
-    const aiStore = useAiStore()
-    aiStore.openPanel()
+    useWorkspaceStore().open('ai')
     await nextTick()
 
     expect(wrapper.get('[data-testid="ai-panel"]').attributes('data-ready')).toBe('false')
@@ -235,57 +170,68 @@ describe('AI editor view', () => {
     expect(wrapper.emitted('openAiSettings')).toHaveLength(1)
   })
 
-  it('returns to the welcome view after closing AI with no files', async () => {
+  it('关掉 AI 之后退回图谱段，而不是留一块空白', async () => {
     const wrapper = mount(EditorPanel, {
       global: {
         stubs: { TabBar: true, AiPanel: { template: '<div data-testid="ai-panel" />' } }
       }
     })
     const aiStore = useAiStore()
-    aiStore.openPanel()
+    const workspace = useWorkspaceStore()
+    workspace.open('ai')
     await nextTick()
-    expect(wrapper.get('[data-testid="ai-panel"]').isVisible()).toBe(true)
+    expect(workspace.segment).toBe('ai')
 
     await aiStore.requestClosePanel()
     await nextTick()
-    expect(wrapper.get('.welcome-page').isVisible()).toBe(true)
+
+    // 图谱段是工作台的默认落点：AI 收起后回到这里，而不是一块什么都没有的空白
+    expect(workspace.segment).toBe('graph')
+    expect(workspace.active).toBe(true)
+    expect(wrapper.find('[data-testid="ai-panel"]').exists()).toBe(false)
+  })
+
+  it('切到图谱段时进入图谱模式，且默认不展开', async () => {
+    mount(EditorPanel, { global: { stubs: { TabBar: true } } })
+    const graphStore = useGraphStore()
+    const workspace = useWorkspaceStore()
+
+    workspace.open('graph')
+    await nextTick()
+
+    expect(workspace.segment).toBe('graph')
+    expect(workspace.active).toBe(true)
+    expect(graphStore.panelOpen).toBe(true)
+    expect(workspace.expanded).toBe(false)
   })
 })
 
-describe('AI header entry', () => {
-  it('does not auto-open AI and opens it from the View menu', async () => {
+describe('AI 入口', () => {
+  it('不再自动打开 AI，从视图菜单打开时进入工作台的 AI 段', async () => {
     setActivePinia(createPinia())
     const wrapper = mount(AppHeader, {
       global: { stubs: { teleport: true } }
     })
     const aiStore = useAiStore()
+    const workspace = useWorkspaceStore()
     expect(aiStore.panelOpen).toBe(false)
 
     await wrapper.findAll('.menu-item').find((item) => item.text() === '视图')!.trigger('click')
     await wrapper.findAll('.menu-entry').find((item) => item.text().includes('AI 助手'))!.trigger('click')
 
     expect(aiStore.panelOpen).toBe(true)
-    expect(aiStore.panelActive).toBe(true)
+    expect(workspace.active).toBe(true)
+    expect(workspace.segment).toBe('ai')
   })
 
-  it('opens AI from the header button and closes it again on a second click', async () => {
+  it('头部不再有独立的 AI 按钮——AI 常驻工作台，入口只剩菜单与工作台分段', () => {
     setActivePinia(createPinia())
     const wrapper = mount(AppHeader, {
       global: { stubs: { teleport: true } }
     })
-    const aiStore = useAiStore()
-    const close = vi.spyOn(aiStore, 'requestClosePanel').mockResolvedValue()
-    expect(aiStore.panelOpen).toBe(false)
 
-    const aiButton = wrapper.find('[aria-label="AI 助手"]')
-    await aiButton.trigger('click')
-
-    expect(aiStore.panelOpen).toBe(true)
-    expect(aiStore.panelActive).toBe(true)
-    expect(aiButton.classes()).toContain('active')
-
-    await aiButton.trigger('click')
-    expect(close).toHaveBeenCalledTimes(1)
-    expect(close).toHaveBeenCalledWith()
+    expect(wrapper.find('[aria-label="AI 助手"]').exists()).toBe(false)
+    // 菜单里的入口还在：它是键盘/鼠标之外唯一不经过标签栏的路径
+    expect(wrapper.find('.menu-item').exists()).toBe(true)
   })
 })

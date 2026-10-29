@@ -973,21 +973,38 @@ function createContextMenuPlugin(): ProseMirrorPlugin {
 
 // ────── 序列化节流（避免每次按键都全文档序列化） ──────
 let serializeScheduled = false
-let lastSerializeTs = 0
+/**
+ * 最近一次「我们自己」回写到 store 的 Markdown。
+ *
+ * 回写走 requestAnimationFrame，必然比编辑器慢半拍：同一帧内连打几个字符
+ * （快速键入、按键重复、输入法一次提交多个字符）时，rAF 回调拿到的文档
+ * 可能已经落后于 view.state。store 一旦落后，下面的同步 watcher 就会把
+ * 它当成「外部改动」整篇重建，于是光标弹回文档开头、刚打的字被吞掉。
+ * 记住自己写过什么，才能在 watcher 里把这种回声与真正的外部改动区分开。
+ */
+let lastPushedMarkdown: string | null = null
 
-function scheduleSerialize(state: { doc: ProseMirrorNode }): void {
+function scheduleSerialize(): void {
   if (isUpdatingFromStore) return
-  const now = performance.now()
-  if (serializeScheduled && now - lastSerializeTs < 50) return
+  // 一帧内只序列化一次即可：rAF 触发时读的是当时的 view.state，
+  // 因此合并调度不会丢内容，不需要额外的 50ms 丢弃窗口。
+  if (serializeScheduled) return
   serializeScheduled = true
-  lastSerializeTs = now
   requestAnimationFrame(() => {
     serializeScheduled = false
-    const markdown = serializeMarkdown(state.doc)
+    const view = viewRef.value
+    if (!view || view.isDestroyed) return
+    // 回写只能写进「这篇文档」：切换标签时旧实例可能还没销毁完，
+    // 此时 fileStore.updateContent 会写进当前激活的另一个标签。
+    if (editorTabId !== activeTabId.value) return
+    // 必须序列化「当前」文档，而不是调度时刻的快照：
+    // 快照在快速输入时已经落后于光标所在的文档。
+    const markdown = serializeMarkdown(view.state.doc)
     // 全等比较：parseMarkdown 已补偿尾部空段落，serialize 与 store 内容应严格一致，
     // 任何差异（含尾部空行增减）都是真实编辑，必须回写。
     // 此前「双方去尾再比较」会吞掉仅尾部空行变化的编辑，导致空行保存后丢失。
     if (markdown !== (fileStore.fileContent || '')) {
+      lastPushedMarkdown = markdown
       fileStore.updateContent(markdown)
     }
   })
@@ -1124,8 +1141,8 @@ function createEditorState(content: string): EditorState {
       // 异步处理图片插入，使用最新的 view 状态
       handlePasteImage(view, file)
     }),
-    createDocumentChangePlugin((state) => {
-      scheduleSerialize(state)
+    createDocumentChangePlugin(() => {
+      scheduleSerialize()
     }),
     createIRPlugin(),
     createCodeHighlightPlugin(),
@@ -1475,20 +1492,31 @@ watch([activeTabId, fileContent], ([newTabId, newContent], [oldTabId]) => {
   const view = viewRef.value
   if (!view) return
 
+  const next = newContent || ''
   const currentMarkdown = serializeMarkdown(view.state.doc)
   const tabChanged = newTabId !== oldTabId
-  if (!tabChanged && currentMarkdown === (newContent || '')) return
+  if (!tabChanged && currentMarkdown === next) return
+
+  // 自己回写的回声：store 里正是上一帧我们写出去的内容，而编辑器又往前走了。
+  // 此时编辑器才是真相——整篇重建会把光标弹回文档开头，还会吞掉新输入。
+  // 让回写追上来即可（rAF 读的是触发时的 view.state，不会再用旧快照）。
+  if (!tabChanged && next === lastPushedMarkdown) {
+    scheduleSerialize()
+    return
+  }
 
   // 从 store 同步内容到编辑器：直接用 updateState 替换整个 state
   // 避免 dispatch transaction 时和当前 state 不匹配，同时阻止
   // createDocumentChangePlugin 回写 store 造成双向循环
   isUpdatingFromStore = true
   const newState = EditorState.create({
-    doc: parseMarkdown(newContent || ''),
+    doc: parseMarkdown(next),
     plugins: view.state.plugins
   })
   view.updateState(newState)
   isUpdatingFromStore = false
+  // 换到另一篇文档后，之前的回写记录不再代表这篇文档的内容
+  if (tabChanged) lastPushedMarkdown = null
   publishOutline()
   // 切换 tab 后编辑器选区被重置为文档开头，重新发布快照避免残留旧 tab 的选区。
   if (tabChanged) publishSelectionFromProseMirror()

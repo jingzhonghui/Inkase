@@ -33,6 +33,15 @@ export default defineConfig({
   },
   renderer: {
     root: '.',
+    // 端口由 scripts/dev.mjs 实探后经 INKASE_DEV_PORT 传入：Windows 上 5173 常被
+    // Hyper-V / WinNAT 保留（netsh int ipv4 show excludedportrange protocol=tcp），
+    // 此时 listen 报 EACCES，Vite 不会顺延端口。strictPort 必须开 ——
+    // electron-vite 拼 ELECTRON_RENDERER_URL 用的是 config 里的 port 而非实际端口。
+    server: {
+      host: '127.0.0.1',
+      port: Number(process.env.INKASE_DEV_PORT) || 5173,
+      strictPort: true
+    },
     build: {
       rollupOptions: {
         input: {

@@ -5,7 +5,7 @@ import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import AppHeader from '../AppHeader.vue'
 import { useFileStore } from '../../../stores/file'
-import { useAiStore } from '../../../stores/ai'
+import { useWorkspaceStore } from '../../../stores/workspace'
 import { useSyncStore } from '../../../stores/sync'
 import { dialogState, resolveDialogRequest } from '../../../utils/dialog'
 
@@ -247,24 +247,26 @@ describe('AppHeader 标签切换快捷键', () => {
     expect(shiftEvent.defaultPrevented).toBe(false)
   })
 
-  it('Ctrl+方向键的循环包含 AI 标签', async () => {
+  it('Ctrl+方向键的循环包含工作台标签', async () => {
     const wrapper = mountHeader()
     const fileStore = useFileStore()
-    const aiStore = useAiStore()
+    const workspaceStore = useWorkspaceStore()
     fileStore.tabs.push({ id: 'tab-1', fileInfo: null, document: null, content: '', revision: 0 })
     fileStore.tabs.push({ id: 'tab-2', fileInfo: null, document: null, content: '', revision: 0 })
     fileStore.activeTabId = 'tab-1'
-    aiStore.openPanel()
-    aiStore.deactivatePanel()
 
-    // AI 标签默认排在末尾：从第一个文件标签向左循环到 AI
-    const toAi = new KeyboardEvent('keydown', { key: 'ArrowLeft', ctrlKey: true, cancelable: true })
-    window.dispatchEvent(toAi)
+    // 标签序列是 [工作台, tab-1, tab-2]：从 tab-1 向左循环到工作台
+    const toWorkspace = new KeyboardEvent('keydown', {
+      key: 'ArrowLeft',
+      ctrlKey: true,
+      cancelable: true
+    })
+    window.dispatchEvent(toWorkspace)
     await wrapper.vm.$nextTick()
-    expect(aiStore.panelActive).toBe(true)
+    expect(workspaceStore.active).toBe(true)
     expect(fileStore.activeTabId).toBe('tab-1')
 
-    // 从 AI 向右循环回第一个文件标签，并退出 AI 激活态
+    // 再向右循环回到第一个文件标签，工作台收起
     const toFile = new KeyboardEvent('keydown', {
       key: 'ArrowRight',
       ctrlKey: true,
@@ -272,7 +274,7 @@ describe('AppHeader 标签切换快捷键', () => {
     })
     window.dispatchEvent(toFile)
     await wrapper.vm.$nextTick()
-    expect(aiStore.panelActive).toBe(false)
+    expect(workspaceStore.active).toBe(false)
     expect(fileStore.activeTabId).toBe('tab-1')
   })
 

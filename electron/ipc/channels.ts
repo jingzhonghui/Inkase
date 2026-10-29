@@ -133,6 +133,16 @@ export const IPC_CHANNELS = {
   LINK: {
     OPEN: 'link:open'
   },
+  GRAPH: {
+    /** invoke(root) → GraphPayload */
+    BUILD: 'graph:build',
+    /** webContents.send → { scanned, total } */
+    PROGRESS: 'graph:progress',
+    /** invoke(root, relPath) → 单文件重算出链 */
+    REFRESH_FILE: 'graph:refreshFile',
+    /** invoke({ root, from, to, title? }) → { line, skipped } */
+    CREATE_LINK: 'graph:createLink'
+  },
   AI: {
     CONFIG: {
       GET: 'ai:config:get',

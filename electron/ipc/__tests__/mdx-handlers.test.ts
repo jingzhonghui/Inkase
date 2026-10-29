@@ -301,6 +301,111 @@ describe('mdx file handlers', () => {
     expect(fs.readFileSync(`${typedPath}.md`, 'utf-8')).toBe('# 标题\n')
   })
 
+  it('save-as does not double the extension the dialog already appended', async () => {
+    registerMdxHandlers()
+    const electron = await import('electron')
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mdp-mdx-handlers-'))
+    dirsToClean.push(dir)
+
+    /*
+     * Windows 的保存对话框会按过滤器自动补扩展名：用户只输入「1」，
+     * 拿回来的 filePath 已经是 1.mdx。旧逻辑只排除了 .md/.inkmind/.drawio，
+     * 于是又补了一次，落盘成 1.mdx.mdx。
+     */
+    const typedPath = path.join(dir, '1.mdx')
+    vi.mocked(electron.dialog.showSaveDialog).mockResolvedValue({
+      canceled: false,
+      filePath: typedPath
+    } as unknown as Awaited<ReturnType<typeof electron.dialog.showSaveDialog>>)
+
+    const result = await call(IPC_CHANNELS.FILE.SAVE_AS, '正文', '1', undefined, false, 'mdx')
+
+    expect(result.error).toBeUndefined()
+    expect(result.success).toBe(true)
+    // 返回的必须是**最终**路径：渲染层用它更新标签名，缺了标签就停在「未命名」
+    expect(result.data).toBe(typedPath)
+    expect(fs.existsSync(typedPath)).toBe(true)
+    expect(fs.existsSync(`${typedPath}.mdx`)).toBe(false)
+  })
+
+  it('save-as offers an all-files filter so users are not locked into the named types', async () => {
+    registerMdxHandlers()
+    const electron = await import('electron')
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mdp-mdx-handlers-'))
+    dirsToClean.push(dir)
+
+    vi.mocked(electron.dialog.showSaveDialog).mockResolvedValue({
+      canceled: true,
+      filePath: undefined
+    } as unknown as Awaited<ReturnType<typeof electron.dialog.showSaveDialog>>)
+
+    await call(IPC_CHANNELS.FILE.SAVE_AS, '正文', '1', undefined, false, 'mdx')
+
+    // electron 的类型只声明了单参重载，这里按真实调用形态取「选项」那个实参
+    const firstSaveCall = vi.mocked(electron.dialog.showSaveDialog).mock.calls[0] as unknown as unknown[]
+    const options = firstSaveCall[1] as {
+      filters?: { name: string; extensions: string[] }[]
+    }
+    /*
+     * 只有 .mdx/.md 两个命名过滤器时，Windows 会把用户输入的扩展名改回
+     * 过滤器那一个——想存成 .html / .json 根本做不到。必须有「所有文件」。
+     */
+    expect(options.filters?.some((filter) => filter.name === '所有文件')).toBe(true)
+    expect(options.filters?.some((filter) => filter.extensions.includes('*'))).toBe(true)
+  })
+
+  it('save-as keeps an extension the user typed under all-files and writes plain text', async () => {
+    registerMdxHandlers()
+    const electron = await import('electron')
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mdp-mdx-handlers-'))
+    dirsToClean.push(dir)
+
+    // 「所有文件」里输入 1.txt：既不能再补一个 .mdx，也不能拿 .mdx 的校验器挡下来
+    const typedPath = path.join(dir, '1.txt')
+    vi.mocked(electron.dialog.showSaveDialog).mockResolvedValue({
+      canceled: false,
+      filePath: typedPath
+    } as unknown as Awaited<ReturnType<typeof electron.dialog.showSaveDialog>>)
+
+    const result = await call(IPC_CHANNELS.FILE.SAVE_AS, '正文', '1', undefined, false, 'mdx')
+
+    expect(result.error).toBeUndefined()
+    expect(result.success).toBe(true)
+    expect(result.data).toBe(typedPath)
+    expect(fs.existsSync(typedPath)).toBe(true)
+    expect(fs.existsSync(`${typedPath}.mdx`)).toBe(false)
+    expect(fs.readFileSync(typedPath, 'utf-8')).toBe('正文')
+  })
+
+  it('save-as still reports success when recording the recent file throws', async () => {
+    registerMdxHandlers()
+    const electron = await import('electron')
+    const fileHandlers = await import('../file-handlers')
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mdp-mdx-handlers-'))
+    dirsToClean.push(dir)
+
+    const typedPath = path.join(dir, '2.mdx')
+    vi.mocked(electron.dialog.showSaveDialog).mockResolvedValue({
+      canceled: false,
+      filePath: typedPath
+    } as unknown as Awaited<ReturnType<typeof electron.dialog.showSaveDialog>>)
+    /*
+     * 最近文件那份 JSON 在 Windows 上可能写不进去（被杀软/其它进程占着）。
+     * 那时文件其实已经在盘上了，若把整次保存判成失败，渲染层就不会更新
+     * 标签名——用户看到「存成 2.mdx 了，标签还叫未命名.mdx」。
+     */
+    vi.mocked(fileHandlers.addRecentFile).mockImplementation(() => {
+      throw new Error('EBUSY: recent files is locked')
+    })
+
+    const result = await call(IPC_CHANNELS.FILE.SAVE_AS, '正文', '2', undefined, true, 'mdx')
+
+    expect(result.error).toBeUndefined()
+    expect(result.success).toBe(true)
+    expect(result.data).toBe(typedPath)
+    expect(fs.existsSync(typedPath)).toBe(true)
+  })
+
   it('save-as of a new mindmap leaves a usable temp dir for the next asset insert', async () => {
     registerMdxHandlers()
     registerMindMapHandlers()

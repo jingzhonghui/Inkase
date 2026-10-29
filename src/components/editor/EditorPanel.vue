@@ -1,9 +1,12 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, ref } from 'vue'
-import { IconFile, IconFolder, IconPlus, IconSourceCode, IconWorldWww } from '@tabler/icons-vue'
+import { computed, defineAsyncComponent, ref, watch } from 'vue'
+import { IconSourceCode, IconWorldWww } from '@tabler/icons-vue'
 import { useFileStore } from '../../stores/file'
 import { useAiStore } from '../../stores/ai'
+import { useGraphStore } from '../../stores/graph'
+import { useWorkspaceStore } from '../../stores/workspace'
 import AiPanel from '../ai/AiPanel.vue'
+import WorkspaceTopBar from '../layout/WorkspaceTopBar.vue'
 import SourceEditor from './SourceEditor.vue'
 import IrEditor from './IrEditor.vue'
 import PreviewPanel from './PreviewPanel.vue'
@@ -26,10 +29,50 @@ const MindMapEditor = defineAsyncComponent(() => import('./MindMapEditor.vue'))
  */
 const DiagramEditor = defineAsyncComponent(() => import('./DiagramEditor.vue'))
 
+/**
+ * 知识图谱同样按需加载：索引之外的仿真、绘制、问题清单只在打开图谱时才需要，
+ * 让它们进首屏包等于给每个用户多发一份用不到的画布代码（设计 §6）。
+ */
+const GraphView = defineAsyncComponent(() => import('../graph/GraphView.vue'))
+
 const fileStore = useFileStore()
 const aiStore = useAiStore()
+const graphStore = useGraphStore()
+const workspaceStore = useWorkspaceStore()
 defineProps<{ aiReady?: boolean }>()
 const emit = defineEmits<{ openAiSettings: [] }>()
+
+// ===== 工作台与文档视图的切换规则 =====
+// 1. 关了最后一个文档 → 回到工作台（这正是「常驻」的意义：有地方可回）
+// 2. 打开/切换到别的文档 → 让文档视图接管，否则用户点了节点或最近文件却没有反应
+//    注意只认 activeTabId 的**变化**：点工作台分段不会动它，不会误关工作台
+watch(
+  () => fileStore.tabs.length,
+  (count) => {
+    if (count === 0) workspaceStore.open('graph')
+  },
+  // 启动时没有文档就直接落在工作台：这里不再是「欢迎页占位」，而是首屏
+  { immediate: true }
+)
+
+watch(
+  () => fileStore.activeTabId,
+  (next, previous) => {
+    if (next !== previous && next !== null) workspaceStore.close()
+  }
+)
+
+// 3. AI 被关掉（且当时正停在 AI 段）→ 退回图谱段，别留一块空白
+//    AI 段的挂载条件是 panelOpen，关掉之后这一段就没有内容了。
+//    只在工作台处于前台时兜底：在文档视图里点工具栏关 AI，不该把人拽到工作台
+watch(
+  () => aiStore.panelOpen,
+  (open) => {
+    if (!open && workspaceStore.active && workspaceStore.segment === 'ai') {
+      workspaceStore.setSegment('graph')
+    }
+  }
+)
 
 const showPreview = computed(() => fileStore.effectiveEditorMode === 'split')
 const isIrMode = computed(() => fileStore.effectiveEditorMode === 'ir')
@@ -75,110 +118,13 @@ function onPreviewScroll(ratio: number): void {
     <!-- 标签栏 -->
     <TabBar />
 
-    <!-- 无文件打开时：显示欢迎页 -->
-    <div
-      v-show="!hasOpenFile && !aiStore.panelActive"
-      class="welcome-page"
-    >
-      <div class="welcome-content">
-        <img
-          src="../../assets/logo.svg"
-          alt="Inkase"
-          class="welcome-logo"
-        >
-        <h1 class="welcome-title">
-          Inkase
-        </h1>
-        <p class="welcome-subtitle">
-          自包含文档工作台
-        </p>
-
-        <div class="welcome-actions">
-          <button
-            class="welcome-btn primary"
-            @click="fileStore.newFile()"
-          >
-            <IconPlus />
-            新建文件
-          </button>
-          <button
-            class="welcome-btn"
-            @click="fileStore.openFile()"
-          >
-            <IconFile />
-            打开文件
-          </button>
-          <button
-            class="welcome-btn"
-            @click="fileStore.openFolder()"
-          >
-            <IconFolder />
-            打开文件夹
-          </button>
-        </div>
-
-        <div class="welcome-shortcuts">
-          <h2 class="shortcuts-title">
-            快捷键
-          </h2>
-          <div class="shortcuts-grid">
-            <div class="shortcut-item">
-              <kbd>Ctrl+N</kbd>
-              <span>新建文件</span>
-            </div>
-            <div class="shortcut-item">
-              <kbd>Ctrl+O</kbd>
-              <span>打开文件</span>
-            </div>
-            <div class="shortcut-item">
-              <kbd>Ctrl+P</kbd>
-              <span>快速打开文件</span>
-            </div>
-            <div class="shortcut-item">
-              <kbd>Ctrl+S</kbd>
-              <span>保存文件</span>
-            </div>
-            <div class="shortcut-item">
-              <kbd>Ctrl+Shift+S</kbd>
-              <span>另存为</span>
-            </div>
-            <div class="shortcut-item">
-              <kbd>Ctrl+B</kbd>
-              <span>粗体</span>
-            </div>
-            <div class="shortcut-item">
-              <kbd>Ctrl+I</kbd>
-              <span>斜体</span>
-            </div>
-            <div class="shortcut-item">
-              <kbd>Ctrl+K</kbd>
-              <span>插入链接</span>
-            </div>
-            <div class="shortcut-item">
-              <kbd>Ctrl+H</kbd>
-              <span>替换</span>
-            </div>
-            <div class="shortcut-item">
-              <kbd>Ctrl+F</kbd>
-              <span>查找</span>
-            </div>
-            <div class="shortcut-item">
-              <kbd>Shift+Alt+F</kbd>
-              <span>格式化文档</span>
-            </div>
-            <div class="shortcut-item">
-              <kbd>Ctrl+/</kbd>
-              <span>切换编辑模式</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
+    <!-- 工作台顶条：图谱 / AI 两段共用一条，避免"双页头" -->
+    <WorkspaceTopBar v-if="workspaceStore.active" />
 
     <!-- 有文件打开时：显示编辑器 -->
     <div
       v-if="hasOpenFile"
-      v-show="!aiStore.panelActive"
+      v-show="!workspaceStore.active"
       class="document-view"
     >
       <!-- HTML 预览切换悬浮按钮（仅 HTML 标签页显示，独立于 Markdown 模式体系） -->
@@ -278,9 +224,18 @@ function onPreviewScroll(ratio: number): void {
 
     <AiPanel
       v-if="aiStore.panelOpen"
-      v-show="aiStore.panelActive"
+      v-show="workspaceStore.isAi"
       :ready="aiReady ?? false"
       @open-settings="emit('openAiSettings')"
+    />
+
+    <!-- 知识图谱：工作台的第三段。embedded 让它交出自己的页头，
+         由顶条统一提供搜索、统计与刷新，否则顶部会叠两条横条 -->
+    <GraphView
+      v-if="graphStore.panelOpen"
+      v-show="workspaceStore.isGraph"
+      embedded
+      :rail-visible="!workspaceStore.expanded"
     />
   </div>
 </template>
@@ -336,126 +291,6 @@ function onPreviewScroll(ratio: number): void {
   background: var(--color-primary-light);
   color: var(--color-primary);
   border-color: var(--color-primary);
-}
-
-/* 欢迎页 */
-.welcome-page {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow-y: auto;
-}
-
-.welcome-content {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 48px 32px;
-  max-width: 520px;
-  width: 100%;
-}
-
-.welcome-logo {
-  width: 64px;
-  height: 64px;
-  margin-bottom: 16px;
-}
-
-.welcome-title {
-  font-size: calc(var(--ui-font-size) + 15px);
-  font-weight: 700;
-  color: var(--color-text);
-  margin: 0;
-}
-
-.welcome-subtitle {
-  font-size: calc(var(--ui-font-size) + 1px);
-  color: var(--color-text-secondary);
-  margin: 8px 0 32px;
-}
-
-.welcome-actions {
-  display: flex;
-  gap: 12px;
-  margin-bottom: 40px;
-}
-
-.welcome-btn {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 20px;
-  font-size: var(--ui-font-size);
-  font-weight: 500;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-bg-primary);
-  color: var(--color-text);
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.welcome-btn:hover {
-  border-color: var(--color-primary);
-  color: var(--color-primary);
-  background: var(--color-primary-light);
-}
-
-.welcome-btn.primary {
-  background: var(--color-primary);
-  border-color: var(--color-primary);
-  color: white;
-}
-
-.welcome-btn.primary:hover {
-  background: var(--color-primary-hover);
-}
-
-.welcome-btn svg {
-  width: 16px;
-  height: 16px;
-}
-
-.shortcuts-title {
-  font-size: calc(var(--ui-font-size) - 1px);
-  font-weight: 600;
-  color: var(--color-text-tertiary);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  margin: 0 0 16px;
-}
-
-.shortcuts-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px 32px;
-}
-
-.shortcut-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 6px 0;
-}
-
-.shortcut-item kbd {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 8px;
-  font-family: var(--font-mono);
-  font-size: calc(var(--ui-font-size) - 2px);
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
-  color: var(--color-text-secondary);
-  white-space: nowrap;
-}
-
-.shortcut-item span {
-  font-size: var(--ui-font-size);
-  color: var(--color-text-secondary);
 }
 
 /* Splitpanes 主题适配 */

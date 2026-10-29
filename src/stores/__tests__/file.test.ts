@@ -1039,6 +1039,22 @@ describe('file store', () => {
       expect(store.currentFile?.format).toBe('markdown')
       expect(electronAPI.saveAsFile).toHaveBeenCalledWith('content', 'Doc', undefined, false, 'mdx')
     })
+
+    it('改名为 1 之后标签跟着变成 1.mdx，文档标题也不再是未命名', async () => {
+      const doc = makeDoc('未命名文档', 'content')
+      electronAPI.newFile.mockResolvedValue({ success: true, data: { document: doc, isNew: true } })
+      electronAPI.saveFile.mockResolvedValue({ success: false, error: 'NEW_FILE' })
+      electronAPI.saveAsFile.mockResolvedValue({ success: true, data: 'C:/notes/1.mdx' })
+
+      const store = useFileStore()
+      await store.newFile()
+      await store.saveFile()
+
+      // 标签栏读的是 fileInfo.name，它必须跟着新路径走
+      expect(store.currentFile?.name).toBe('1.mdx')
+      expect(store.currentFile?.path).toBe('C:/notes/1.mdx')
+      expect(store.activeTab?.document?.metadata.title).toBe('1')
+    })
   })
 
   describe('closeTab', () => {

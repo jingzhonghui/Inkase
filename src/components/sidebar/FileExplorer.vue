@@ -2,6 +2,7 @@
 import { ref, reactive, provide, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { IconChevronRight, IconFolderOpen } from '@tabler/icons-vue'
 import { useFileStore, type FileTreeNode } from '../../stores/file'
+import { useWorkspaceStore } from '../../stores/workspace'
 import { requestDialog } from '../../utils/dialog'
 import { validateWindowsFolderName, validateWindowsFileName } from '../../utils/windows-filename'
 import { dedupeTopLevelPaths } from '../../../shared/fs/dedupe'
@@ -10,6 +11,7 @@ import { DIAGRAM_EXTENSION } from '../../../shared/diagram/document'
 import FileTreeItem from './FileTreeItem.vue'
 
 const fileStore = useFileStore()
+const workspaceStore = useWorkspaceStore()
 
 // ========== 拖拽移动 ==========
 const dragState = reactive<{
@@ -392,6 +394,14 @@ function onFileContextMenu(event: MouseEvent, node: FileTreeNode): void {
       label: '打开文件所在位置',
       action: () => {
         void fileStore.revealInExplorer(node.path)
+      }
+    },
+    CONTEXT_MENU_DIVIDER,
+    {
+      // 直接进局部模式：以所选文件为中心看它连着谁（设计 §4.1）
+      label: '显示图谱',
+      action: () => {
+        workspaceStore.open('graph', { centerFilePath: node.path })
       }
     }
   ]

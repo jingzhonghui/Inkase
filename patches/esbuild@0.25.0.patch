@@ -1,0 +1,26 @@
+diff --git a/lib/main.js b/lib/main.js
+index 0a6e6700f2826eace57dcafe86e9d528b0b2acfa..a57cbe9dd8bcb3ecf79aeb2f5c6c7a8ee78858ed 100644
+--- a/lib/main.js
++++ b/lib/main.js
+@@ -791,7 +791,20 @@ function createChannel(streamIn) {
+         });
+       }
+     };
+-    if ((typeof input === "string" || input instanceof Uint8Array) && input.length > 1024 * 1024) {
++    // Patched by Inkase: never spill a transform input to a temp file.
++    //
++    // Upstream writes inputs > 1 MiB to `%TEMP%\esbuild-<random hex>` and hands the
++    // path to the Go side, which deletes it once read. On Windows that delete is
++    // regularly vetoed right after the write (real-time antivirus scanning the new
++    // file), and esbuild then aborts with `remove <temp>: Access is denied.`.
++    //
++    // That is fatal here because the Electron main-process chunk is 1,098,335 bytes
++    // — just over the 1 MiB line — so every `vite:esbuild-transpile` pass went
++    // through the temp file and `pnpm run dev` / `pnpm run build` failed at random.
++    //
++    // Keeping the input in memory is safe: the `build` API already streams inputs
++    // of any size over this same stdin pipe.
++    if (false) {
+       let next = start;
+       start = () => fs3.writeFile(input, next);
+     }

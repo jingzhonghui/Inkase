@@ -22,6 +22,7 @@ import type {
   SyncStatusView
 } from './sync/types'
 import type { XmindImportWarnings } from '../shared/mindmap/xmind'
+import type { FileLinkRecord, GraphPayload } from '../shared/graph/types'
 
 export type { UpdateInfoPayload }
 
@@ -38,6 +39,20 @@ export interface FolderItem {
 export interface RecentItem {
   path: string
   type: 'file' | 'folder'
+}
+
+/** 图谱构建进度：主进程每处理一批文件推一次 */
+export interface GraphProgressEvent {
+  scanned: number
+  total: number
+}
+
+/** 建立链接的入参：`from` / `to` 都是工作区相对 POSIX 路径 */
+export interface GraphCreateLinkInput {
+  root: string
+  from: string
+  to: string
+  title?: string
 }
 
 // 图片压缩选项
@@ -381,7 +396,7 @@ export interface ElectronAPI {
    * 图表画布在跨域 iframe 里，页面收不到那里的 keydown，所以保存快捷键
    * 由主进程统一拦截后转过来；返回值是取消订阅函数。
    */
-  onAppShortcut: (callback: (shortcut: 'save' | 'save-as') => void) => () => void
+  onAppShortcut: (callback: (shortcut: 'save' | 'save-as' | 'close-tab') => void) => () => void
 
   // 文件系统
   revealInExplorer: (filePath: string) => Promise<{ success: boolean; error?: string }>
@@ -432,6 +447,21 @@ export interface ElectronAPI {
     currentFilePath?: string,
     openedFolderPath?: string
   ) => Promise<{ success: boolean; data?: string; error?: string }>
+
+  // 知识图谱
+  buildGraph: (
+    root: string
+  ) => Promise<{ success: boolean; data?: GraphPayload; error?: string }>
+  onGraphProgress: (callback: (progress: GraphProgressEvent) => void) => () => void
+  refreshGraphFile: (
+    root: string,
+    relativePath: string
+  ) => Promise<{ success: boolean; data?: FileLinkRecord; error?: string }>
+  createGraphLink: (input: GraphCreateLinkInput) => Promise<{
+    success: boolean
+    data?: { line: number; skipped: boolean }
+    error?: string
+  }>
 
   // 自动更新
   checkForUpdates: () => Promise<{ success: boolean; error?: string }>
@@ -663,6 +693,17 @@ const api: ElectronAPI = {
   // 链接操作
   openLink: (linkHref, currentFilePath?, openedFolderPath?) =>
     ipcRenderer.invoke(IPC_CHANNELS.LINK.OPEN, { linkHref, currentFilePath, openedFolderPath }),
+
+  // 知识图谱
+  buildGraph: (root) => ipcRenderer.invoke(IPC_CHANNELS.GRAPH.BUILD, root),
+  onGraphProgress: (callback) => {
+    const handler = (_event: unknown, progress: GraphProgressEvent): void => callback(progress)
+    ipcRenderer.on(IPC_CHANNELS.GRAPH.PROGRESS, handler)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.GRAPH.PROGRESS, handler)
+  },
+  refreshGraphFile: (root, relativePath) =>
+    ipcRenderer.invoke(IPC_CHANNELS.GRAPH.REFRESH_FILE, root, relativePath),
+  createGraphLink: (input) => ipcRenderer.invoke(IPC_CHANNELS.GRAPH.CREATE_LINK, input),
 
   // 自动更新
   checkForUpdates: () => ipcRenderer.invoke(IPC_CHANNELS.UPDATE.CHECK),

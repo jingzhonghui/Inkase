@@ -35,6 +35,9 @@ async function openManyTabs(count: number): Promise<ReturnType<typeof useFileSto
   return store
 }
 
+// 标签栏固定带一个「工作台」标签（不可关闭），文件标签排在它后面。
+// 这里全部在测文件标签，所以选择器一律收窄到 [data-tab-id]，别命中工作台。
+
 describe('TabBar closing with many tabs', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
@@ -51,7 +54,7 @@ describe('TabBar closing with many tabs', () => {
     expect(store.tabs).toHaveLength(50)
 
     const wrapper = mount(TabBar)
-    await wrapper.findAll('.tab')[0].trigger('contextmenu')
+    await wrapper.findAll('[data-tab-id]')[0].trigger('contextmenu')
     await nextTick()
     const closeAll = clickMenuItem('关闭全部')
     expect(closeAll).toBe(true)
@@ -64,7 +67,7 @@ describe('TabBar closing with many tabs', () => {
     const keep = store.tabs[3]
 
     const wrapper = mount(TabBar)
-    await wrapper.findAll('.tab')[3].trigger('contextmenu')
+    await wrapper.findAll('[data-tab-id]')[3].trigger('contextmenu')
     await nextTick()
     expect(clickMenuItem('关闭其他')).toBe(true)
 
@@ -77,7 +80,7 @@ describe('TabBar closing with many tabs', () => {
     store.openedFolderPath = 'C:/ws'
 
     const wrapper = mount(TabBar)
-    await wrapper.findAll('.tab')[0].trigger('contextmenu')
+    await wrapper.findAll('[data-tab-id]')[0].trigger('contextmenu')
     await nextTick()
     expect(clickMenuItem('关闭全部')).toBe(true)
 
@@ -103,7 +106,7 @@ describe('TabBar drag reorder', () => {
   it('moves a tab dropped on the right half of a later tab', async () => {
     const store = await openManyTabs(3)
     const wrapper = mount(TabBar)
-    const tabs = wrapper.findAll('.tab')
+    const tabs = wrapper.findAll('[data-tab-id]')
 
     await tabs[0].trigger('dragstart')
     await tabs[2].trigger('dragover', { clientX: 100 })
@@ -115,7 +118,7 @@ describe('TabBar drag reorder', () => {
   it('moves a tab dropped on the left half of an earlier tab', async () => {
     const store = await openManyTabs(3)
     const wrapper = mount(TabBar)
-    const tabs = wrapper.findAll('.tab')
+    const tabs = wrapper.findAll('[data-tab-id]')
 
     await tabs[2].trigger('dragstart')
     await tabs[0].trigger('dragover', { clientX: 0 })
@@ -127,7 +130,7 @@ describe('TabBar drag reorder', () => {
   it('does not reorder after dragend clears the drag state', async () => {
     const store = await openManyTabs(3)
     const wrapper = mount(TabBar)
-    const tabs = wrapper.findAll('.tab')
+    const tabs = wrapper.findAll('[data-tab-id]')
 
     await tabs[0].trigger('dragstart')
     await tabs[0].trigger('dragend')
@@ -166,9 +169,9 @@ describe('TabBar label for read-only media', () => {
     expect(store.activeTab?.fileInfo?.format).toBe('pdf')
 
     const wrapper = mount(TabBar)
-    expect(wrapper.find('.tab-label').text()).toBe('季度报告.pdf')
+    expect(wrapper.find('[data-tab-id] .tab-label').text()).toBe('季度报告.pdf')
     vi.useFakeTimers()
-    await wrapper.find('.tab-label').trigger('mouseover')
+    await wrapper.find('[data-tab-id] .tab-label').trigger('mouseover')
     vi.advanceTimersByTime(400)
     await nextTick()
     expect(document.body.querySelector('[role="tooltip"]')?.textContent).toContain('季度报告.pdf')
@@ -192,7 +195,7 @@ describe('TabBar label for read-only media', () => {
     expect(store.activeTab?.fileInfo?.format).toBe('image')
 
     const wrapper = mount(TabBar)
-    expect(wrapper.find('.tab-label').text()).toBe('截图.png')
+    expect(wrapper.find('[data-tab-id] .tab-label').text()).toBe('截图.png')
   })
 
   it('wraps icon and label in the tooltip trigger so hovering the tab content reveals the full name', async () => {
@@ -200,7 +203,7 @@ describe('TabBar label for read-only media', () => {
     document.body.innerHTML = ''
     await openManyTabs(1)
     const wrapper = mount(TabBar)
-    const trigger = wrapper.find('.tab .tooltip-trigger')
+    const trigger = wrapper.find('[data-tab-id] .tooltip-trigger')
 
     expect(trigger.exists()).toBe(true)
     expect(trigger.find('.tab-icon').exists()).toBe(true)
@@ -233,7 +236,7 @@ describe('TabBar middle ellipsis', () => {
     await store.openFile(`C:/ws/${fullName}`)
 
     const wrapper = mount(TabBar)
-    const label = wrapper.find('.tab-label').text()
+    const label = wrapper.find('[data-tab-id] .tab-label').text()
 
     expect(label).toContain('…')
     expect(label.startsWith('这是')).toBe(true)
@@ -241,7 +244,7 @@ describe('TabBar middle ellipsis', () => {
     expect(label).not.toBe(fullName)
 
     vi.useFakeTimers()
-    await wrapper.find('.tab .tooltip-trigger').trigger('mouseover')
+    await wrapper.find('[data-tab-id] .tooltip-trigger').trigger('mouseover')
     vi.advanceTimersByTime(400)
     await nextTick()
     expect(document.body.querySelector('[role="tooltip"]')?.textContent).toBe(fullName)

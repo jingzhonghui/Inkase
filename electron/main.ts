@@ -44,6 +44,7 @@ import { createCredentialStore, type CryptoLike } from './sync/credentials'
 import { createWorkspaceWatcher } from './sync/watcher'
 import { registerSyncHandlers } from './ipc/sync-handlers'
 import { registerExternalWatchHandlers } from './ipc/watch-handlers'
+import { registerGraphHandlers } from './graph/handlers'
 import {
   loadWindowState,
   resolveWindowState,
@@ -166,20 +167,31 @@ function createWindow(): void {
   mainWindow = win
 
   /**
-   * 保存快捷键的兜底转发。
+   * 快捷键的兜底转发。
    *
    * 图表编辑时焦点在 draw.io 的 iframe 里（跨域），keydown 不会冒泡到页面，
    * 渲染层的监听收不到 Ctrl+S，用户会觉得「按了没反应」。
    * 这里在 webContents 层统一拦截：preventDefault 之后页面不会再收到这次按键，
    * 因此渲染层只经由 IPC 处理一次，不会重复保存。
+   *
+   * Ctrl+W 同理走这条路：焦点在画布里时同样要能关标签页，而 Chromium 自己
+   * 对 Ctrl+W 没有任何默认行为，不拦就完全没反应。
    */
   win.webContents.on('before-input-event', (event, input) => {
     if (input.type !== 'keyDown' || input.alt) return
     const primary = process.platform === 'darwin' ? input.meta : input.control
-    if (!primary || input.key.toLowerCase() !== 's') return
+    if (!primary) return
+
+    const key = input.key.toLowerCase()
+    let shortcut: 'save' | 'save-as' | 'close-tab' | null = null
+    if (key === 's') shortcut = input.shift ? 'save-as' : 'save'
+    // Ctrl+Shift+W 留给窗口层，不在这里吃
+    else if (key === 'w' && !input.shift) shortcut = 'close-tab'
+    if (!shortcut) return
+
     event.preventDefault()
     if (!win.isDestroyed()) {
-      win.webContents.send(IPC_CHANNELS.APP.SHORTCUT, input.shift ? 'save-as' : 'save')
+      win.webContents.send(IPC_CHANNELS.APP.SHORTCUT, shortcut)
     }
   })
 
@@ -382,6 +394,9 @@ async function bootstrap(): Promise<void> {
 
     // 注册 AI 助手 handlers
     registerAiHandlers(() => mainWindow)
+
+    // 注册知识图谱 handlers
+    registerGraphHandlers()
 
     createWindow()
 

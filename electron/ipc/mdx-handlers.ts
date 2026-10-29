@@ -426,7 +426,13 @@ export function registerMdxHandlers(): void {
                 ]
               : [
                   { name: 'Inkase 文档', extensions: ['mdx'] },
-                  { name: 'Markdown 文件', extensions: ['md'] }
+                  { name: 'Markdown 文件', extensions: ['md', 'markdown', 'txt'] },
+                  /*
+                   * 「所有文件」不能少：只有命名的过滤器时，用户没法把内容存成
+                   * 别的后缀（.html、.json、.txt 之类），Windows 会把扩展名
+                   * 强制改回过滤器那一个。选中它时输入 1.txt 就得到 1.txt。
+                   */
+                  { name: '所有文件', extensions: ['*'] }
                 ]
         })
 
@@ -437,21 +443,26 @@ export function registerMdxHandlers(): void {
 
         // 先补扩展名，再按**最终**路径判定目标类型：
         // 否则用户只输入文件名时会误用 .mdx 的校验器而报「扩展名必须是 .mdx」
-        const lowerTarget = targetPath.toLowerCase()
-        if (
-          !lowerTarget.endsWith('.md') &&
-          !lowerTarget.endsWith('.inkmind') &&
-          !lowerTarget.endsWith(DIAGRAM_EXTENSION)
-        ) {
+        /*
+         * 补扩展名只补「用户根本没写后缀」的情况。
+         *
+         * 以前只认一张已知后缀表，表外的名字一律再补一次：Windows 的保存
+         * 对话框会按过滤器自动补扩展名，用户只输入「1」拿回来是 1.mdx，
+         * 再补一次就成了 1.mdx.mdx —— 文件确实写出来了，但名字和标签都对不上。
+         * 反过来，用户在「所有文件」里明确写了 .html / .json 时也不能乱改，
+         * 那是他自己选的后缀。
+         */
+        if (!path.extname(path.basename(targetPath))) {
           targetPath += sourceExtension
         }
 
         const finalTarget = targetPath.toLowerCase()
-        // .md / .inkmind / .drawio 都不走 MDX 的 ZIP 校验：前两者与图表都是自己的载体
-        const isTextTarget =
-          finalTarget.endsWith('.md') ||
-          finalTarget.endsWith('.inkmind') ||
-          finalTarget.endsWith(DIAGRAM_EXTENSION)
+        /*
+         * 只有 .mdx 是 ZIP 容器；其余后缀（.md / .inkmind / .drawio 以及
+         * 「所有文件」里自己写的 .txt、.json、.html…）都按文本落盘。
+         * 判成文本才不会拿 MDX 的「扩展名必须是 .mdx」校验器去挡用户。
+         */
+        const isTextTarget = !finalTarget.endsWith('.mdx')
         const validation = isTextTarget
           ? { valid: !/[<>:"|?*]/.test(path.basename(targetPath)), error: '文件名包含非法字符' }
           : validateFilePath(targetPath)
@@ -478,15 +489,8 @@ export function registerMdxHandlers(): void {
           document = createMdxDocument(fallbackTitle, content || '')
         }
 
-        // Markdown 目标：直接写字符串
-        if (finalTarget.endsWith('.md')) {
-          fs.writeFileSync(targetPath, document.content, 'utf-8')
-          if (addToRecent) addRecent(targetPath)
-          return { success: true, data: targetPath }
-        }
-
-        // .drawio 是纯文本（mxfile XML），与 Markdown 同一条落盘路径
-        if (finalTarget.endsWith(DIAGRAM_EXTENSION)) {
+        // .md / .drawio（mxfile XML）以及「所有文件」里自己写的后缀：直接写字符串
+        if (isTextTarget && !finalTarget.endsWith('.inkmind')) {
           fs.writeFileSync(targetPath, document.content, 'utf-8')
           if (addToRecent) addRecent(targetPath)
           return { success: true, data: targetPath }
@@ -528,9 +532,29 @@ export function registerMdxHandlers(): void {
 
         const saveResult = await saveMdx(targetPath, document, assetsData)
         if (saveResult.success) {
-          const { tempDir } = (await openMdx(targetPath)).data!
-          registerTempDir(targetPath, tempDir)
-          if (addToRecent) addRecent(targetPath)
+          /*
+           * 文件已经落盘，下面两步都只是「登记」：读回临时目录、记进最近文件。
+           *
+           * 它们绝不能把这次保存判成失败——一旦返回失败，渲染层就不会更新
+           * 标签名，用户看到的就是「文件存成了 1.mdx，标签还叫未命名.mdx」。
+           * 而最近文件那份 JSON 在 Windows 上确实可能因为被杀软/其它进程占着
+           * 而写不进去。
+           */
+          try {
+            const opened = await openMdx(targetPath)
+            if (opened.success && opened.data) {
+              registerTempDir(targetPath, opened.data.tempDir)
+            }
+          } catch {
+            /* 临时目录登记失败：保存本身是成功的，不回滚结果 */
+          }
+          if (addToRecent) {
+            try {
+              addRecent(targetPath)
+            } catch {
+              /* 最近文件写不进去同样不该让保存失败 */
+            }
+          }
         }
 
         return saveResult.success ? { ...saveResult, data: targetPath } : saveResult

@@ -111,6 +111,7 @@ import {
   normalizeTags
 } from '../../utils/mindmap/rich-content'
 import { requestDialog } from '../../utils/dialog'
+import { themedCursor } from '../../utils/cursor'
 import {
   registerMindMapImageBuilder,
   type MindMapImageFile,
@@ -303,6 +304,11 @@ function resolveImage(src: string): string {
 }
 
 const isDark = computed(() => themeStore.isDark)
+/**
+ * 拖动主题时的光标：原生 `grabbing` 是白色手形位图，浅色主题的画布上几乎看不见。
+ * 换成按主题配色的自绘四向箭头（`utils/cursor.ts`），兜底是黑白双色的系统 `move`。
+ */
+const dragCursor = computed(() => themedCursor(themeStore.isDark, 'move', true))
 const sourceText = computed(() => fileStore.fileContent)
 const menuStyle = computed(() => ({ left: `${menuX.value}px`, top: `${menuY.value}px` }))
 const branchPalette = computed(() => getMindMapPalette(isDark.value ? 'dark' : 'light'))
@@ -2460,7 +2466,11 @@ const fallbackPlaceholder = `{
             <div
               ref="canvasRef"
               class="mind-map-canvas"
-              :style="{ width: `${pageSize}px`, height: `${pageSize}px` }"
+              :style="{
+                width: `${pageSize}px`,
+                height: `${pageSize}px`,
+                '--pan-cursor': dragCursor
+              }"
               @dblclick="onCanvasDoubleClick"
             />
           </div>
@@ -3403,7 +3413,8 @@ const fallbackPlaceholder = `{
 }
 
 .mind-map-canvas :deep(me-tpc:active) {
-  cursor: grabbing;
+  /* 自绘光标按主题取色；平台不认 SVG 光标时回退到系统 move（黑白双色） */
+  cursor: var(--pan-cursor, move);
 }
 
 /* 正在编辑文字时恢复文本光标 */

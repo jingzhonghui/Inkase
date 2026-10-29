@@ -4,6 +4,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  esbuild@0.25.0: 5bad51dd1a2b941ac6c4e98538a3e5eb3257d3ccc0573bc621b90deff6738f34
+
 importers:
 
   .:
@@ -7131,7 +7134,7 @@ snapshots:
       '@esbuild/win32-ia32': 0.24.2
       '@esbuild/win32-x64': 0.24.2
 
-  esbuild@0.25.0:
+  esbuild@0.25.0(patch_hash=5bad51dd1a2b941ac6c4e98538a3e5eb3257d3ccc0573bc621b90deff6738f34):
     optionalDependencies:
       '@esbuild/aix-ppc64': 0.25.0
       '@esbuild/android-arm': 0.25.0
@@ -9112,7 +9115,7 @@ snapshots:
 
   vite@6.4.3(@types/node@22.20.1)(jiti@1.21.7):
     dependencies:
-      esbuild: 0.25.0
+      esbuild: 0.25.0(patch_hash=5bad51dd1a2b941ac6c4e98538a3e5eb3257d3ccc0573bc621b90deff6738f34)
       fdir: 6.5.0(picomatch@4.0.7)
       picomatch: 4.0.7
       postcss: 8.5.26
