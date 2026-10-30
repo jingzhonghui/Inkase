@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Inkase — 一篇文档，就是一个文件 | 自包含 .mdx 文档工作台</title>
-<meta name="description" content="Inkase 是一款免费开源的文档工作台：正文、图片和附件打包进单个 .mdx 文件，思维导图存成单文件 .inkmind，图表直接是 draw.io 的 .drawio。支持即时渲染、源码编辑、分屏预览三种模式，可只读查看 PDF 与图片、批量导出，内置每次调用都可审批的 AI 助手，并支持 Git 与 WebDAV 同步。">
-<meta name="keywords" content="Markdown 编辑器, MD 编辑器, 单文件文档, mdx 格式, 所见即所得 Markdown, 思维导图, inkmind, XMind 导入导出, drawio, 流程图, 架构图, ER 图, PDF 阅读器, AI 助手, WebDAV 同步, Git 同步, 免费开源笔记软件, Electron 文档工作台">
+<meta name="description" content="Inkase 是一款免费开源的文档工作台：正文、图片和附件打包进单个 .mdx 文件，思维导图存成单文件 .inkmind，图表直接是 draw.io 的 .drawio。支持即时渲染、源码编辑、分屏预览三种模式，可只读查看 PDF 与图片、批量导出，内置每次调用都可审批的 AI 助手，支持 Git 与 WebDAV 同步，并把文档之间的链接索引成知识图谱（含断链与孤儿清单）。">
+<meta name="keywords" content="Markdown 编辑器, MD 编辑器, 单文件文档, mdx 格式, 所见即所得 Markdown, 思维导图, inkmind, XMind 导入导出, drawio, 流程图, 架构图, ER 图, PDF 阅读器, AI 助手, WebDAV 同步, Git 同步, 知识图谱, 双向链接, 断链检查, 孤儿笔记, 免费开源笔记软件, Electron 文档工作台">
 <meta name="theme-color" id="themeColor" content="#08090c">
 <link rel="canonical" href="https://jingzhonghui.github.io/Inkase/">
 <link rel="alternate" hreflang="zh-CN" href="https://jingzhonghui.github.io/Inkase/">
@@ -14,13 +14,13 @@
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Inkase">
 <meta property="og:title" content="Inkase — 一篇文档，就是一个文件">
-<meta property="og:description" content="正文、图片和附件打包进单个 .mdx 文件；思维导图是单文件 .inkmind，图表就是 draw.io 的 .drawio。三种文档，一个窗口。">
+<meta property="og:description" content="正文、图片和附件打包进单个 .mdx 文件；思维导图是单文件 .inkmind，图表就是 draw.io 的 .drawio。三种文档，一张知识图谱，一个窗口。">
 <meta property="og:url" content="https://jingzhonghui.github.io/Inkase/">
 <meta property="og:image" content="https://jingzhonghui.github.io/Inkase/assets/icon.png">
 <meta property="og:locale" content="zh_CN">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="Inkase — 一篇文档，就是一个文件">
-<meta name="twitter:description" content="正文、图片和附件打包进单个 .mdx 文件；思维导图是单文件 .inkmind，图表就是 draw.io 的 .drawio。三种文档，一个窗口。">
+<meta name="twitter:description" content="正文、图片和附件打包进单个 .mdx 文件；思维导图是单文件 .inkmind，图表就是 draw.io 的 .drawio。三种文档，一张知识图谱，一个窗口。">
 <meta name="twitter:image" content="https://jingzhonghui.github.io/Inkase/assets/icon.png">
 <script type="application/ld+json" id="ldjson">
 {
@@ -31,11 +31,12 @@
   "operatingSystem": "Windows, Linux",
   "softwareVersion": "0.3.6",
   "license": "https://www.apache.org/licenses/LICENSE-2.0",
-  "description": "Inkase 是一款免费开源的文档工作台：正文、图片和附件打包进单个 .mdx 文件，思维导图存成单文件 .inkmind，图表直接用 draw.io 的 .drawio。",
+  "description": "Inkase 是一款免费开源的文档工作台：正文、图片和附件打包进单个 .mdx 文件，思维导图存成单文件 .inkmind，图表直接用 draw.io 的 .drawio，文档之间的链接会索引成知识图谱。",
   "featureList": [
     "自包含的 .mdx 文档：正文、图片与附件在同一个 ZIP 里",
     "思维导图 .inkmind：单文件容器，节点可带备注、标签、图片与附件",
     "图表 .drawio：自托管 draw.io 编辑器，离线可用，纯文本 XML",
+    "知识图谱：文档之间的链接画成力导向图，支持局部 1–3 跳、断链与孤儿清单",
     "三种编辑模式：即时渲染、源码编辑、分屏预览",
     "AI 助手：每次工具调用都可审批",
     "Git 与 WebDAV 同步"
@@ -50,6 +51,7 @@
 <link rel="stylesheet" href="./assets/demo.css">
 <link rel="stylesheet" href="./assets/panels.css">
 <link rel="stylesheet" href="./assets/formats.css">
+<link rel="stylesheet" href="./assets/graph.css">
   <link rel="stylesheet" href="./assets/shell.css">
 <script>
 /* 主题必须在首次绘制前定好，否则会闪一下深色再跳浅色。
@@ -90,6 +92,7 @@
   <symbol id="i-outline" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2.5 3.5h11M2.5 8h7.5M2.5 12.5h9.5"/></symbol>
   <symbol id="i-mind" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="6.4" width="4.6" height="3.2" rx=".9"/><rect x="10.4" y="1.6" width="4.6" height="2.8" rx=".9"/><rect x="10.4" y="6.6" width="4.6" height="2.8" rx=".9"/><rect x="10.4" y="11.6" width="4.6" height="2.8" rx=".9"/><path d="M5.6 8h2.4M8 8V3h2.4M8 8h2.4M8 8v5h2.4"/></symbol>
   <symbol id="i-flow" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><rect x="2" y="1.8" width="12" height="4" rx="1"/><rect x="5" y="10.2" width="6" height="4" rx="1"/><path d="M8 5.8v4.4" stroke-linecap="round"/></symbol>
+  <symbol id="i-search" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><circle cx="7" cy="7" r="4.2"/><path d="m10.2 10.2 3 3"/></symbol>
   <symbol id="i-clip" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M12.2 7.4 7.6 12a2.9 2.9 0 0 1-4.1-4.1l5.3-5.3a2.2 2.2 0 0 1 3.1 3.1L6.7 10.9a.9.9 0 0 1-1.3-1.3l4.7-4.7"/></symbol>
 </defs></svg>
 
@@ -209,6 +212,7 @@
         </div>
         <div class="menu__sep" role="separator"></div>
         <button class="menu__item" type="button" role="menuitem" aria-checked="true"><span class="menu__check" aria-hidden="true">✓</span><span>显示侧边栏</span></button>
+        <button class="menu__item" type="button" role="menuitem"><span>知识图谱</span><span class="menu__kw">Ctrl+Shift+G</span></button>
         <button class="menu__item" type="button" role="menuitem" data-surface="ai"><span>AI 助手</span></button>
         <div class="menu__sep" role="separator"></div>
         <button class="menu__item" type="button" role="menuitem" data-surface="settings"><span>设置</span><span class="menu__kw">Ctrl+,</span></button>
@@ -254,6 +258,9 @@
         <a class="outline__item outline__item--h2" href="#sec-diagram">
           <span class="outline__mark">##</span><span class="outline__text">图表</span>
         </a>
+        <a class="outline__item outline__item--h2" href="#sec-graph">
+          <span class="outline__mark">##</span><span class="outline__text">知识图谱</span>
+        </a>
         <a class="outline__item outline__item--h2" href="#sec-view">
           <span class="outline__mark">##</span><span class="outline__text">PDF 与图片</span>
         </a>
@@ -297,7 +304,7 @@
         <section class="sec sec--open" id="sec-open">
           <p class="eyebrow" data-reveal>Inkase · 自包含文档工作台 · <span class="js-ver">v0.3.6</span></p>
           <h1 class="h1" data-reveal><span class="gm">#</span>一篇文档，就是一个文件</h1>
-          <p class="lede" data-reveal>Inkase 是一款文档工作台。它把正文、图片和附件一起打包进单个 <code>.mdx</code> 文件——拷走它，整篇文档就完整地带走了，不会出现「图丢了」。思维导图和图表也一样：导图存成单文件 <code>.inkmind</code>，图表直接用 draw.io 的 <code>.drawio</code>，三种文档在同一个窗口里并存。</p>
+          <p class="lede" data-reveal>Inkase 是一款文档工作台。它把正文、图片和附件一起打包进单个 <code>.mdx</code> 文件——拷走它，整篇文档就完整地带走了，不会出现「图丢了」。思维导图和图表也一样：导图存成单文件 <code>.inkmind</code>，图表直接用 draw.io 的 <code>.drawio</code>，三种文档在同一个窗口里并存。文档之间的链接还会被索引成一张知识图谱，谁连着谁、哪里断了，一眼看清。</p>
 
           <div class="actions" data-reveal>
             <a class="btn btn--primary" href="#sec-save">免费下载</a>
@@ -730,7 +737,142 @@
 
         <hr class="rule">
 
-        <!-- ── §6 PDF 与图片 ── -->
+        <!-- ── §6 知识图谱 ── -->
+        <section class="sec" id="sec-graph">
+          <h2 class="h2" data-reveal><span class="gm">##</span>知识图谱<span class="tag-new">新增</span></h2>
+          <p class="lede" data-reveal>正文里写的 <code>[标题](相对路径.mdx)</code> 会被索引成一张图。文件树回答「东西在哪」，图谱回答「谁连着谁、哪里断了」——没人引用的孤儿笔记、指向不存在文件的断链，在图上和清单里都能直接看到。</p>
+
+          <div class="grf" data-reveal>
+            <div class="grf__bar">
+              <div class="grf__seg" role="group" aria-label="知识图谱">
+                <span class="is-active">全库</span><span>局部</span>
+              </div>
+              <span class="grf__spring"></span>
+              <span class="grf__search"><svg aria-hidden="true"><use href="#i-search"/></svg>搜索标题…</span>
+              <span class="grf__counts"><span>节点 <b>24</b></span><span>链接 <b>38</b></span><span class="is-warn">断链 <b>1</b></span><span>孤儿 <b>4</b></span></span>
+            </div>
+
+            <div class="grf__body">
+              <aside class="grf__side" aria-hidden="true">
+                <div class="grf__group">
+                  <span class="grf__label">视图</span>
+                  <span class="grf__row is-active">全库</span>
+                  <span class="grf__row">局部 · 1 跳</span>
+                </div>
+                <div class="grf__group">
+                  <span class="grf__label">目录</span>
+                  <span class="grf__row"><i class="grf__dot" style="--c: var(--g-note)"></i>笔记<span class="n">11</span></span>
+                  <span class="grf__row"><i class="grf__dot" style="--c: var(--g-design)"></i>设计<span class="n">5</span></span>
+                  <span class="grf__row"><i class="grf__dot" style="--c: var(--g-dev)"></i>开发<span class="n">6</span></span>
+                  <span class="grf__row"><i class="grf__dot" style="--c: var(--g-life)"></i>生活<span class="n">2</span></span>
+                </div>
+                <div class="grf__group">
+                  <span class="grf__label">类型</span>
+                  <span class="grf__row"><i class="grf__shp grf__shp--doc"></i>文档<span class="n">16</span></span>
+                  <span class="grf__row"><i class="grf__shp grf__shp--mind"></i>导图<span class="n">3</span></span>
+                  <span class="grf__row"><i class="grf__shp grf__shp--flow"></i>图表<span class="n">3</span></span>
+                  <span class="grf__row"><i class="grf__shp grf__shp--other"></i>其他<span class="n">2</span></span>
+                </div>
+                <div class="grf__group">
+                  <span class="grf__label">质量</span>
+                  <span class="grf__row is-warn">断链<span class="n">1</span></span>
+                  <span class="grf__row">孤儿<span class="n">4</span></span>
+                </div>
+              </aside>
+
+              <div class="grf__stage">
+                <svg class="grf__svg" viewBox="0 0 620 350" role="img" aria-label="知识图谱示例：节点按目录着色、按格式换形状，虚线为断链目标">
+                  <g>
+                    <path class="grf__edge" d="M110 55 L230 40"/>
+                    <path class="grf__edge" d="M110 55 L100 175"/>
+                    <path class="grf__edge" d="M110 55 L265 150"/>
+                    <path class="grf__edge" d="M100 175 L265 150"/>
+                    <path class="grf__edge" d="M265 150 L395 80"/>
+                    <path class="grf__edge" d="M265 150 L415 215"/>
+                    <path class="grf__edge" d="M230 40 L395 80"/>
+                    <path class="grf__edge" d="M395 80 L530 60"/>
+                    <path class="grf__edge" d="M415 215 L545 165"/>
+                    <path class="grf__edge grf__edge--ghost" d="M265 150 L300 270"/>
+                    <path class="grf__edge" d="M175 300 L265 150"/>
+                    <path class="grf__edge" d="M230 40 L445 300"/>
+                    <path class="grf__edge" d="M545 165 L445 300"/>
+                    <path class="grf__edge" d="M175 300 L100 175"/>
+                  </g>
+                  <g>
+                    <g class="grf__g" style="--c: var(--g-note)" transform="translate(110 55)">
+                      <circle class="shape" r="8"/>
+                      <text class="lbl" y="23" text-anchor="middle">项目规划</text>
+                    </g>
+                    <g class="grf__g" style="--c: var(--g-note)" transform="translate(230 40)">
+                      <circle class="shape" r="8"/>
+                      <text class="lbl" y="23" text-anchor="middle">需求说明</text>
+                    </g>
+                    <g class="grf__g" style="--c: var(--g-design)" transform="translate(100 175)">
+                      <rect class="shape" x="-7" y="-7" width="14" height="14" transform="rotate(45)"/>
+                      <text class="lbl" y="23" text-anchor="middle">发布计划</text>
+                    </g>
+                    <g class="grf__g grf__g--sel" style="--c: var(--g-dev)" transform="translate(265 150)">
+                      <circle class="grf__halo" r="15"/>
+                      <rect class="shape" x="-7" y="-7" width="14" height="14" rx="2"/>
+                      <text class="lbl" y="23" text-anchor="middle">发布流程</text>
+                    </g>
+                    <g class="grf__g" style="--c: var(--g-dev)" transform="translate(395 80)">
+                      <circle class="shape" r="8"/>
+                      <text class="lbl" y="23" text-anchor="middle">接口约定</text>
+                    </g>
+                    <g class="grf__g" style="--c: var(--g-dev)" transform="translate(415 215)">
+                      <rect class="shape" x="-7" y="-7" width="14" height="14" rx="2"/>
+                      <text class="lbl" y="23" text-anchor="middle">架构图</text>
+                    </g>
+                    <g class="grf__g" style="--c: var(--g-design)" transform="translate(530 60)">
+                      <circle class="shape" r="8"/>
+                      <text class="lbl" y="23" text-anchor="middle">读书笔记</text>
+                    </g>
+                    <g class="grf__g" style="--c: var(--g-life)" transform="translate(545 165)">
+                      <circle class="shape" r="8"/>
+                      <text class="lbl" y="23" text-anchor="middle">会议纪要</text>
+                    </g>
+                    <g class="grf__g" style="--c: var(--g-life)" transform="translate(445 300)">
+                      <path class="shape" d="M0 -8 L8 7 L-8 7 Z"/>
+                      <text class="lbl" y="23" text-anchor="middle">素材清单</text>
+                    </g>
+                    <g class="grf__g grf__g--ghost" style="--c: var(--g-ghost)" transform="translate(300 270)">
+                      <circle class="shape" r="8"/>
+                      <text class="lbl" y="23" text-anchor="middle">缺失的笔记</text>
+                    </g>
+                    <g class="grf__g" style="--c: var(--g-life)" transform="translate(175 300)">
+                      <circle class="shape" r="8"/>
+                      <text class="lbl" y="23" text-anchor="middle">发布检查表</text>
+                    </g>
+                  </g>
+                </svg>
+                <div class="grf__card">
+                  <span class="grf__card-name">发布流程.drawio</span>
+                  <span class="grf__card-meta"><span>入链 3</span><span>出链 3</span></span>
+                </div>
+              </div>
+            </div>
+
+            <p class="grf__note">节点颜色＝顶层目录，形状＝文档格式（圆点文档 / 菱形导图 / 方形图表 / 三角其他文件），半径＝入链数，虚线空心＝断链目标。点侧栏任意一行即过滤，过滤只改显示集合，不重排布局。</p>
+          </div>
+
+          <ul class="points">
+            <li class="point" data-reveal>
+              <span class="point__mark">✓</span>
+              <div><h3>全库与局部</h3><p>整库拓扑用滚轮缩放、空白处拖拽平移；也可以以当前文件为中心展开 1–3 跳邻居，看一篇笔记的「附近」。</p></div>
+            </li>
+            <li class="point" data-reveal>
+              <span class="point__mark">✓</span>
+              <div><h3>断链与孤儿</h3><p>侧栏「质量」两行分别打开断链、孤儿清单，点任意一条跳到对应文件；断链跳到来源文件，不用自己找。</p></div>
+            </li>
+            <li class="point" data-reveal>
+              <span class="point__mark">✓</span>
+              <div><h3>图上就能改</h3><p>空白处右键新建笔记；节点右键「链接到…」直接在源文档的「## 相关笔记」小节追加链接，已存在就跳过。</p></div>
+            </li>
+          </ul>
+        </section>
+
+        <!-- ── §7 PDF 与图片 ── -->
         <section class="sec" id="sec-view">
           <h2 class="h2" data-reveal><span class="gm">##</span>PDF 与图片</h2>
           <p class="lede" data-reveal>PDF、图片直接在标签页里只读打开，不转换格式、不改动原文件。深色模式下整页反色，夜里翻长文档不刺眼。</p>
@@ -777,7 +919,7 @@
 
         <hr class="rule">
 
-        <!-- ── §5 AI 助手 ── -->
+        <!-- ── §8 AI 助手 ── -->
         <section class="sec" id="sec-ai">
           <h2 class="h2" data-reveal><span class="gm">##</span>AI 助手</h2>
           <p class="lede" data-reveal>接一个 OpenAI 兼容的接口，它就能读写你的文档、检索整个工作区，也能照着大纲给你画一张导图。每一次动手之前，都先把要做的事摊开给你看。</p>
@@ -829,7 +971,7 @@
 
         <hr class="rule">
 
-        <!-- ── §6 同步 ── -->
+        <!-- ── §9 同步 ── -->
         <section class="sec" id="sec-sync">
           <h2 class="h2" data-reveal><span class="gm">##</span>同步<span class="tag-new">v0.3.5 新增 WebDAV</span></h2>
           <p class="lede" data-reveal>两种后端任选其一：绑一个 Git 仓库，或者连一个 WebDAV 网盘。拉取、推送、冲突处理都在面板里完成，不用碰命令行。</p>
@@ -954,6 +1096,7 @@
                 <div class="spec__row"><dt>三种文档</dt><dd>长文 <code>.mdx</code>、导图 <code>.inkmind</code>、图表 <code>.drawio</code> 各有专用编辑器，在同一个标签栏里共存。</dd></div>
                 <div class="spec__row"><dt>文件夹工作区</dt><dd>像资源管理器一样浏览、新建、重命名、拖拽移动。</dd></div>
                 <div class="spec__row"><dt>多标签页</dt><dd>同时打开多篇文档，标签之间随意切换。</dd></div>
+                <div class="spec__row"><dt>知识图谱</dt><dd>把工作区里的链接画成力导向图：全库拓扑、单篇的 1–3 跳邻居、断链与孤儿清单，还能在图上直接建笔记、补链接。</dd></div>
                 <div class="spec__row"><dt>全文搜索</dt><dd>基于 ripgrep 跨文件查找内容；<kbd>Ctrl</kbd>+<kbd>P</kbd> 毫秒级快速打开。</dd></div>
               </dl>
             </div>
@@ -1260,6 +1403,7 @@
           <div class="keys__row"><span class="keys__k">Ctrl+N</span><span class="keys__t">新建文件</span></div>
           <div class="keys__row"><span class="keys__k">Ctrl+Shift+N</span><span class="keys__t">新建思维导图</span></div>
           <div class="keys__row"><span class="keys__k">Ctrl+Shift+D</span><span class="keys__t">新建图表</span></div>
+          <div class="keys__row"><span class="keys__k">Ctrl+Shift+G</span><span class="keys__t">知识图谱</span></div>
           <div class="keys__row"><span class="keys__k">Ctrl+O</span><span class="keys__t">打开文件</span></div>
           <div class="keys__row"><span class="keys__k">Ctrl+S</span><span class="keys__t">保存</span></div>
           <div class="keys__row"><span class="keys__k">Ctrl+Shift+S</span><span class="keys__t">另存为</span></div>
@@ -1290,7 +1434,7 @@
           <div class="about-box">
             <span class="about-logo" aria-hidden="true"><svg><use href="#i-drop"/></svg></span>
             <span class="about-name">Inkase</span>
-            <p class="about-desc">一个把正文、图片、附件打包进单个文件的文档工作台。思维导图与图表也是同一种思路。</p>
+            <p class="about-desc">一个把正文、图片、附件打包进单个文件的文档工作台。思维导图、图表与知识图谱都是同一种思路。</p>
             <span class="about-meta">Inkase <span class="js-ver">v0.3.6</span></span>
             <p><a class="btn-sm" href="https://github.com/jingzhonghui/Inkase" target="_blank" rel="noopener">GitHub</a></p>
           </div>

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { GraphEdge, GraphNode, GraphNodeFormat } from '../../../../shared/graph/types'
+import { folderColor, graphPalette, unresolvedColor } from '../../../../shared/graph/colors'
 import { SHAPE_GROUPS, nodeShape } from '../shape'
 import { renderGraph, type RenderGraphOptions } from '../render'
 import type { SimNode } from '../simulation'
@@ -16,18 +17,43 @@ import type { SimNode } from '../simulation'
 interface DrawOp {
   op: string
   args: unknown[]
+  /** 这一笔真正落笔时的样式——颜色是视觉编码的主体，必须能断言 */
+  fillStyle?: string
+  strokeStyle?: string
+  font?: string
+  globalAlpha?: number
 }
 
 function recordingContext(): CanvasRenderingContext2D & { ops: DrawOp[] } {
   const ops: DrawOp[] = []
+  const ctx: Record<string, unknown> = {
+    ops,
+    fillStyle: '',
+    strokeStyle: '',
+    font: '',
+    globalAlpha: 1,
+    lineWidth: 1,
+    lineCap: 'butt',
+    lineJoin: 'miter',
+    miterLimit: 10,
+    textAlign: 'start',
+    textBaseline: 'alphabetic'
+  }
+
   const record =
     (op: string) =>
     (...args: unknown[]): void => {
-      ops.push({ op, args })
+      ops.push({
+        op,
+        args,
+        fillStyle: String(ctx.fillStyle),
+        strokeStyle: String(ctx.strokeStyle),
+        font: String(ctx.font),
+        globalAlpha: Number(ctx.globalAlpha)
+      })
     }
 
-  const ctx: Record<string, unknown> = {
-    ops,
+  Object.assign(ctx, {
     save: record('save'),
     restore: record('restore'),
     clearRect: record('clearRect'),
@@ -43,21 +69,9 @@ function recordingContext(): CanvasRenderingContext2D & { ops: DrawOp[] } {
     fillText: record('fillText'),
     strokeText: record('strokeText'),
     setLineDash: record('setLineDash'),
-    // 纸面暗角用的径向渐变；只关心「有没有铺一层」，不关心色标
-    createRadialGradient: () => ({ addColorStop: () => {} }),
     // 字符数 × 6 足够稳定，用于制造标签宽度
-    measureText: (text: string) => ({ width: text.length * 6 }),
-    globalAlpha: 1,
-    fillStyle: '',
-    strokeStyle: '',
-    lineWidth: 1,
-    lineCap: 'butt',
-    lineJoin: 'miter',
-    miterLimit: 10,
-    font: '',
-    textAlign: 'start',
-    textBaseline: 'alphabetic'
-  }
+    measureText: (text: string) => ({ width: text.length * 6 })
+  })
 
   return ctx as unknown as CanvasRenderingContext2D & { ops: DrawOp[] }
 }
@@ -292,5 +306,78 @@ describe('渲染 · 焦点边方向', () => {
   it('无关的边不加箭头', () => {
     const ops = render(nodes, positions, { edges, focusId: 'unrelated' })
     expect(count(ops, 'lineTo')).toBe(1)
+  })
+})
+
+describe('渲染 · 与官网对齐的配色（shared/graph/colors.ts）', () => {
+  const oneNode = [node({ id: 'a' })]
+  const onePos = new Map([['a', simNode('a', 100, 100, 6)]])
+
+  it('节点是实心填充：用文件夹色 fill，且不描边', () => {
+    for (const theme of ['light', 'dark'] as const) {
+      const ops = render(oneNode, onePos, { theme })
+      const fills = ops.filter((item) => item.op === 'fill')
+      const strokes = ops.filter((item) => item.op === 'stroke')
+
+      expect(fills.length).toBe(1)
+      expect(fills[0]!.fillStyle).toBe(folderColor('', theme).fill)
+      // 实心点没有描边：颜色本身就是边界
+      expect(strokes.length).toBe(0)
+    }
+  })
+
+  it('标签是中性墨色，不跟着目录色走（颜色只出现在点上）', () => {
+    for (const theme of ['light', 'dark'] as const) {
+      const ops = render(oneNode, onePos, {
+        theme,
+        showLabels: true,
+        transform: { x: 0, y: 0, k: 2 }
+      })
+      const labels = ops.filter((item) => item.op === 'fillText')
+      const palette = graphPalette(theme)
+
+      expect(labels.length).toBe(1)
+      expect(labels[0]!.fillStyle).toBe(palette.label)
+      // 标签一律等宽，主次靠颜色而非字号
+      expect(labels[0]!.font).toContain('monospace')
+    }
+  })
+
+  it('选中的标签升到正文墨色，其余仍是三级墨色', () => {
+    const selected = render(oneNode, onePos, {
+      selectedId: 'a',
+      showLabels: true,
+      transform: { x: 0, y: 0, k: 2 }
+    })
+    const text = selected.find((item) => item.op === 'fillText')
+    expect(text?.fillStyle).toBe(graphPalette('light').labelFocus)
+  })
+
+  it('选中只加一枚强调色光环，不用中性双环', () => {
+    const ops = render(oneNode, onePos, { selectedId: 'a' })
+    const strokes = ops.filter((item) => item.op === 'stroke')
+
+    expect(strokes.length).toBe(1)
+    expect(strokes[0]!.strokeStyle).toBe(graphPalette('light').halo)
+    // 光环是半透明的：它标注位置，不抢节点的颜色
+    expect(strokes[0]!.globalAlpha).toBeLessThan(1)
+  })
+
+  it('断链节点是红色虚线空心，实心节点一个描边都没有', () => {
+    const ops = render(
+      [node({ id: 'g', unresolved: true })],
+      new Map([['g', simNode('g', 100, 100, 6)]])
+    )
+    const strokes = ops.filter((item) => item.op === 'stroke')
+
+    expect(strokes.length).toBe(1)
+    expect(strokes[0]!.strokeStyle).toBe(unresolvedColor('light'))
+  })
+
+  it('画布不再铺径向暗角（它不是一块有自己的光源的纸）', () => {
+    const ops = render(oneNode, onePos)
+    // 第一笔是整屏铺底：颜色等于面板底色
+    const background = ops.find((item) => item.op === 'fillRect' && item.args[2] === 800)
+    expect(background?.fillStyle).toBe(graphPalette('light').canvas)
   })
 })

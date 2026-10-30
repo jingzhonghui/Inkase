@@ -144,7 +144,7 @@ describe('TC-VIEW-002 加载中', () => {
     const wrapper = mountView()
 
     expect(wrapper.text()).toContain('正在扫描工作区…')
-    expect(wrapper.find('.graph-header__stats').exists()).toBe(false)
+    expect(wrapper.find('.graph-rail__stats').exists()).toBe(false)
     expect(wrapper.find('.graph-state__spinner').exists()).toBe(true)
   })
 
@@ -204,23 +204,26 @@ describe('TC-VIEW-004 空工作区', () => {
 })
 
 describe('TC-VIEW-005 四个计数', () => {
-  /** 断链与孤儿是质量指标，归侧栏「质量」分组；节点/链接在页头 */
+  /** 四个读数统一在侧栏「概况」分组：节点/链接是纯读数，断链/孤儿同时是问题清单的入口 */
   function issueRow(wrapper: ReturnType<typeof mount>, key: 'unresolved' | 'orphans') {
     return wrapper.find(`[data-issue="${key}"]`)
   }
 
-  it('节点/链接在页头，断链/孤儿在侧栏', () => {
+  it('四个计数都在侧栏，顶条不重复读数', () => {
     const store = useGraphStore()
     const data = payload()
     seedGraph(store, data)
     const wrapper = mountView()
 
-    const header = wrapper.find('.graph-header__stats').text()
-    expect(header).toContain(`节点 ${data.stats.nodeCount}`)
-    expect(header).toContain(`链接 ${data.stats.edgeCount}`)
+    const rail = wrapper.find('.graph-rail__stats').text()
+    expect(rail).toContain(`节点${data.stats.nodeCount}`)
+    expect(rail).toContain(`链接${data.stats.edgeCount}`)
 
     expect(issueRow(wrapper, 'unresolved').text()).toContain(String(data.stats.unresolvedCount))
     expect(issueRow(wrapper, 'orphans').text()).toContain(String(data.stats.orphanCount))
+
+    // 页头不再重复同一份读数（工作台顶条同理，它只放操作）
+    expect(wrapper.find('.graph-header__stats').exists()).toBe(false)
   })
 
   it('有问题时侧栏计数加 warning 样式', () => {
@@ -228,7 +231,8 @@ describe('TC-VIEW-005 四个计数', () => {
     seedGraph(store, payload({ broken: true }))
     const wrapper = mountView()
 
-    const warning = wrapper.findAll('.graph-rail__num.warn')
+    // 告警色落在整行（入口）上，而不只是数字：断链/孤儿是「点了才有下文」的入口
+    const warning = wrapper.findAll('.graph-rail__row.is-warn')
     expect(warning.length).toBeGreaterThan(0)
   })
 
@@ -240,26 +244,29 @@ describe('TC-VIEW-005 四个计数', () => {
 
     const ghostCount = data.nodes.filter((node) => node.unresolved).length
     expect(ghostCount).toBeGreaterThan(0)
-    expect(wrapper.find('.graph-header__stats').text()).toContain(`节点 ${data.nodes.length}`)
+    expect(wrapper.find('.graph-rail__stats').text()).toContain(`节点${data.nodes.length}`)
   })
 
   it('截断时显示「已截断」标记与说明', () => {
     const store = useGraphStore()
-    seedGraph(store, buildGraph({ root: ROOT, files: [], truncated: true }))
+    // 概况长在侧栏里，而侧栏只在有图时渲染——这里必须给一个文件，不能给空工作区
+    const files = [{ path: 'a.md', format: 'markdown' as const, links: [] }]
+    seedGraph(store, buildGraph({ root: ROOT, files, truncated: true }))
     const wrapper = mountView()
 
-    const truncated = wrapper.find('.graph-header__stat.truncated')
+    const truncated = wrapper.find('.graph-rail__truncated')
     expect(truncated.exists()).toBe(true)
     expect(truncated.text()).toBe('已截断')
     expect(truncated.attributes('title')).toContain('不完整')
   })
 
-  it('统计条的 title 给出扫描文件数与用时', () => {
+  it('概况的 title 给出扫描文件数与用时', () => {
     const store = useGraphStore()
-    seedGraph(store, buildGraph({ root: ROOT, files: [], filesScanned: 12, elapsedMs: 34 }))
+    const files = [{ path: 'a.md', format: 'markdown' as const, links: [] }]
+    seedGraph(store, buildGraph({ root: ROOT, files, filesScanned: 12, elapsedMs: 34 }))
     const wrapper = mountView()
 
-    const title = wrapper.find('.graph-header__stats').attributes('title')
+    const title = wrapper.find('.graph-rail__stats').attributes('title')
     expect(title).toContain('已扫描 12 个文件')
     expect(title).toContain('34 ms')
   })

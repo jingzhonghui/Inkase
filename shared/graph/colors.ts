@@ -37,67 +37,105 @@ export function folderHue(folder: string): number {
   return (ROOT_FOLDER_HUE + ROOT_HUE_GUARD + offset) % 360
 }
 
+/**
+ * 一个文件夹在画布与侧栏里的颜色。
+ *
+ * 只有一格：**实心填充**。侧栏色标与画布上的点取同一个值，
+ * 用户在两处看到的是同一支笔画的同一件事。
+ */
 export interface FolderColor {
   hue: number
-  /** 节点填充色 */
+  /** 节点实心填充色 / 侧栏色标 */
   fill: string
-  /** 节点描边色 */
-  stroke: string
-  /** 该簇的标签文字色 */
-  label: string
-  /** 图例色块 / chips 用色（不透明，小面积下仍然可辨） */
-  swatch: string
 }
 
 export type GraphTheme = 'light' | 'dark'
 
 /**
- * 按主题取一整套颜色。
+ * 文件夹 → 实心色。
  *
- * 深色底上要提亮、浅色底上要压暗，饱和度也要跟着调——
- * 直接复用同一个 HSL 会在其中一种主题下糊成一团。
+ * 早先的版本画的是「一圈墨线 + 一层几乎没有颜色的底」：担心满屏实心高饱和圆点
+ * 每个都在抢注意力。实际用下来是反的——空心小环在浅色纸上太轻，
+ * 缩到 8px 时几乎只剩一个圈，图的「密度」读不出来，而颜色又同时跑到了标签上，
+ * 于是整屏是「彩色小字 + 灰线」，比一屏色点更吵。
  *
- * 编码方式与常见网络图相反：节点不是「彩色实心球」，而是
- * **一圈墨线 + 一层几乎没有颜色的底**。实心高饱和的圆点铺满一屏后，
- * 每个点都在抢注意力，颜色只剩「分了几簇」这一个信息，
- * 却把边、标签、形状全压住了。改成墨线描边之后：
- * 色相仍然分簇（描边承担），面积让位给留白，小圆点看起来也更锐利。
- *
- * - 浅色：描边取低明度（40% 上下）的同一色相，底几乎接近纸色（96%）
- * - 深色：描边反过来提亮到 66%，底压到深墨（26%）
- * 标签色都走同一色相的深/浅两端，保证文字与自己的点是一支笔写的。
+ * 现在按画布上最有效的分工来：**颜色只出现在点上，文字一律走中性墨色**
+ * （见 `graphPalette`）。于是：
+ * - 浅色底上压暗到 44% 明度，白底上 3:1 以上，8px 的点也立得住；
+ * - 深色底上提亮到 62%，避免深蓝深紫糊进 `#1f2937`。
+ * 饱和度取在 62–72%：够分簇，又不至于三十个目录排开像调色盘。
  */
 export function folderColor(folder: string, theme: GraphTheme): FolderColor {
   const hue = folderHue(folder)
-  const dark = theme === 'dark'
+  return {
+    hue,
+    fill:
+      theme === 'dark'
+        ? `hsl(${hue}, 72%, 62%)`
+        : `hsl(${hue}, 62%, 44%)`
+  }
+}
 
-  if (dark) {
+/**
+ * 画布的中性配色。
+ *
+ * 这一组值与官网（`website/assets/graph.css` + `style.css`）用的是同一套语义：
+ * 底色＝面板 surface、边＝`--edge-hi`、常规标签＝三级文字、焦点标签＝正文墨色、
+ * 选中＝强调色光环、断链＝红色虚线。两边长得一样，官网的截图才不是「美化过的假图」。
+ *
+ * 放在这里而不是散在 `render.ts` 里，是因为画布拿不到 CSS 变量：
+ * 所有颜色必须以纯函数形式随主题一起给出，才能在单元测试里断言。
+ */
+export interface GraphPalette {
+  /** 画布底色：与面板 surface 同一档，画布不再是独立的一张「纸」 */
+  canvas: string
+  /** 点阵底 */
+  grid: string
+  /** 普通边 */
+  edge: string
+  /** 与焦点（hover 优先于选中）相连的边 */
+  edgeFocus: string
+  /** 常规标签文字 */
+  label: string
+  /** 焦点 / 选中节点标签文字 */
+  labelFocus: string
+  /** 标签的文字晕影（等于画布底色，用来把字从边上面托起来） */
+  labelHalo: string
+  /** 选中光环 */
+  halo: string
+  /** 断链边与幽灵节点描边 */
+  broken: string
+}
+
+export function graphPalette(theme: GraphTheme): GraphPalette {
+  if (theme === 'dark') {
     return {
-      hue,
-      fill: `hsla(${hue}, 40%, 26%, 0.72)`,
-      stroke: `hsl(${hue}, 60%, 66%)`,
-      label: `hsl(${hue}, 30%, 86%)`,
-      swatch: `hsl(${hue}, 52%, 62%)`
+      canvas: '#1f2937',
+      grid: 'rgba(148, 163, 184, 0.08)',
+      edge: '#4b5563',
+      edgeFocus: '#9ca3af',
+      label: '#8b95a4',
+      labelFocus: '#e5e7eb',
+      labelHalo: 'rgba(31, 41, 55, 0.94)',
+      halo: '#60a5fa',
+      broken: 'hsl(2, 66%, 64%)'
     }
   }
 
   return {
-    hue,
-    fill: `hsla(${hue}, 56%, 96%, 0.94)`,
-    stroke: `hsl(${hue}, 44%, 41%)`,
-    label: `hsl(${hue}, 32%, 29%)`,
-    swatch: `hsl(${hue}, 44%, 45%)`
+    canvas: '#ffffff',
+    grid: 'rgba(71, 85, 105, 0.1)',
+    edge: '#d1d5db',
+    edgeFocus: '#6b7280',
+    label: '#5b6472',
+    labelFocus: '#1f2937',
+    labelHalo: 'rgba(255, 255, 255, 0.94)',
+    halo: '#3b82f6',
+    broken: 'hsl(2, 60%, 52%)'
   }
 }
 
-/** 断链幽灵节点的配色：与所有文件夹色带都拉开，避免被误认为某个簇 */
-export function unresolvedColor(theme: GraphTheme): FolderColor {
-  const dark = theme === 'dark'
-  return {
-    hue: 0,
-    fill: dark ? 'hsla(0, 0%, 0%, 0)' : 'hsla(0, 0%, 100%, 0)',
-    stroke: dark ? 'hsl(2, 66%, 64%)' : 'hsl(2, 60%, 52%)',
-    label: dark ? 'hsl(2, 58%, 76%)' : 'hsl(2, 56%, 42%)',
-    swatch: dark ? 'hsl(2, 66%, 64%)' : 'hsl(2, 60%, 52%)'
-  }
+/** 断链幽灵节点的描边色（与文件夹色带彻底拉开，避免被误认为某一簇） */
+export function unresolvedColor(theme: GraphTheme): string {
+  return graphPalette(theme).broken
 }

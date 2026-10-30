@@ -87,8 +87,13 @@ describe('extractLinks：三种写法', () => {
     expect(extractLinks("[t](a.md '标题')")).toEqual([{ href: 'a.md', line: 1 }])
   })
 
-  it('尖括号自动链接', () => {
-    expect(extractLinks('<b.md>')).toEqual([{ href: 'b.md', line: 1 }])
+  it('尖括号只认 CommonMark autolink：URI 抽出，裸文件名不算', () => {
+    expect(extractLinks('<file:///C:/ws/a.md>')).toEqual([
+      { href: 'file:///C:/ws/a.md', line: 1 }
+    ])
+    // `<b.md>` 不是合法 autolink：markdown-it 渲染成纯文本、Ctrl+Click 也点不开，
+    // 图谱给它建边会造出「图上有边、点不开」的矛盾
+    expect(extractLinks('<b.md>')).toEqual([])
   })
 
   it('引用定义', () => {
@@ -103,6 +108,30 @@ describe('extractLinks：三种写法', () => {
 
   it('路径里的转义空格还原成空格', () => {
     expect(extractLinks('[t](my\\ notes/a.md)')).toEqual([{ href: 'my notes/a.md', line: 1 }])
+  })
+})
+
+describe('extractLinks：尖括号里的 HTML 标签不是链接', () => {
+  it('下划线、换行、泛型等标签名不被当成 href', () => {
+    const md = lines('这段<u>重点</u>要背，换行用<br>，类型写 <T>', '', '[真](real.md)')
+
+    expect(extractLinks(md)).toEqual([{ href: 'real.md', line: 3 }])
+  })
+
+  it('闭合标签、自闭合标签与 JSX 片段都不算', () => {
+    const md = lines('<div>块</div>', '<br/>', '<>片段</>')
+
+    expect(extractLinks(md)).toEqual([])
+  })
+
+  it('邮箱自动链接折算成 mailto: 后按外链排除', () => {
+    expect(extractLinks('<a@b.com>')).toEqual([])
+  })
+
+  it('行内链接的尖括号目标语法不受影响', () => {
+    expect(extractLinks('[带空格](<my notes/a.md>)')).toEqual([
+      { href: 'my notes/a.md', line: 1 }
+    ])
   })
 })
 

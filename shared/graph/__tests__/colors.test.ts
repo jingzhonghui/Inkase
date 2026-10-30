@@ -3,6 +3,7 @@ import {
   ROOT_FOLDER_HUE,
   folderColor,
   folderHue,
+  graphPalette,
   unresolvedColor
 } from '../colors'
 
@@ -51,18 +52,66 @@ describe('folderColor', () => {
     const dark = folderColor('notes', 'dark')
 
     expect(light.fill).not.toBe(dark.fill)
-    expect(light.label).not.toBe(dark.label)
   })
 
   it('色相与 folderHue 一致', () => {
     expect(folderColor('notes', 'light').hue).toBe(folderHue('notes'))
   })
 
-  it('断链配色与所有文件夹色相都不同族', () => {
+  it('节点是实心填充：不带 alpha 通道', () => {
+    for (const theme of ['light', 'dark'] as const) {
+      const { fill } = folderColor('notes', theme)
+      expect(fill).not.toContain('hsla')
+      expect(fill).not.toContain('/')
+    }
+  })
+
+  it('浅色底压暗、深色底提亮，两套都能在白/深底上立得住', () => {
+    const lightness = (fill: string): number =>
+      Number(/,\s*(\d+)%\)$/.exec(fill)?.[1])
+
+    const light = lightness(folderColor('notes', 'light').fill)
+    const dark = lightness(folderColor('notes', 'dark').fill)
+
+    expect(light).toBeLessThan(50)
+    expect(dark).toBeGreaterThan(50)
+  })
+
+  it('饱和度收在中段：三十个目录排开也不至于像调色盘', () => {
+    for (const theme of ['light', 'dark'] as const) {
+      const saturation = Number(
+        /hsl\(\d+,\s*(\d+)%/.exec(folderColor('notes', theme).fill)?.[1]
+      )
+      expect(saturation).toBeGreaterThanOrEqual(50)
+      expect(saturation).toBeLessThanOrEqual(80)
+    }
+  })
+})
+
+describe('graphPalette', () => {
+  it('两套主题给出两套画布色（画布跟随面板，不是一块独立的白纸）', () => {
+    expect(graphPalette('light').canvas).not.toBe(graphPalette('dark').canvas)
+  })
+
+  it('常规标签与焦点标签是两种墨色：主次只靠颜色，不靠字号', () => {
+    for (const theme of ['light', 'dark'] as const) {
+      const palette = graphPalette(theme)
+      expect(palette.label).not.toBe(palette.labelFocus)
+    }
+  })
+
+  it('标签晕影带透明度（半透的底才能让字浮在线上）', () => {
+    expect(graphPalette('light').labelHalo).toContain('rgba')
+    expect(graphPalette('dark').labelHalo).toContain('rgba')
+    expect(graphPalette('light').labelHalo).not.toBe(graphPalette('dark').labelHalo)
+  })
+
+  it('断链色与所有文件夹色相都不同族', () => {
     const broken = unresolvedColor('light')
 
-    expect(broken.hue).toBe(0)
-    expect(broken.stroke).toContain('hsl')
-    expect(unresolvedColor('dark').stroke).not.toBe(broken.stroke)
+    expect(broken).toContain('hsl')
+    expect(unresolvedColor('dark')).not.toBe(broken)
+    // 断链固定红系（hue≈2），与根目录的蓝（215）不会混淆
+    expect(Number(/hsl\((\d+)/.exec(broken)?.[1])).toBeLessThan(10)
   })
 })

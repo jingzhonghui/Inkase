@@ -304,9 +304,11 @@ describe('节点半径', () => {
         unresolved: false
       }) as const
 
-    expect(nodeRadius(node(0) as never)).toBe(3)
-    expect(nodeRadius(node(4) as never)).toBe(7)
-    expect(nodeRadius(node(10_000) as never)).toBe(14)
+    // 实心点比旧版的空心环略大一点（4 起步），但上限收到 11：
+    // 一颗 14px 的高饱和实心球会盖住它周围的边，而半径本来只是「被引得多」的提示
+    expect(nodeRadius(node(0) as never)).toBe(4)
+    expect(nodeRadius(node(4) as never)).toBeCloseTo(7.2)
+    expect(nodeRadius(node(10_000) as never)).toBe(11)
   })
 })
 

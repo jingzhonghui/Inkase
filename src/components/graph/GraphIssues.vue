@@ -131,7 +131,8 @@ function hrefLabel(issue: GraphIssue): string {
   flex-direction: column;
   min-height: 0;
   border-left: 1px solid var(--color-border);
-  background-color: var(--color-bg-secondary);
+  /* 与侧栏同一档底色：抽屉是图谱这一屏的一部分，不该另起一块「更亮的面板」 */
+  background-color: var(--color-bg);
 }
 
 .graph-issues__header {
@@ -161,12 +162,14 @@ function hrefLabel(issue: GraphIssue): string {
 }
 
 .graph-issues__tabs button.active {
+  /* 与侧栏命中行同一套：实心浅蓝底 + 正文墨色，不用边框圈出当前页 */
   background: var(--color-primary-light);
-  border-color: var(--color-primary);
-  color: var(--color-primary);
+  border-color: transparent;
+  color: var(--color-text);
 }
 
 .count {
+  font-family: var(--font-mono);
   font-size: calc(var(--ui-font-size) - 3px);
   opacity: 0.8;
 }

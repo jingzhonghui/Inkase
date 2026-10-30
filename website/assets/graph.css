@@ -1,0 +1,228 @@
+/* ==========================================================================
+   graph.css — § 知识图谱
+   与 formats.css 的两块画布共用面板外壳语言：顶栏 + 主体（侧栏 + 画布）+ 脚注。
+   节点颜色按「顶层目录」上色，与思维导图的分支色刻意错开；形状表达文档格式，
+   与产品内的视觉编码一致：圆点＝文档、菱形＝导图、方形＝图表、三角＝其他文件。
+   ========================================================================== */
+
+/* ── 本节专用令牌 ─────────────────────────────────────────────────────── */
+:root {
+  --g-note:   #60a5fa;  /* 文档目录 */
+  --g-design: #a78bfa;  /* 设计目录 */
+  --g-dev:    #34d399;  /* 开发目录 */
+  --g-life:   #f59e0b;  /* 生活目录 */
+  --g-ghost:  #f87171;  /* 断链目标 */
+}
+
+[data-theme="light"] {
+  --g-note:   #2563eb;
+  --g-design: #6d28d9;
+  --g-dev:    #047857;
+  --g-life:   #b45309;
+  --g-ghost:  #b91c1c;
+}
+
+/* ══════════ 外壳 ══════════ */
+.grf {
+  margin-top: 30px;
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+  background: var(--surface-1);
+  overflow: hidden;
+}
+
+.grf__bar {
+  display: flex; align-items: center; gap: 10px;
+  min-height: var(--h-tool);
+  padding: 0 12px;
+  background: var(--surface-3);
+  border-bottom: 1px solid var(--edge);
+  font-size: 12.5px;
+  color: var(--ink-bar);
+}
+.grf__spring { flex: 1 1 auto; }
+
+/* 全库 / 局部 分段控件 */
+.grf__seg {
+  display: flex; gap: 2px;
+  padding: 2px;
+  background: var(--surface-1);
+  border-radius: 6px;
+}
+.grf__seg span {
+  padding: 3px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+.grf__seg .is-active { background: var(--signal-deep); color: var(--on-deep); }
+
+/* 搜索框：只做样子，交互由正文说明承担 */
+.grf__search {
+  display: flex; align-items: center; gap: 6px;
+  min-width: 150px;
+  padding: 4px 9px;
+  background: var(--surface-1);
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+.grf__search svg { width: 13px; height: 13px; flex-shrink: 0; }
+
+/* 工具条四计数 */
+.grf__counts {
+  display: flex; align-items: center; gap: 12px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+.grf__counts b { font-weight: 600; color: var(--ink); }
+.grf__counts .is-warn b { color: var(--g-ghost); }
+
+/* ══════════ 主体 ══════════ */
+.grf__body {
+  display: grid;
+  grid-template-columns: 204px 1fr;
+  min-width: 0;
+}
+
+.grf__side {
+  display: flex; flex-direction: column; gap: 15px;
+  padding: 14px 12px;
+  border-right: 1px solid var(--edge);
+  background: var(--surface-1);
+  min-width: 0;
+}
+.grf__group { display: flex; flex-direction: column; gap: 2px; }
+.grf__label {
+  padding: 0 6px 5px;
+  font-size: 10.5px;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.grf__row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 6px;
+  border-radius: 5px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.grf__row.is-active { background: var(--signal-deep); color: var(--on-deep); }
+.grf__row .n {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-3);
+}
+.grf__row.is-active .n { color: var(--on-deep-2); }
+.grf__row.is-warn,
+.grf__row.is-warn .n { color: var(--g-ghost); }
+
+/* 目录色标 / 类型形状 */
+.grf__dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--c, var(--ink-3));
+  flex-shrink: 0;
+}
+.grf__shp {
+  width: 9px; height: 9px;
+  background: var(--ink-3);
+  flex-shrink: 0;
+}
+.grf__shp--doc { border-radius: 50%; }
+.grf__shp--mind { transform: rotate(45deg); }
+.grf__shp--flow { border-radius: 1px; }
+.grf__shp--other { clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+
+/* ══════════ 画布 ══════════ */
+.grf__stage {
+  position: relative;
+  min-width: 0;
+  padding: 10px;
+  background: var(--surface-2);
+}
+.grf__svg { display: block; width: 100%; height: auto; }
+
+.grf__edge {
+  fill: none;
+  stroke: var(--edge-hi);
+  stroke-width: 1.2;
+}
+.grf__edge--ghost {
+  stroke: var(--g-ghost);
+  stroke-dasharray: 4 4;
+  opacity: .8;
+}
+
+.grf__g .shape { fill: var(--c, var(--g-note)); }
+.grf__g--ghost .shape {
+  fill: none;
+  stroke: var(--g-ghost);
+  stroke-width: 1.4;
+  stroke-dasharray: 3 3;
+}
+.grf__g .lbl {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  fill: var(--ink-3);
+}
+.grf__g--sel .lbl { fill: var(--ink); }
+.grf__halo {
+  fill: none;
+  stroke: var(--signal);
+  stroke-width: 1.3;
+  opacity: .55;
+}
+
+/* 选中节点旁的路径 / 出入链信息卡 */
+.grf__card {
+  position: absolute;
+  top: 16px; right: 18px;
+  display: flex; flex-direction: column; gap: 5px;
+  min-width: 152px;
+  padding: 10px 12px;
+  background: var(--surface-1);
+  border: 1px solid var(--edge-hi);
+  border-radius: 7px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, .32);
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+.grf__card-name {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--ink);
+}
+.grf__card-meta { display: flex; gap: 10px; font-family: var(--font-mono); font-size: 10.5px; }
+
+.grf__note {
+  padding: 11px 14px;
+  border-top: 1px solid var(--edge);
+  font-size: 11.5px;
+  line-height: 1.75;
+  color: var(--ink-3);
+}
+.grf__note code { font-family: var(--font-mono); color: var(--ink-2); }
+
+/* ══════════ 窄屏 ══════════ */
+@media (max-width: 760px) {
+  .grf__bar { flex-wrap: wrap; padding: 8px 12px; gap: 8px; }
+  .grf__body { grid-template-columns: 1fr; }
+  .grf__side {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 10px 18px;
+    border-right: 0;
+    border-bottom: 1px solid var(--edge);
+  }
+  .grf__card { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .grf__g { transition: none; }
+}

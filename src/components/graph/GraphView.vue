@@ -20,7 +20,7 @@ import GraphSidebar from './GraphSidebar.vue'
  *
  * 布局分三层，各管一件事：
  * - 页头：搜索、状态（节点/链接/截断）、刷新 —— 「做事」的地方；
- * - 侧栏：视图 / 目录 / 类型 / 质量 —— 「看什么」的地方，图例与过滤器合并；
+ * - 侧栏：概况 / 视图 / 目录 / 类型 —— 「看什么」的地方，图例与过滤器合并；
  * - 画布：只画面，不放控件。
  */
 
@@ -63,18 +63,6 @@ const emptyWorkspace = computed(
 const filteredEmpty = computed(
   () => !loading.value && !errorText.value && graphStore.hasGraph && graphStore.visibleNodes.length === 0
 )
-
-// ===== 计数（页头） =====
-const stats = computed(() => graphStore.stats)
-/** 悬停才给的次要信息：扫描了多少文件、花了多久 */
-const statsTitle = computed(() => {
-  const current = stats.value
-  if (!current) return ''
-  const parts = [`已扫描 ${current.filesScanned} 个文件`]
-  if (current.elapsedMs > 0) parts.push(`用时 ${Math.round(current.elapsedMs)} ms`)
-  if (current.truncated) parts.push('已达文件上限，结果不完整')
-  return parts.join(' · ')
-})
 
 // ===== 局部图 =====
 const isLocal = computed(() => graphStore.mode === 'local')
@@ -459,22 +447,7 @@ watch(isShowing, (showing) => {
         </button>
       </div>
 
-      <!-- 只留「这张图有多大」两个数；断链与孤儿是质量指标，归侧栏 -->
-      <div
-        v-if="stats && !loading"
-        class="graph-header__stats"
-        :title="statsTitle"
-      >
-        <span class="graph-header__stat">节点 <b>{{ stats.nodeCount }}</b></span>
-        <span class="graph-header__sep">·</span>
-        <span class="graph-header__stat">链接 <b>{{ stats.edgeCount }}</b></span>
-        <span
-          v-if="stats.truncated"
-          class="graph-header__stat truncated"
-          title="已扫描至上限，结果不完整"
-        >已截断</span>
-      </div>
-
+      <!-- 计数不在这里：四个读数统一在侧栏「概况」分组，页头只做「动作」 -->
       <button
         class="graph-header__refresh"
         :disabled="loading"
@@ -840,33 +813,6 @@ watch(isShowing, (showing) => {
   cursor: pointer;
 }
 
-.graph-header__stats {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-left: auto;
-  color: var(--color-text-tertiary);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.graph-header__stat b {
-  font-weight: 600;
-  color: var(--color-text);
-}
-
-.graph-header__sep {
-  opacity: 0.5;
-}
-
-.graph-header__stat.truncated {
-  padding: 0 6px;
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--color-warning, #b8860b) 55%, var(--color-border));
-  color: var(--color-warning, #b8860b);
-  font-weight: 600;
-}
-
 .graph-header__refresh {
   flex-shrink: 0;
   width: 24px;
@@ -987,39 +933,38 @@ watch(isShowing, (showing) => {
 }
 
 /* ===== 选中信息卡 ===== */
+/* 落在右上角：左下角是「画布的重心区」，卡片压在那里会盖住最先看到的那一簇；
+   右上角与右下角的缩放按钮分居两侧，互不遮挡 */
 .graph-info {
   position: absolute;
-  left: 12px;
-  bottom: 12px;
-  width: 252px;
+  top: 14px;
+  right: 14px;
+  width: 236px;
   padding: 10px 12px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--color-bg-primary) 92%, transparent);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.14);
-  backdrop-filter: blur(8px);
+  border: 1px solid var(--color-border-hover);
+  border-radius: 7px;
+  background: var(--color-bg-primary);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.18);
 }
 
 .graph-info__kind {
   display: flex;
   align-items: center;
   gap: 5px;
-  margin-bottom: 4px;
+  margin-bottom: 5px;
   font-size: calc(var(--ui-font-size) - 3px);
-  font-weight: 600;
-  letter-spacing: 0.06em;
+  font-weight: 500;
+  letter-spacing: 0.09em;
   color: var(--color-text-tertiary);
 }
 
-/* 图例标记与画布上的节点同构：空心 + 细描边，而不是一颗实心色块。
-   两边长得一样，用户才不用在「卡片里的方块」和「图上的点」之间做翻译。 */
+/* 图例标记与画布上的节点同构：实心色块。画布上的点是实心的，
+   卡片里的样本却是空心细框的话，两处读法就对不上了 */
 .graph-info__shape {
   width: 8px;
   height: 8px;
   flex-shrink: 0;
-  box-sizing: border-box;
-  border: 1.5px solid var(--color-text-secondary);
-  background: transparent;
+  background: var(--color-text-tertiary);
 }
 
 .graph-info__shape--circle {
@@ -1037,14 +982,16 @@ watch(isShowing, (showing) => {
 .graph-info__shape--triangle {
   width: 0;
   height: 0;
-  border: 0;
+  background: transparent;
   border-left: 4px solid transparent;
   border-right: 4px solid transparent;
-  border-bottom: 7px solid var(--color-text-secondary);
+  border-bottom: 7px solid var(--color-text-tertiary);
 }
 
+/* 文件名走等宽：与画布上的标签、与文件树里的名字是同一套字 */
 .graph-info__title {
-  font-weight: 600;
+  font-family: var(--font-mono);
+  font-size: calc(var(--ui-font-size) - 1px);
   color: var(--color-text);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1052,19 +999,20 @@ watch(isShowing, (showing) => {
 }
 
 .graph-info__path {
-  margin-top: 2px;
-  font-size: calc(var(--ui-font-size) - 2px);
+  margin-top: 3px;
+  font-family: var(--font-mono);
+  font-size: calc(var(--ui-font-size) - 3px);
   color: var(--color-text-tertiary);
   word-break: break-all;
 }
 
 .graph-info__meta {
   display: flex;
-  gap: 12px;
-  margin-top: 6px;
-  font-size: calc(var(--ui-font-size) - 1px);
+  gap: 10px;
+  margin-top: 7px;
+  font-family: var(--font-mono);
+  font-size: calc(var(--ui-font-size) - 3px);
   color: var(--color-text-secondary);
-  font-variant-numeric: tabular-nums;
 }
 
 .graph-info__hidden {

@@ -47,7 +47,8 @@ const folderRows = computed(() => {
     folder,
     label: folder || ROOT_FOLDER_LABEL,
     count: counts.get(folder) ?? 0,
-    swatch: folderColor(folder, theme.value).swatch
+    // 与画布上的点同一个值：侧栏色标不是「图例里的示意色」，而是那个点本身
+    fill: folderColor(folder, theme.value).fill
   }))
 })
 
@@ -109,10 +110,101 @@ const showUnresolved = computed({
 // ===== 质量 =====
 const unresolvedIssues = computed(() => graphStore.issues.unresolved.length)
 const orphanIssues = computed(() => graphStore.issues.orphans.length)
+
+// ===== 概况：四个计数统一在侧栏 =====
+/**
+ * 节点 / 链接 / 断链 / 孤儿是「这张图有多大、有多脏」的四个读数，
+ * 它们只出现在这一处：顶条只放操作（搜索、收起侧栏、重扫），不再重复读数。
+ * 计数的真相在 `stats`；局部图等拿不到 stats 的场景退回到 payload / issues 的长度。
+ */
+const stats = computed(() => graphStore.stats)
+/** 加载中没有可信数字：宁可整块不显示，也不要先闪一个 0 再跳成 137 */
+const showStats = computed(() => Boolean(stats.value) && !graphStore.loading)
+const nodeCount = computed(
+  () => stats.value?.nodeCount ?? graphStore.effectivePayload?.nodes.length ?? 0
+)
+const edgeCount = computed(
+  () => stats.value?.edgeCount ?? graphStore.effectivePayload?.edges.length ?? 0
+)
+const unresolvedCount = computed(() => stats.value?.unresolvedCount ?? unresolvedIssues.value)
+const orphanCount = computed(() => stats.value?.orphanCount ?? orphanIssues.value)
+/** 悬停才给的次要信息：扫描了多少文件、花了多久 */
+const statsTitle = computed(() => {
+  const current = stats.value
+  if (!current) return ''
+  const parts = [`已扫描 ${current.filesScanned} 个文件`]
+  if (current.elapsedMs > 0) parts.push(`用时 ${Math.round(current.elapsedMs)} ms`)
+  if (current.truncated) parts.push('已达文件上限，结果不完整')
+  return parts.join(' · ')
+})
 </script>
 
 <template>
   <aside class="graph-rail">
+    <!-- 概况：四个读数（也是质量问题的入口），顶条不再重复 -->
+    <section
+      v-if="showStats"
+      class="graph-rail__section"
+    >
+      <h2 class="graph-rail__title">
+        概况
+        <span
+          v-if="stats?.truncated"
+          class="graph-rail__truncated"
+          title="已扫描至上限，结果不完整"
+        >已截断</span>
+      </h2>
+      <ul
+        class="graph-rail__list graph-rail__stats"
+        :title="statsTitle"
+      >
+        <li>
+          <div
+            class="graph-rail__row graph-rail__row--stat"
+            data-stat="nodes"
+          >
+            <span class="graph-rail__name">节点</span>
+            <span class="graph-rail__num">{{ nodeCount }}</span>
+          </div>
+        </li>
+        <li>
+          <div
+            class="graph-rail__row graph-rail__row--stat"
+            data-stat="edges"
+          >
+            <span class="graph-rail__name">链接</span>
+            <span class="graph-rail__num">{{ edgeCount }}</span>
+          </div>
+        </li>
+        <li>
+          <button
+            class="graph-rail__row graph-rail__row--issue"
+            :class="{ 'is-warn': unresolvedCount > 0 }"
+            :title="`${unresolvedCount} 个链接指向不存在的文件`"
+            data-issue="unresolved"
+            @click="emit('open-issues', 'unresolved')"
+          >
+            <span class="graph-rail__name">断链</span>
+            <span class="graph-rail__num">{{ unresolvedCount }}</span>
+            <span class="graph-rail__go">›</span>
+          </button>
+        </li>
+        <li>
+          <button
+            class="graph-rail__row graph-rail__row--issue"
+            :class="{ 'is-warn': orphanCount > 0 }"
+            :title="`${orphanCount} 篇笔记既没有出链也没有入链`"
+            data-issue="orphans"
+            @click="emit('open-issues', 'orphans')"
+          >
+            <span class="graph-rail__name">孤儿</span>
+            <span class="graph-rail__num">{{ orphanCount }}</span>
+            <span class="graph-rail__go">›</span>
+          </button>
+        </li>
+      </ul>
+    </section>
+
     <section class="graph-rail__section">
       <h2 class="graph-rail__title">
         视图
@@ -185,8 +277,8 @@ const orphanIssues = computed(() => graphStore.issues.orphans.length)
             @click="graphStore.toggleFolder(row.folder)"
           >
             <span
-              class="graph-rail__bar"
-              :style="{ backgroundColor: row.swatch }"
+              class="graph-rail__dot"
+              :style="{ backgroundColor: row.fill }"
             />
             <span class="graph-rail__name">{{ row.label }}</span>
             <span class="graph-rail__num">{{ row.count }}</span>
@@ -238,42 +330,6 @@ const orphanIssues = computed(() => graphStore.issues.orphans.length)
       </ul>
     </section>
 
-    <section class="graph-rail__section">
-      <h2 class="graph-rail__title">
-        质量
-      </h2>
-      <ul class="graph-rail__list">
-        <li>
-          <button
-            class="graph-rail__row graph-rail__row--issue"
-            data-issue="unresolved"
-            @click="emit('open-issues', 'unresolved')"
-          >
-            <span class="graph-rail__name">断链</span>
-            <span
-              class="graph-rail__num"
-              :class="{ warn: unresolvedIssues > 0 }"
-            >{{ unresolvedIssues }}</span>
-            <span class="graph-rail__go">›</span>
-          </button>
-        </li>
-        <li>
-          <button
-            class="graph-rail__row graph-rail__row--issue"
-            data-issue="orphans"
-            @click="emit('open-issues', 'orphans')"
-          >
-            <span class="graph-rail__name">孤儿</span>
-            <span
-              class="graph-rail__num"
-              :class="{ warn: orphanIssues > 0 }"
-            >{{ orphanIssues }}</span>
-            <span class="graph-rail__go">›</span>
-          </button>
-        </li>
-      </ul>
-    </section>
-
     <footer class="graph-rail__footer">
       <button
         v-if="graphStore.isFiltered"
@@ -283,7 +339,7 @@ const orphanIssues = computed(() => graphStore.issues.orphans.length)
         重置筛选
       </button>
       <p class="graph-rail__hint">
-        颜色＝目录 · 形状＝格式 · 大小＝入链数
+        颜色＝目录 · 形状＝格式 · 大小＝入链数 · 虚线＝断链
       </p>
     </footer>
   </aside>
@@ -291,24 +347,28 @@ const orphanIssues = computed(() => graphStore.issues.orphans.length)
 
 <style scoped>
 .graph-rail {
-  width: 236px;
+  width: 204px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
   min-height: 0;
-  padding: 10px 8px 8px;
-  gap: 14px;
+  padding: 14px 12px 12px;
+  gap: 15px;
   border-right: 1px solid var(--color-border);
-  background-color: var(--color-bg-secondary);
-  font-size: calc(var(--ui-font-size) - 1px);
+  /* 比画布「退后一档」：深色下压到 --color-bg 显得凹进去，浅色下略灰。
+     官网的知识图谱面板是同一个关系（侧栏 surface-1、画布 surface-2）。 */
+  background-color: var(--color-bg);
+  font-size: calc(var(--ui-font-size) - 0.5px);
   /* 侧栏自己滚动：目录可能很长，窗口也可能很矮，两级都不该被裁掉 */
   overflow-y: auto;
 }
 
+/* 分组之间只有留白，没有分隔线：一栏里四组是同一件事的四个面，
+   画上横线会把它们切成四块互不相干的表 */
 .graph-rail__section {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 2px;
   flex-shrink: 0;
 }
 
@@ -321,16 +381,17 @@ const orphanIssues = computed(() => graphStore.issues.orphans.length)
   display: flex;
   align-items: center;
   gap: 6px;
-  margin: 0 0 3px;
+  margin: 0 0 4px;
   padding: 0 6px;
-  font-size: calc(var(--ui-font-size) - 3px);
-  font-weight: 600;
-  letter-spacing: 0.06em;
+  font-size: calc(var(--ui-font-size) - 2.5px);
+  font-weight: 500;
+  letter-spacing: 0.09em;
   color: var(--color-text-tertiary);
 }
 
 .graph-rail__badge-num {
   margin-left: auto;
+  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   letter-spacing: 0;
 }
@@ -339,15 +400,15 @@ const orphanIssues = computed(() => graphStore.issues.orphans.length)
   display: flex;
   gap: 2px;
   padding: 2px;
-  border-radius: var(--radius-md);
-  background: var(--color-bg-tertiary);
+  border-radius: 6px;
+  background: var(--color-bg-primary);
 }
 
 .graph-rail__segment {
   flex: 1;
   padding: 3px 0;
   border: none;
-  border-radius: var(--radius-sm);
+  border-radius: 4px;
   background: transparent;
   color: var(--color-text-secondary);
   font-size: inherit;
@@ -355,11 +416,12 @@ const orphanIssues = computed(() => graphStore.issues.orphans.length)
   transition: background 0.12s, color 0.12s;
 }
 
+/* 当前段＝实心强调底（官网同一做法）：两段之间只靠留白与底色区分，
+   不给按钮加边框，否则一栏里会同时出现三种「按钮」 */
 .graph-rail__segment.active {
-  background: var(--color-bg-primary);
+  background: var(--color-primary-light);
   color: var(--color-text);
   font-weight: 600;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
 }
 
 .graph-rail__center {
@@ -405,11 +467,11 @@ const orphanIssues = computed(() => graphStore.issues.orphans.length)
 .graph-rail__row {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
   width: 100%;
-  padding: 4px 6px;
+  padding: 5px 6px;
   border: none;
-  border-radius: var(--radius-sm);
+  border-radius: 5px;
   background: transparent;
   color: var(--color-text-secondary);
   font-size: inherit;
@@ -423,22 +485,25 @@ const orphanIssues = computed(() => graphStore.issues.orphans.length)
   color: var(--color-text);
 }
 
+/* 命中行是实心浅蓝块，不是「描个边框」：一行里既有色标又有计数，
+   再加框线会和色标抢注意力 */
 .graph-rail__row.active {
   background: var(--color-primary-light);
-  color: var(--color-primary);
+  color: var(--color-text);
 }
 
-/* 目录色条：竖向小方块，比圆点更像「抽屉上的色标」，也顺着列表的竖排方向 */
-.graph-rail__bar {
-  width: 3px;
-  height: 12px;
+/* 目录色标：与画布上那颗点是同一个颜色、同一个尺寸（8px 圆点），
+   侧栏与画布之间不需要用户做任何换算 */
+.graph-rail__dot {
+  width: 8px;
+  height: 8px;
   flex-shrink: 0;
-  border-radius: 2px;
+  border-radius: 50%;
 }
 
 .graph-rail__shape {
-  width: 8px;
-  height: 8px;
+  width: 9px;
+  height: 9px;
   flex-shrink: 0;
   background: currentColor;
   opacity: 0.85;
@@ -453,17 +518,17 @@ const orphanIssues = computed(() => graphStore.issues.orphans.length)
 }
 
 .graph-rail__shape--square {
-  border-radius: 2px;
+  border-radius: 1px;
 }
 
-/* CSS 画三角只能靠边框：左右各 4.5px 透明、底边 8px 实色 */
+/* CSS 画三角只能靠边框：左右各 4.5px 透明、底边 9px 实色 */
 .graph-rail__shape--triangle {
   width: 0;
   height: 0;
   background: transparent;
   border-left: 4.5px solid transparent;
   border-right: 4.5px solid transparent;
-  border-bottom: 8px solid currentColor;
+  border-bottom: 9px solid currentColor;
 }
 
 .graph-rail__shape--ghost {
@@ -492,25 +557,58 @@ const orphanIssues = computed(() => graphStore.issues.orphans.length)
   opacity: 0.7;
 }
 
+/* 计数走等宽：右缘对齐成一列，扫一眼就能比大小 */
 .graph-rail__num {
   flex-shrink: 0;
+  margin-left: auto;
+  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  font-size: calc(var(--ui-font-size) - 3px);
+  font-size: calc(var(--ui-font-size) - 2.5px);
   color: var(--color-text-tertiary);
 }
 
 .graph-rail__row.active .graph-rail__num {
   color: inherit;
+  opacity: 0.72;
 }
 
-.graph-rail__num.warn {
+/* 有问题的分组整行转成告警色，而不只是数字发红：
+   「断链 2」这行本身就是入口，颜色得先落在入口上 */
+.graph-rail__row.is-warn,
+.graph-rail__row.is-warn .graph-rail__num {
   color: var(--color-danger, #d9534f);
-  font-weight: 600;
+}
+
+.graph-rail__row.is-warn:hover {
+  background: color-mix(in srgb, var(--color-danger, #d9534f) 12%, transparent);
+  color: var(--color-danger, #d9534f);
 }
 
 .graph-rail__go {
   flex-shrink: 0;
   color: var(--color-text-tertiary);
+}
+
+/* 概况的两条纯读数不是按钮（点了没反应，就别给按钮的手型与悬停底色） */
+.graph-rail__row--stat {
+  cursor: default;
+}
+
+.graph-rail__row--stat:hover {
+  background: transparent;
+  color: var(--color-text-secondary);
+}
+
+/* 「已截断」是给读数打的注脚，不是第四个计数：贴右、比标题更弱 */
+.graph-rail__truncated {
+  margin-left: auto;
+  padding: 0 5px;
+  border: 1px solid color-mix(in srgb, #b8860b 55%, var(--color-border));
+  border-radius: 999px;
+  color: #b8860b;
+  font-size: calc(var(--ui-font-size) - 3px);
+  font-weight: 600;
+  letter-spacing: 0;
 }
 
 .graph-rail__footer {

@@ -4,10 +4,8 @@ import {
   IconMessageChatbot,
   IconRefresh,
   IconTopologyStar3,
-  IconX,
   type Icon
 } from '@tabler/icons-vue'
-import { useFileStore } from '../../stores/file'
 import { useGraphStore } from '../../stores/graph'
 import { WORKSPACE_SEGMENTS, useWorkspaceStore, type WorkspaceSegment } from '../../stores/workspace'
 
@@ -17,11 +15,17 @@ import { WORKSPACE_SEGMENTS, useWorkspaceStore, type WorkspaceSegment } from '..
  * 原来图谱与 AI 各自带一条页头（标题 + 统计 + 刷新），搬进工作台后如果两套都留，
  * 顶部会叠出两条 40px 的横条——"双页头"是这类容器最常见的塌陷方式。
  * 所以段内页头统一收到这一条：左边只负责"我在哪一段"，右边负责"这一段能做什么"。
+ *
+ * 这一条只放**操作**（搜索、收起侧栏、重扫），不放**读数**：
+ * 节点/链接/断链/孤儿四个计数统一在图谱侧栏的「概况」分组里，
+ * 同一份数据不再出现在两处，用户也不必在两块地方之间对数字。
+ *
+ * 也刻意没有「关闭」按钮：回到文档有两条更自然的出口——点标签栏上的文件标签，
+ * 或点「工作台」标签本身；再放一个 × 只会让人以为要"关掉"什么。
  */
 
 const workspaceStore = useWorkspaceStore()
 const graphStore = useGraphStore()
-const fileStore = useFileStore()
 
 const SEGMENT_ICONS: Record<WorkspaceSegment, Icon> = {
   graph: IconTopologyStar3,
@@ -31,8 +35,6 @@ const SEGMENT_ICONS: Record<WorkspaceSegment, Icon> = {
 const segments = WORKSPACE_SEGMENTS
 
 const isGraph = computed(() => workspaceStore.segment === 'graph')
-const stats = computed(() => graphStore.stats)
-const hasDocument = computed(() => fileStore.tabs.length > 0)
 
 // ===== 图谱段的搜索：变量与 store 双向同步，切段回来不丢 =====
 const query = ref(graphStore.filters.query)
@@ -106,20 +108,6 @@ function clearQuery(): void {
         </button>
       </div>
 
-      <div
-        v-if="stats"
-        class="ws-bar__stats"
-        :title="`已扫描 ${stats.filesScanned} 个文件 · 用时 ${Math.round(stats.elapsedMs)} ms`"
-      >
-        <span>节点 <b>{{ stats.nodeCount }}</b></span>
-        <span class="ws-bar__dot">·</span>
-        <span>链接 <b>{{ stats.edgeCount }}</b></span>
-        <span
-          v-if="stats.truncated"
-          class="ws-bar__truncated"
-        >已截断</span>
-      </div>
-
       <button
         class="ws-bar__icon"
         :class="{ active: workspaceStore.expanded }"
@@ -135,20 +123,6 @@ function clearQuery(): void {
         @click="graphStore.refresh()"
       >
         <IconRefresh
-          :size="14"
-          stroke="1.8"
-        />
-      </button>
-    </div>
-
-    <div class="ws-bar__tail">
-      <button
-        v-if="hasDocument"
-        class="ws-bar__icon"
-        title="回到文档"
-        @click="workspaceStore.close()"
-      >
-        <IconX
           :size="14"
           stroke="1.8"
         />
@@ -243,43 +217,6 @@ function clearQuery(): void {
   font-size: 13px;
   line-height: 1;
   cursor: pointer;
-}
-
-.ws-bar__stats {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  color: var(--color-text-tertiary);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.ws-bar__stats b {
-  font-weight: 600;
-  color: var(--color-text);
-}
-
-.ws-bar__dot {
-  opacity: 0.5;
-}
-
-.ws-bar__truncated {
-  padding: 0 6px;
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, #b8860b 55%, var(--color-border));
-  color: #b8860b;
-  font-weight: 600;
-}
-
-.ws-bar__tail {
-  display: flex;
-  align-items: center;
-  margin-left: auto;
-}
-
-/* 图谱段已经把 trail 推到右边，tail 只需紧贴 */
-.ws-bar__trail + .ws-bar__tail {
-  margin-left: 0;
 }
 
 .ws-bar__icon {

@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Inkase — One document, one file | A self-contained document workbench</title>
-<meta name="description" content="Inkase is a free, open-source document workbench: the text, images and attachments pack into a single .mdx file, mind maps are saved as a single .inkmind container, and diagrams are plain draw.io .drawio files. Three editing modes, read-only PDF and image viewing, batch export, an AI assistant where every call is approvable, and Git and WebDAV sync.">
-<meta name="keywords" content="Markdown editor, MD editor, single file documents, mdx format, WYSIWYG Markdown, mind map, inkmind, XMind import export, drawio, flowchart, architecture diagram, ER diagram, PDF viewer, AI assistant, WebDAV sync, Git sync, free open source notes, Electron document workbench">
+<meta name="description" content="Inkase is a free, open-source document workbench: text, images and attachments are packed into a single .mdx file, mind maps are saved as a single-container .inkmind, and diagrams are plain draw.io .drawio. Instant rendering, source editing and split preview; read-only PDF and image viewing with batch export; a built-in AI assistant whose every tool call can be approved; Git and WebDAV sync — plus a knowledge graph that indexes the links between documents, with broken-link and orphan lists.">
+<meta name="keywords" content="markdown editor, single-file document, mdx format, wysiwyg markdown, mind map, inkmind, xmind import export, drawio, flowchart, architecture diagram, ER diagram, PDF viewer, AI assistant, WebDAV sync, Git sync, knowledge graph, backlinks, broken links, orphan notes, free open source notes, Electron document workbench">
 <meta name="theme-color" id="themeColor" content="#08090c">
 <link rel="canonical" href="https://jingzhonghui.github.io/Inkase/en/">
 <link rel="alternate" hreflang="zh-CN" href="https://jingzhonghui.github.io/Inkase/">
@@ -14,14 +14,14 @@
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Inkase">
 <meta property="og:title" content="Inkase — One document, one file">
-<meta property="og:description" content="Text, images and attachments pack into one .mdx file. Mind maps are a single .inkmind container; diagrams are plain draw.io .drawio. Three document types, one window.">
+<meta property="og:description" content="Text, images and attachments in a single .mdx file; mind maps as one .inkmind container; diagrams as plain draw.io .drawio. Three document types, one knowledge graph, one window.">
 <meta property="og:url" content="https://jingzhonghui.github.io/Inkase/en/">
 <meta property="og:image" content="https://jingzhonghui.github.io/Inkase/assets/icon.png">
 <meta property="og:locale" content="en_US">
 <meta property="og:locale:alternate" content="zh_CN">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="Inkase — One document, one file">
-<meta name="twitter:description" content="Text, images and attachments pack into one .mdx file. Mind maps are a single .inkmind container; diagrams are plain draw.io .drawio. Three document types, one window.">
+<meta name="twitter:description" content="Text, images and attachments in a single .mdx file; mind maps as one .inkmind container; diagrams as plain draw.io .drawio. Three document types, one knowledge graph, one window.">
 <meta name="twitter:image" content="https://jingzhonghui.github.io/Inkase/assets/icon.png">
 <script type="application/ld+json" id="ldjson">
 {
@@ -32,13 +32,14 @@
   "operatingSystem": "Windows, Linux",
   "softwareVersion": "0.3.6",
   "license": "https://www.apache.org/licenses/LICENSE-2.0",
-  "description": "Inkase is a free, open-source document workbench: the text, images and attachments pack into a single .mdx file, mind maps into a single .inkmind container, and diagrams are plain draw.io .drawio files.",
+  "description": "Inkase is a free, open-source document workbench: text, images and attachments are packed into a single .mdx file, mind maps are saved as a single-container .inkmind, diagrams are plain draw.io .drawio, and the links between documents are indexed into a knowledge graph.",
   "featureList": [
     "Self-contained .mdx documents: text, images and attachments in one ZIP",
-    ".inkmind mind maps: a single-file container, topics carry notes, tags, images and attachments",
-    ".drawio diagrams: a locally hosted draw.io editor, fully offline, plain-text XML",
-    "Three editing modes: live rendering, source and split preview",
-    "AI assistant: every tool call is approvable",
+    "Mind maps .inkmind: single-container format with notes, tags, images and attachments per topic",
+    "Diagrams .drawio: self-hosted draw.io editor, works offline, plain-text XML",
+    "Knowledge graph: links between documents drawn as a force-directed graph, with 1–3 hop local view and broken-link / orphan lists",
+    "Three editing modes: instant rendering, source editing, split preview",
+    "AI assistant: every tool call can be approved first",
     "Git and WebDAV sync"
   ],
   "url": "https://jingzhonghui.github.io/Inkase/en/",
@@ -51,6 +52,7 @@
 <link rel="stylesheet" href="../assets/demo.css">
 <link rel="stylesheet" href="../assets/panels.css">
 <link rel="stylesheet" href="../assets/formats.css">
+<link rel="stylesheet" href="../assets/graph.css">
   <link rel="stylesheet" href="../assets/shell.css">
 <script>
 /* 主题必须在首次绘制前定好，否则会闪一下深色再跳浅色。
@@ -91,6 +93,7 @@
   <symbol id="i-outline" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2.5 3.5h11M2.5 8h7.5M2.5 12.5h9.5"/></symbol>
   <symbol id="i-mind" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="6.4" width="4.6" height="3.2" rx=".9"/><rect x="10.4" y="1.6" width="4.6" height="2.8" rx=".9"/><rect x="10.4" y="6.6" width="4.6" height="2.8" rx=".9"/><rect x="10.4" y="11.6" width="4.6" height="2.8" rx=".9"/><path d="M5.6 8h2.4M8 8V3h2.4M8 8h2.4M8 8v5h2.4"/></symbol>
   <symbol id="i-flow" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><rect x="2" y="1.8" width="12" height="4" rx="1"/><rect x="5" y="10.2" width="6" height="4" rx="1"/><path d="M8 5.8v4.4" stroke-linecap="round"/></symbol>
+  <symbol id="i-search" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><circle cx="7" cy="7" r="4.2"/><path d="m10.2 10.2 3 3"/></symbol>
   <symbol id="i-clip" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M12.2 7.4 7.6 12a2.9 2.9 0 0 1-4.1-4.1l5.3-5.3a2.2 2.2 0 0 1 3.1 3.1L6.7 10.9a.9.9 0 0 1-1.3-1.3l4.7-4.7"/></symbol>
 </defs></svg>
 
@@ -210,6 +213,7 @@
         </div>
         <div class="menu__sep" role="separator"></div>
         <button class="menu__item" type="button" role="menuitem" aria-checked="true"><span class="menu__check" aria-hidden="true">✓</span><span>Show sidebar</span></button>
+        <button class="menu__item" type="button" role="menuitem"><span>Knowledge graph</span><span class="menu__kw">Ctrl+Shift+G</span></button>
         <button class="menu__item" type="button" role="menuitem" data-surface="ai"><span>AI assistant</span></button>
         <div class="menu__sep" role="separator"></div>
         <button class="menu__item" type="button" role="menuitem" data-surface="settings"><span>Settings</span><span class="menu__kw">Ctrl+,</span></button>
@@ -255,6 +259,9 @@
         <a class="outline__item outline__item--h2" href="#sec-diagram">
           <span class="outline__mark">##</span><span class="outline__text">Diagrams</span>
         </a>
+        <a class="outline__item outline__item--h2" href="#sec-graph">
+          <span class="outline__mark">##</span><span class="outline__text">Knowledge graph</span>
+        </a>
         <a class="outline__item outline__item--h2" href="#sec-view">
           <span class="outline__mark">##</span><span class="outline__text">PDF and images</span>
         </a>
@@ -298,7 +305,7 @@
         <section class="sec sec--open" id="sec-open">
           <p class="eyebrow" data-reveal>Inkase · Self-contained document workbench · <span class="js-ver">v0.3.6</span></p>
           <h1 class="h1" data-reveal><span class="gm">#</span>One document, one file</h1>
-          <p class="lede" data-reveal>Inkase is a document workbench. It packs the text, images and attachments into a single <code>.mdx</code> file — copy that one file and you have the whole document. Mind maps and diagrams work the same way: a map is one <code>.inkmind</code> container, a diagram is a plain draw.io <code>.drawio</code>, and all three live in the same window.</p>
+          <p class="lede" data-reveal>Inkase is a document workbench. It packs the text, images and attachments into a single <code>.mdx</code> file — copy that one file and you have the whole document. Mind maps and diagrams work the same way: a map is one <code>.inkmind</code> container, a diagram is a plain draw.io <code>.drawio</code>, and all three live in the same window. Links between documents are indexed into a knowledge graph as well — see what connects to what, and where a link is broken.</p>
 
           <div class="actions" data-reveal>
             <a class="btn btn--primary" href="#sec-save">Download free</a>
@@ -731,7 +738,142 @@ Pack the whole document into <span class="md-mark">**</span>a single file<span c
 
         <hr class="rule">
 
-        <!-- ── §6 PDF 与图片 ── -->
+        <!-- ── §6 Knowledge graph ── -->
+        <section class="sec" id="sec-graph">
+          <h2 class="h2" data-reveal><span class="gm">##</span>Knowledge graph<span class="tag-new">New</span></h2>
+          <p class="lede" data-reveal>Links written in your notes — <code>[title](relative/path.mdx)</code> — are indexed into a graph. The file tree answers “where is it”; the graph answers “what connects to what, and where is it broken” — orphan notes nobody links to and links pointing at missing files are visible both on the canvas and in the lists.</p>
+
+          <div class="grf" data-reveal>
+            <div class="grf__bar">
+              <div class="grf__seg" role="group" aria-label="Knowledge graph">
+                <span class="is-active">Library</span><span>Local</span>
+              </div>
+              <span class="grf__spring"></span>
+              <span class="grf__search"><svg aria-hidden="true"><use href="#i-search"/></svg>Search titles…</span>
+              <span class="grf__counts"><span>Nodes <b>24</b></span><span>Links <b>38</b></span><span class="is-warn">Broken <b>1</b></span><span>Orphans <b>4</b></span></span>
+            </div>
+
+            <div class="grf__body">
+              <aside class="grf__side" aria-hidden="true">
+                <div class="grf__group">
+                  <span class="grf__label">View</span>
+                  <span class="grf__row is-active">Library</span>
+                  <span class="grf__row">Local · 1 hop</span>
+                </div>
+                <div class="grf__group">
+                  <span class="grf__label">Folders</span>
+                  <span class="grf__row"><i class="grf__dot" style="--c: var(--g-note)"></i>Notes<span class="n">11</span></span>
+                  <span class="grf__row"><i class="grf__dot" style="--c: var(--g-design)"></i>Design<span class="n">5</span></span>
+                  <span class="grf__row"><i class="grf__dot" style="--c: var(--g-dev)"></i>Dev<span class="n">6</span></span>
+                  <span class="grf__row"><i class="grf__dot" style="--c: var(--g-life)"></i>Life<span class="n">2</span></span>
+                </div>
+                <div class="grf__group">
+                  <span class="grf__label">Types</span>
+                  <span class="grf__row"><i class="grf__shp grf__shp--doc"></i>Documents<span class="n">16</span></span>
+                  <span class="grf__row"><i class="grf__shp grf__shp--mind"></i>Mind maps<span class="n">3</span></span>
+                  <span class="grf__row"><i class="grf__shp grf__shp--flow"></i>Diagrams<span class="n">3</span></span>
+                  <span class="grf__row"><i class="grf__shp grf__shp--other"></i>Others<span class="n">2</span></span>
+                </div>
+                <div class="grf__group">
+                  <span class="grf__label">Quality</span>
+                  <span class="grf__row is-warn">Broken<span class="n">1</span></span>
+                  <span class="grf__row">Orphans<span class="n">4</span></span>
+                </div>
+              </aside>
+
+              <div class="grf__stage">
+                <svg class="grf__svg" viewBox="0 0 620 350" role="img" aria-label="Knowledge graph example: nodes coloured by folder, shaped by format, dashed for a broken target">
+                  <g>
+                    <path class="grf__edge" d="M110 55 L230 40"/>
+                    <path class="grf__edge" d="M110 55 L100 175"/>
+                    <path class="grf__edge" d="M110 55 L265 150"/>
+                    <path class="grf__edge" d="M100 175 L265 150"/>
+                    <path class="grf__edge" d="M265 150 L395 80"/>
+                    <path class="grf__edge" d="M265 150 L415 215"/>
+                    <path class="grf__edge" d="M230 40 L395 80"/>
+                    <path class="grf__edge" d="M395 80 L530 60"/>
+                    <path class="grf__edge" d="M415 215 L545 165"/>
+                    <path class="grf__edge grf__edge--ghost" d="M265 150 L300 270"/>
+                    <path class="grf__edge" d="M175 300 L265 150"/>
+                    <path class="grf__edge" d="M230 40 L445 300"/>
+                    <path class="grf__edge" d="M545 165 L445 300"/>
+                    <path class="grf__edge" d="M175 300 L100 175"/>
+                  </g>
+                  <g>
+                    <g class="grf__g" style="--c: var(--g-note)" transform="translate(110 55)">
+                      <circle class="shape" r="8"/>
+                      <text class="lbl" y="23" text-anchor="middle">Project plan</text>
+                    </g>
+                    <g class="grf__g" style="--c: var(--g-note)" transform="translate(230 40)">
+                      <circle class="shape" r="8"/>
+                      <text class="lbl" y="23" text-anchor="middle">Requirements</text>
+                    </g>
+                    <g class="grf__g" style="--c: var(--g-design)" transform="translate(100 175)">
+                      <rect class="shape" x="-7" y="-7" width="14" height="14" transform="rotate(45)"/>
+                      <text class="lbl" y="23" text-anchor="middle">Release plan</text>
+                    </g>
+                    <g class="grf__g grf__g--sel" style="--c: var(--g-dev)" transform="translate(265 150)">
+                      <circle class="grf__halo" r="15"/>
+                      <rect class="shape" x="-7" y="-7" width="14" height="14" rx="2"/>
+                      <text class="lbl" y="23" text-anchor="middle">Release flow</text>
+                    </g>
+                    <g class="grf__g" style="--c: var(--g-dev)" transform="translate(395 80)">
+                      <circle class="shape" r="8"/>
+                      <text class="lbl" y="23" text-anchor="middle">API contract</text>
+                    </g>
+                    <g class="grf__g" style="--c: var(--g-dev)" transform="translate(415 215)">
+                      <rect class="shape" x="-7" y="-7" width="14" height="14" rx="2"/>
+                      <text class="lbl" y="23" text-anchor="middle">Architecture</text>
+                    </g>
+                    <g class="grf__g" style="--c: var(--g-design)" transform="translate(530 60)">
+                      <circle class="shape" r="8"/>
+                      <text class="lbl" y="23" text-anchor="middle">Reading notes</text>
+                    </g>
+                    <g class="grf__g" style="--c: var(--g-life)" transform="translate(545 165)">
+                      <circle class="shape" r="8"/>
+                      <text class="lbl" y="23" text-anchor="middle">Meeting notes</text>
+                    </g>
+                    <g class="grf__g" style="--c: var(--g-life)" transform="translate(445 300)">
+                      <path class="shape" d="M0 -8 L8 7 L-8 7 Z"/>
+                      <text class="lbl" y="23" text-anchor="middle">Asset list</text>
+                    </g>
+                    <g class="grf__g grf__g--ghost" style="--c: var(--g-ghost)" transform="translate(300 270)">
+                      <circle class="shape" r="8"/>
+                      <text class="lbl" y="23" text-anchor="middle">Missing note</text>
+                    </g>
+                    <g class="grf__g" style="--c: var(--g-life)" transform="translate(175 300)">
+                      <circle class="shape" r="8"/>
+                      <text class="lbl" y="23" text-anchor="middle">Release checklist</text>
+                    </g>
+                  </g>
+                </svg>
+                <div class="grf__card">
+                  <span class="grf__card-name">Release flow.drawio</span>
+                  <span class="grf__card-meta"><span>In 3</span><span>Out 3</span></span>
+                </div>
+              </div>
+            </div>
+
+            <p class="grf__note">Node colour = top-level folder, shape = document format (circle = document, diamond = mind map, square = diagram, triangle = other file), radius = inbound links, hollow dashed = broken target. Click any row in the sidebar to filter; filtering only changes what is drawn, never the layout.</p>
+          </div>
+
+          <ul class="points">
+            <li class="point" data-reveal>
+              <span class="point__mark">✓</span>
+              <div><h3>Library and local view</h3><p>Zoom with the wheel, pan by dragging empty space; or centre on the current file and expand 1–3 hops to see its neighbourhood.</p></div>
+            </li>
+            <li class="point" data-reveal>
+              <span class="point__mark">✓</span>
+              <div><h3>Broken links and orphans</h3><p>Two rows under Quality open the broken-link and orphan lists; click any item to jump to the file — broken links jump to the source where the link was written.</p></div>
+            </li>
+            <li class="point" data-reveal>
+              <span class="point__mark">✓</span>
+              <div><h3>Edit right on the graph</h3><p>Right-click empty space to create a note; right-click a node and choose “Link to…” to append a link under “## Related notes” in the source file, skipping duplicates.</p></div>
+            </li>
+          </ul>
+        </section>
+
+        <!-- ── §7 PDF 与图片 ── -->
         <section class="sec" id="sec-view">
           <h2 class="h2" data-reveal><span class="gm">##</span>PDF and images</h2>
           <p class="lede" data-reveal>Open PDFs and images read-only, right in a tab. No format conversion, no changes to the original file. In dark mode the whole page inverts, so long documents are easy on the eyes at night.</p>
@@ -778,7 +920,7 @@ Pack the whole document into <span class="md-mark">**</span>a single file<span c
 
         <hr class="rule">
 
-        <!-- ── §5 AI 助手 ── -->
+        <!-- ── §8 AI 助手 ── -->
         <section class="sec" id="sec-ai">
           <h2 class="h2" data-reveal><span class="gm">##</span>AI assistant</h2>
           <p class="lede" data-reveal>Point it at any OpenAI-compatible endpoint and it can read and write your documents, search the whole workspace, and draft a mind map from an outline. Before it touches anything, it lays out exactly what it is about to do.</p>
@@ -830,7 +972,7 @@ Pack the whole document into <span class="md-mark">**</span>a single file<span c
 
         <hr class="rule">
 
-        <!-- ── §6 同步 ── -->
+        <!-- ── §9 同步 ── -->
         <section class="sec" id="sec-sync">
           <h2 class="h2" data-reveal><span class="gm">##</span>Sync<span class="tag-new">v0.3.5 adds WebDAV</span></h2>
           <p class="lede" data-reveal>Pick either backend: bind a Git repository, or connect a WebDAV drive. Pull, push and conflict handling all happen in the panel — no command line required.</p>
@@ -955,6 +1097,7 @@ Pack the whole document into <span class="md-mark">**</span>a single file<span c
                 <div class="spec__row"><dt>Three document types</dt><dd>Long-form <code>.mdx</code>, <code>.inkmind</code> maps and <code>.drawio</code> diagrams each have their own editor and share the same tab bar.</dd></div>
                 <div class="spec__row"><dt>Folder workspace</dt><dd>Browse, create, rename and drag files around, much like a file manager.</dd></div>
                 <div class="spec__row"><dt>Multiple tabs</dt><dd>Keep several documents open at once and switch freely between them.</dd></div>
+                <div class="spec__row"><dt>Knowledge graph</dt><dd>Draws the links in your workspace as a force-directed graph: whole-library topology, 1–3 hop neighbours of one note, broken-link and orphan lists — and you can create a note or add a link right on the graph.</dd></div>
                 <div class="spec__row"><dt>Full-text search</dt><dd>Search across files with ripgrep; <kbd>Ctrl</kbd>+<kbd>P</kbd> opens any file in milliseconds.</dd></div>
               </dl>
             </div>
@@ -1261,6 +1404,7 @@ Pack the whole document into <span class="md-mark">**</span>a single file<span c
           <div class="keys__row"><span class="keys__k">Ctrl+N</span><span class="keys__t">New file</span></div>
           <div class="keys__row"><span class="keys__k">Ctrl+Shift+N</span><span class="keys__t">New mind map</span></div>
           <div class="keys__row"><span class="keys__k">Ctrl+Shift+D</span><span class="keys__t">New diagram</span></div>
+          <div class="keys__row"><span class="keys__k">Ctrl+Shift+G</span><span class="keys__t">Knowledge graph</span></div>
           <div class="keys__row"><span class="keys__k">Ctrl+O</span><span class="keys__t">Open file</span></div>
           <div class="keys__row"><span class="keys__k">Ctrl+S</span><span class="keys__t">Save</span></div>
           <div class="keys__row"><span class="keys__k">Ctrl+Shift+S</span><span class="keys__t">Save as</span></div>
@@ -1291,7 +1435,7 @@ Pack the whole document into <span class="md-mark">**</span>a single file<span c
           <div class="about-box">
             <span class="about-logo" aria-hidden="true"><svg><use href="#i-drop"/></svg></span>
             <span class="about-name">Inkase</span>
-            <p class="about-desc">A document workbench that packs text, images and attachments into a single file. Mind maps and diagrams follow the same idea.</p>
+            <p class="about-desc">A document workbench that packs text, images and attachments into a single file. Mind maps, diagrams and the knowledge graph follow the same idea.</p>
             <span class="about-meta">Inkase <span class="js-ver">v0.3.6</span></span>
             <p><a class="btn-sm" href="https://github.com/jingzhonghui/Inkase" target="_blank" rel="noopener">GitHub</a></p>
           </div>

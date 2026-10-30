@@ -1,4 +1,4 @@
-import { folderColor, unresolvedColor, type GraphTheme } from '../../../shared/graph/colors'
+import { folderColor, graphPalette, unresolvedColor, type GraphTheme } from '../../../shared/graph/colors'
 import type { GraphEdge, GraphNode } from '../../../shared/graph/types'
 import { nodeShape, type NodeShape } from './shape'
 import type { SimNode } from './simulation'
@@ -12,10 +12,15 @@ import type { ViewportTransform } from './viewport'
  * 而 Canvas 画 2000 个圆是毫秒级的事。
  *
  * 四条视觉编码，互不重叠：
- * - 颜色 = 顶层目录
- * - 形状 = 文档格式（圆点正文 / 菱形导图 / 方形图表）
+ * - 颜色 = 顶层目录（实心填充，只出现在点上）
+ * - 形状 = 文档格式（圆点正文 / 菱形导图 / 方形图表 / 三角其他文件）
  * - 半径 = 入链数
  * - 虚线空心 = 断链幽灵节点
+ *
+ * 配色与官网的知识图谱面板逐项对齐（底色、边、标签、选中光环、断链），
+ * 具体值见 `shared/graph/colors.ts` 的 `graphPalette`。把风格收敛到一处的原因是：
+ * 画布拿不到 CSS 变量，颜色只能以纯函数随主题给出，官网则用同名令牌表达同一套语义，
+ * 两边各写一份值等于放任它们漂移。
  */
 
 export interface RenderGraphOptions {
@@ -39,12 +44,12 @@ export interface RenderGraphOptions {
   focusId: string | null
 }
 
-/** 节点半径：按入链数缩放，上限 14 */
+/** 节点半径：按入链数缩放，上限 11 */
 export function nodeRadius(node: GraphNode): number {
-  return Math.min(14, 3 + 2 * Math.sqrt(Math.max(0, node.inDegree)))
+  return Math.min(11, 4 + 1.6 * Math.sqrt(Math.max(0, node.inDegree)))
 }
 
-const DIMMED_ALPHA = 0.18
+const DIMMED_ALPHA = 0.16
 const LABEL_LIMIT = 400
 /** 菱形比同半径的圆看起来小一圈，放大一点让各种形状的「面积」接近 */
 const DIAMOND_SCALE = 1.15
@@ -52,11 +57,19 @@ const DIAMOND_SCALE = 1.15
 const TRIANGLE_APEX = 1.1
 const TRIANGLE_HALF_BASE = 1
 const TRIANGLE_BASE = 0.62
-/** 到这一档连接度才配得上「等高线」——太低的节点挂上光晕只会变脏 */
-const HALO_DEGREE = 4
+/** 选中光环与图形之间留的空隙 */
+const HALO_OFFSET = 6
+/**
+ * 标签用等宽字体。
+ *
+ * 图上的标签大多是文件名（`发布流程.drawio`、`eris流水线`），等宽字让点和它的名字
+ * 看起来属于同一套「技术文档」的语言；也让不同宽度的标签在下沿排得很齐。
+ * 尺寸与官网一致：只有颜色区分主次，不靠放大字号。
+ */
+const LABEL_FONT = '11px Consolas, Monaco, "Courier New", monospace'
 
 function edgeWidth(count: number): number {
-  return count >= 2 ? 1.5 : 1
+  return count >= 2 ? 1.4 : 1.2
 }
 
 /** 形状在 y 方向的实际半高，用来把标签推到图形下方而不是压在描边上 */
@@ -126,57 +139,20 @@ function traceNodePath(
 /**
  * 点阵底。
  *
- * 平色背景里的节点没有空间参照，图看起来像贴在一块白板上；
- * 一层极淡的点阵就足够把「无限画布」这件事说清楚，代价是每帧一次 fillRect 循环。
+ * 平色画布里的节点没有空间参照，拖拽平移时会失去「我移动了多远」的体感；
+ * 一层几乎看不出来的点阵就够把「无限画布」这件事说清楚。
+ * 颜色压到 10% 以下：它该是纸的纹理，不该让人看见「这里有网格」。
  * 缩得过小时把间距翻倍，否则点会连成一层灰雾。
  */
 const GRID_STEP = 28
 const GRID_MIN_SCREEN = 15
-
-/**
- * 纸面暗角。
- *
- * 平涂的底色让画布像一块没有边的白板；一层几乎看不出来的径向渐变
- * 就能把「这是一张铺开的纸」说清楚——中心亮、四角沉，
- * 视线自然收在中间那一簇上。渐变按尺寸缓存，不要每帧重建。
- */
-interface VignetteCache {
-  key: string
-  gradient: CanvasGradient
-}
-
-let vignetteCache: VignetteCache | null = null
-
-function paperGradient(
-  ctx: CanvasRenderingContext2D,
-  width: number,
-  height: number,
-  dark: boolean
-): CanvasGradient | null {
-  const key = `${width}x${height}:${dark ? 'd' : 'l'}`
-  if (vignetteCache && vignetteCache.key === key) return vignetteCache.gradient
-  if (typeof ctx.createRadialGradient !== 'function') return null
-
-  const gradient = ctx.createRadialGradient(
-    width * 0.5,
-    height * 0.46,
-    Math.min(width, height) * 0.12,
-    width * 0.5,
-    height * 0.5,
-    Math.max(width, height) * 0.78
-  )
-  gradient.addColorStop(0, dark ? 'rgba(0, 0, 0, 0)' : 'rgba(255, 253, 248, 0)')
-  gradient.addColorStop(1, dark ? 'rgba(0, 0, 0, 0.42)' : 'rgba(84, 76, 66, 0.07)')
-  vignetteCache = { key, gradient }
-  return gradient
-}
 
 function drawGrid(
   ctx: CanvasRenderingContext2D,
   width: number,
   height: number,
   transform: ViewportTransform,
-  dark: boolean
+  color: string
 ): void {
   let step = GRID_STEP
   while (step * transform.k < GRID_MIN_SCREEN) step *= 2
@@ -187,8 +163,7 @@ function drawGrid(
   const offsetX = ((transform.x % screenStep) + screenStep) % screenStep
   const offsetY = ((transform.y % screenStep) + screenStep) % screenStep
 
-  // 更淡一层：点阵是纸的纹理，不是网格
-  ctx.fillStyle = dark ? 'rgba(148, 163, 184, 0.1)' : 'rgba(92, 84, 74, 0.12)'
+  ctx.fillStyle = color
   for (let x = offsetX; x < width; x += screenStep) {
     for (let y = offsetY; y < height; y += screenStep) {
       ctx.fillRect(Math.round(x), Math.round(y), 1, 1)
@@ -254,28 +229,23 @@ interface LabelCandidate {
   screenX: number
   screenY: number
   extent: number
-  shape: NodeShape
   /** 焦点 / 命中 / 选中：标签永远画，且参与避让优先级最高 */
   pinned: boolean
 }
 
 export function renderGraph(options: RenderGraphOptions): void {
   const { ctx, width, height, transform, positions, theme } = options
-  const dark = theme === 'dark'
+  const palette = graphPalette(theme)
   const zoom = transform.k
 
   ctx.save()
   ctx.clearRect(0, 0, width, height)
 
-  // 背景：一层纸色 + 一层暗角，之后才是点阵
-  ctx.fillStyle = dark ? '#141518' : '#ffffff'
+  // 背景只有一层平色 + 极淡点阵：画布属于面板，不是一张独立的白纸。
+  // 早先那层径向暗角会让人误以为画布有自己的「光源」，而面板里并没有。
+  ctx.fillStyle = palette.canvas
   ctx.fillRect(0, 0, width, height)
-  const paper = paperGradient(ctx, width, height, dark)
-  if (paper) {
-    ctx.fillStyle = paper
-    ctx.fillRect(0, 0, width, height)
-  }
-  drawGrid(ctx, width, height, transform, dark)
+  drawGrid(ctx, width, height, transform, palette.grid)
 
   const highlight = options.highlightIds
   const matches = options.searchMatches
@@ -290,17 +260,8 @@ export function renderGraph(options: RenderGraphOptions): void {
   }
 
   // ===== 边 =====
-  // 细若游丝：边是结构，不是主角。整屏 0.2 上下的透明度让它退成纸上的线，
-  // 只有和焦点直接相连的那几条才升到前排。
-  const focusPalette =
-    focusId === null
-      ? null
-      : (() => {
-          const node = options.nodes.find((item) => item.id === focusId)
-          if (!node) return null
-          return node.unresolved ? unresolvedColor(theme) : folderColor(node.folder, theme)
-        })()
-
+  // 等宽、中性、细：边是结构，不是主角。颜色只留给「与焦点相连」的那几条，
+  // 且用的也是中性灰的深一档，不借用节点色——借色会让整张图变成一锅彩色面条。
   ctx.lineCap = 'round'
   for (const edge of options.edges) {
     const source = positions.get(edge.source)
@@ -321,22 +282,19 @@ export function renderGraph(options: RenderGraphOptions): void {
     const x2 = target.x * zoom + transform.x
     const y2 = target.y * zoom + transform.y
 
-    ctx.globalAlpha = visible ? (emphasized ? 0.95 : edge.unresolved ? 0.55 : 0.26) : DIMMED_ALPHA * 0.4
-    // 焦点边借焦点节点的墨色，其余保持中性——颜色只在「正在看的东西」上出现
+    // 非焦点的边不额外降透明度：颜色本身已经够淡（浅色 #d1d5db、深色 #4b5563），
+    // 再叠一层 alpha 会在浅色主题里直接消失。
+    ctx.globalAlpha = visible ? 1 : DIMMED_ALPHA * 0.5
     ctx.strokeStyle = edge.unresolved
-      ? unresolvedColor(theme).stroke
-      : emphasized && focusPalette
-        ? focusPalette.stroke
-        : dark
-          ? 'rgba(166, 170, 182, 0.85)'
-          : 'rgba(58, 53, 48, 0.9)'
+      ? unresolvedColor(theme)
+      : emphasized
+        ? palette.edgeFocus
+        : palette.edge
     ctx.lineWidth = emphasized ? edgeWidth(edge.count) + 0.6 : edgeWidth(edge.count)
     if (edge.unresolved) ctx.setLineDash([4, 3])
     else ctx.setLineDash([])
 
-    // 线止于节点边缘，不从圆点里穿过去。
-    // 节点底现在是半透的淡彩，穿过去的线会在点内部留下一道阴影；
-    // 断在边缘上，整张图才是「点 + 线」，而不是「线被点盖住」。
+    // 线止于节点边缘，不从圆点里穿过去；断在边缘上，整张图才是「点 + 线」。
     const dx = x2 - x1
     const dy = y2 - y1
     const length = Math.hypot(dx, dy)
@@ -361,7 +319,7 @@ export function renderGraph(options: RenderGraphOptions): void {
         const size = 5
         const wingX = -uy * size * 0.62
         const wingY = ux * size * 0.62
-        ctx.globalAlpha = 0.95
+        ctx.globalAlpha = 1
         ctx.lineWidth = 1.2
         ctx.beginPath()
         ctx.moveTo(tipX - ux * size + wingX, tipY - uy * size + wingY)
@@ -395,63 +353,37 @@ export function renderGraph(options: RenderGraphOptions): void {
     }
 
     const focus = isFocus(node.id)
-    const palette = node.unresolved ? unresolvedColor(theme) : folderColor(node.folder, theme)
     // 幽灵节点没有真实格式，一律画成圆 + 虚线；形状只给真实文件用
     const shape: NodeShape = node.unresolved ? 'circle' : nodeShape(node.format)
+    const selected = node.id === options.selectedId
 
     ctx.globalAlpha = focus ? 1 : DIMMED_ALPHA
 
-    // 等高线：连接度高的节点外面套一两圈极淡的同心线。
-    // 这是整张图里唯一的「装饰」，但它编码的是真实的度量（连接度），
-    // 顺带把枢纽点从一片同尺寸的圆点里托了出来，像地图上的山峰。
-    const degree = node.inDegree + node.outDegree
-    if (focus && !node.unresolved && degree >= HALO_DEGREE && zoom >= 0.45) {
-      const extent = shapeExtent(shape, radius)
-      ctx.strokeStyle = palette.stroke
-      ctx.lineWidth = 1
-      for (const [offset, alpha] of [
-        [4.5, 0.16],
-        [8, 0.07]
-      ] as const) {
-        traceNodePath(ctx, shape, screenX, screenY, extent + offset)
-        ctx.globalAlpha = alpha
-        ctx.stroke()
-      }
+    // 选中：一枚强调色的细光环，和官网选中态一致。
+    // 不再用「双环取景框」：两道中性环在浅色底上几乎看不见，在深色底上又像描边画粗了。
+    if (selected) {
+      const extent = shapeExtent(shape, Math.max(3, radius))
+      traceNodePath(ctx, shape, screenX, screenY, extent + HALO_OFFSET)
+      ctx.globalAlpha = focus ? 0.55 : DIMMED_ALPHA
+      ctx.lineWidth = 1.3
+      ctx.strokeStyle = palette.halo
+      ctx.stroke()
       ctx.globalAlpha = focus ? 1 : DIMMED_ALPHA
     }
 
     if (node.unresolved) {
-      // 断链：空心 + 虚线描边，与所有实心簇节点区分开
+      // 断链：空心 + 红色虚线描边，与所有实心簇节点区分开
       traceNodePath(ctx, shape, screenX, screenY, Math.max(3, radius))
       ctx.setLineDash([3, 2])
       ctx.lineWidth = 1.5
-      ctx.strokeStyle = palette.stroke
-      ctx.fillStyle = dark ? 'rgba(20,21,24,0.9)' : 'rgba(255,255,255,0.9)'
-      ctx.fill()
+      ctx.strokeStyle = unresolvedColor(theme)
       ctx.stroke()
       ctx.setLineDash([])
     } else {
+      // 实心填充，不描边：颜色本身就是边界，一圈描边只会把点画成「硬币」
       traceNodePath(ctx, shape, screenX, screenY, radius)
-      ctx.fillStyle = palette.fill
+      ctx.fillStyle = folderColor(node.folder, theme).fill
       ctx.fill()
-      ctx.lineWidth = node.id === options.selectedId ? 1.8 : 1.15
-      ctx.strokeStyle = node.id === options.selectedId ? palette.label : palette.stroke
-      ctx.stroke()
-    }
-
-    // 选中：一枚双环的取景框，而不是把圆点加粗一圈
-    if (node.id === options.selectedId) {
-      const extent = shapeExtent(shape, Math.max(3, radius))
-      const ink = dark ? 'rgba(255,255,255,0.86)' : 'rgba(24,22,20,0.78)'
-      traceNodePath(ctx, shape, screenX, screenY, extent + 3.5)
-      ctx.lineWidth = 1.2
-      ctx.strokeStyle = ink
-      ctx.stroke()
-      traceNodePath(ctx, shape, screenX, screenY, extent + 7)
-      ctx.globalAlpha = 0.32
-      ctx.lineWidth = 0.8
-      ctx.stroke()
-      ctx.globalAlpha = focus ? 1 : DIMMED_ALPHA
     }
 
     if (!options.showLabels) continue
@@ -461,7 +393,7 @@ export function renderGraph(options: RenderGraphOptions): void {
     const pinned = focus && (highlight !== null || (hasSearch && matches!.has(node.id)))
     const showLabel =
       pinned ||
-      node.id === options.selectedId ||
+      selected ||
       node.unresolved ||
       (zoom >= 0.9 && radius >= 5) ||
       zoom >= 1.7
@@ -472,8 +404,7 @@ export function renderGraph(options: RenderGraphOptions): void {
         screenX,
         screenY,
         extent: shapeExtent(shape, Math.max(3, radius)),
-        shape,
-        pinned
+        pinned: pinned || selected
       })
     }
   }
@@ -487,24 +418,19 @@ export function renderGraph(options: RenderGraphOptions): void {
 
     ctx.textAlign = 'center'
     ctx.textBaseline = 'top'
+    ctx.font = LABEL_FONT
     const space = new LabelSpace()
     let placed = 0
 
     for (const item of labelCandidates) {
       if (placed >= LABEL_LIMIT) break
 
-      ctx.font = item.pinned
-        ? '600 12px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif'
-        : '500 11px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif'
-      // 轻微的字距：小字号下「松一点」比「粗一点」更清楚，也更像图注
-      setLetterSpacing(ctx, item.pinned ? '0.04em' : '0.02em')
-
       const text = truncateLabel(item.node.label)
       const textWidth = ctx.measureText(text).width
       const boxX = item.screenX - textWidth / 2 - 4
-      const boxY = item.screenY + item.extent + 5
+      const boxY = item.screenY + item.extent + 6
       const boxW = textWidth + 8
-      const boxH = item.pinned ? 17 : 15
+      const boxH = 15
 
       // 焦点标签不许被挤掉，其余按碰撞情况放弃
       if (!item.pinned) {
@@ -524,31 +450,19 @@ export function renderGraph(options: RenderGraphOptions): void {
         })
       }
 
-      const palette = item.node.unresolved
-        ? unresolvedColor(theme)
-        : folderColor(item.node.folder, theme)
-
       // 不做白色药丸底：底会截断线条、把图切成一格一格。
-      // 改用「描一圈纸色的字」做晕影——文字浮在线上面，纸的质感还在。
-      const halo = dark
-        ? item.pinned
-          ? 'rgba(20, 21, 24, 0.95)'
-          : 'rgba(20, 21, 24, 0.82)'
-        : item.pinned
-          ? 'rgba(255, 255, 255, 1)'
-          : 'rgba(255, 255, 255, 0.9)'
-      ctx.globalAlpha = item.pinned ? 1 : 0.8
+      // 改用「描一圈底色的字」做晕影——文字浮在线上面，画布的平色质感还在。
+      ctx.globalAlpha = item.pinned ? 1 : 0.85
       ctx.lineJoin = 'round'
       ctx.miterLimit = 2
       ctx.lineWidth = item.pinned ? 4 : 3.4
-      ctx.strokeStyle = halo
-      ctx.strokeText(text, item.screenX, boxY + (item.pinned ? 1.5 : 0.5))
+      ctx.strokeStyle = palette.labelHalo
+      ctx.strokeText(text, item.screenX, boxY)
 
-      ctx.fillStyle = palette.label
-      ctx.fillText(text, item.screenX, boxY + (item.pinned ? 1.5 : 0.5))
+      ctx.fillStyle = item.pinned ? palette.labelFocus : palette.label
+      ctx.fillText(text, item.screenX, boxY)
       placed++
     }
-    setLetterSpacing(ctx, '0px')
   }
 
   ctx.globalAlpha = 1
@@ -558,15 +472,4 @@ export function renderGraph(options: RenderGraphOptions): void {
 function truncateLabel(label: string): string {
   const MAX = 18
   return label.length > MAX ? `${label.slice(0, MAX - 1)}…` : label
-}
-
-/**
- * 字距。
- *
- * `letterSpacing` 是较新的 Canvas 属性，老引擎上没有——静默跳过，
- * 字号和颜色仍然保证标签可读。
- */
-function setLetterSpacing(ctx: CanvasRenderingContext2D, value: string): void {
-  const target = ctx as CanvasRenderingContext2D & { letterSpacing?: string }
-  if ('letterSpacing' in target) target.letterSpacing = value
 }

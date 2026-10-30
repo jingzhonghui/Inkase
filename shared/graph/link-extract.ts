@@ -46,6 +46,17 @@ function splitLines(text: string): LineSpan[] {
 
 const FENCE_OPEN_RE = /^[ \t]{0,3}(`{3,}|~{3,})/
 
+/**
+ * 尖括号自动链接可接受的形式（对齐 CommonMark 的 autolink）。
+ *
+ * 只有绝对 URI 与邮箱会让 markdown-it 渲染出可点击的 `<a>`；`<u>`、`<br>`、
+ * `<b.md>`、`<T>` 要么是 HTML 标签、要么只是普通文本，既点不开也不该成边。
+ * 早期实现只要求「非空且无空白」，把 Inkase 自己序列化出来的下划线
+ * `<u>…</u>` 也当成了链接目标，图谱里因此凭空多出断链。
+ */
+const AUTOLINK_URI_RE = /^[A-Za-z][A-Za-z0-9+.-]{1,31}:[^\s<>]*$/
+const AUTOLINK_EMAIL_RE = /^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/
+
 /** 剥离围栏代码块（含未闭合的情况：一直吞到文末） */
 function maskFencedCode(text: string, chars: string[], lines: LineSpan[]): void {
   let fenceChar: string | null = null
@@ -256,7 +267,11 @@ function scanCandidates(masked: string): Candidate[] {
     i = closeParen + 1
   }
 
-  // 尖括号自动链接：内容不能含空白与尖括号
+  // 尖括号自动链接：只认 CommonMark 的 autolink 语法（绝对 URI / 邮箱）。
+  //
+  // markdown-it 只会把这两类渲染成可点击的 `<a>`；`<u>`、`<br>`、`<b.md>`、`<T>`
+  // 要么是 HTML 标签、要么只是普通文本，收进图谱就会造出「图上有边、点不开」
+  // 的假边与假断链（Inkase 自己的下划线就是 `<u>…</u>`）。
   i = 0
   while (i < masked.length) {
     if (masked[i] !== '<') {
@@ -266,7 +281,12 @@ function scanCandidates(masked: string): Candidate[] {
     const close = masked.indexOf('>', i + 1)
     if (close === -1) break
     const inner = masked.slice(i + 1, close).trim()
-    if (inner && !/[\s<>]/.test(inner)) candidates.push({ href: inner, index: i })
+    if (AUTOLINK_URI_RE.test(inner)) {
+      candidates.push({ href: inner, index: i })
+    } else if (AUTOLINK_EMAIL_RE.test(inner)) {
+      // 邮箱统一拼成 `mailto:`，交给 externalSchemeOf 当外链丢掉
+      candidates.push({ href: `mailto:${inner}`, index: i })
+    }
     i = close + 1
   }
 

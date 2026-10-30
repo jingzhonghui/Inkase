@@ -130,10 +130,18 @@ export function createMindMapTheme(
   const selected = withFallback('--color-primary', '#4dc4ff')
 
   const cssVar: Partial<ThemeCssVar> = {
-    '--node-gap-x': '26px',
-    '--node-gap-y': '10px',
-    '--main-gap-x': '60px',
-    '--main-gap-y': '42px',
+    /**
+     * 间距四件套（渲染库读这些变量排布整张图）：
+     * - `node-gap-x` 是 `me-parent` 的左右 padding，即「节点 ↔ 它的子节点列」的横向缝，
+     *   同一层兄弟节点的横向间隔也由它撑开；
+     * - `node-gap-y` 是同级节点之间的纵向间隔（`me-parent` 的 margin-top）；
+     * - `main-gap-x/y` 是每个一级分支 wrapper 的外边距，即分支与分支之间的留白。
+     * 主题盒子偏小时这些缝要相对更宽，否则整张图会糊成一片。
+     */
+    '--node-gap-x': '34px',
+    '--node-gap-y': '16px',
+    '--main-gap-x': '72px',
+    '--main-gap-y': '52px',
     '--root-radius': '10px',
     '--main-radius': '8px',
     '--root-color': '#ffffff',

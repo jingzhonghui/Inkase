@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { buildGraph } from '../build'
+import { extractLinks } from '../link-extract'
 import type { FileLinkRecord } from '../types'
 
 function file(path: string, links: Array<[string, number]> = []): FileLinkRecord {
@@ -93,6 +94,24 @@ describe('buildGraph：断链清单', () => {
     expect(ghosts[0].id).toBe('!notes/missing.md')
     // 两条断链仍然各记一条，问题清单要能看到是谁引用的
     expect(payload.issues.unresolved).toHaveLength(2)
+  })
+})
+
+describe('buildGraph：正文里的 HTML 标签不产生断链', () => {
+  it('下划线、标签与占位符都不会变成幽灵节点', () => {
+    // 端到端锁住「抽取 → 解析 → 建网」：Inkase 序列化下划线会产生 `<u>…</u>`，
+    // 它既不是链接也不该在图里留下断链。
+    const content = ['# 标题', '', '<u>重点</u>要背，换行用<br>，泛型写 <T>'].join('\n')
+    const payload = buildGraph({
+      root: 'ws',
+      files: [{ path: 'a.md', format: 'markdown', links: extractLinks(content) }]
+    })
+
+    expect(payload.stats.unresolvedCount).toBe(0)
+    expect(payload.issues.unresolved).toEqual([])
+    expect(payload.nodes).toHaveLength(1)
+    expect(payload.nodes[0].outDegree).toBe(0)
+    expect(payload.edges).toHaveLength(0)
   })
 })
 

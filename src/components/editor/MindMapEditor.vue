@@ -3403,6 +3403,35 @@ const fallbackPlaceholder = `{
 }
 
 /*
+ * 主题（图元）尺寸：比渲染库默认小一档。
+ *
+ * 渲染库把尺寸写死在样式表里——`.map-container { font-size: 16px }`、
+ * 根主题 `font-size: 25px` + `padding: 10px 30px`、一级主题 `padding: 8px 25px`——
+ * 而主题盒子是 flex 自适应内容的，所以没有任何 CSS 变量能调，只能按选择器覆盖。
+ * 这里只缩「盒子有多胖」（字号 + 内边距），图上的「缝」仍由主题里的
+ * `--node-gap-x/y`、`--main-gap-x/y` 决定（见 utils/mindmap/theme.ts）。
+ *
+ * 选择器必须带上 `.mind-map-canvas` + 渲染库原有的 `.map-container` / 标签链，
+ * 靠特异性压过库里的同族规则；只写 `me-tpc` 会被库里的
+ * `.map-container me-main>me-wrapper>me-parent>me-tpc` 反压回去。
+ */
+.mind-map-canvas :deep(.map-container) {
+  /* 主题文字基准：库里写死 16px，正好等于编辑区默认字号，偏大 */
+  font-size: 14px;
+}
+
+.mind-map-canvas :deep(me-root me-tpc) {
+  /* 根主题：字号 25 → 20，内边距 10/30 → 9/24 */
+  padding: 9px 24px;
+  font-size: 20px;
+}
+
+.mind-map-canvas :deep(me-main > me-wrapper > me-parent > me-tpc) {
+  /* 一级主题：库里是 8px 25px，横向 25px 让胶囊拉得过长，收成 6px 16px */
+  padding: 6px 16px;
+}
+
+/*
  * 拖动的手感：
  * - 悬停主题时用默认箭头而不是渲染库的 pointer（pointer 会让人以为点一下就跳转）；
  * - 按住主题时显示「抓取中」，明确告诉用户现在可以拖动。
