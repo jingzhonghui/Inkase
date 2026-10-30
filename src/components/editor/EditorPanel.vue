@@ -229,12 +229,11 @@ function onPreviewScroll(ratio: number): void {
       @open-settings="emit('openAiSettings')"
     />
 
-    <!-- 知识图谱：工作台的第三段。embedded 让它交出自己的页头，
-         由顶条统一提供搜索、统计与刷新，否则顶部会叠两条横条 -->
+    <!-- 知识图谱：工作台的一段。搜索、统计与刷新都由顶条统一提供，
+         这一层只有索引栏 + 一整块画布 -->
     <GraphView
       v-if="graphStore.panelOpen"
       v-show="workspaceStore.isGraph"
-      embedded
       :rail-visible="!workspaceStore.expanded"
     />
   </div>

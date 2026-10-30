@@ -61,9 +61,9 @@ export type GraphTheme = 'light' | 'dark'
  *
  * 现在按画布上最有效的分工来：**颜色只出现在点上，文字一律走中性墨色**
  * （见 `graphPalette`）。于是：
- * - 浅色底上压暗到 44% 明度，白底上 3:1 以上，8px 的点也立得住；
- * - 深色底上提亮到 62%，避免深蓝深紫糊进 `#1f2937`。
- * 饱和度取在 62–72%：够分簇，又不至于三十个目录排开像调色盘。
+ * - 浅色底上压暗到 47% 明度，白底上 3:1 以上，8px 的点也立得住；
+ * - 深色底上提亮到 64%，避免深蓝深紫糊进 `#1f2937`。
+ * - 饱和度取在 66–72%：够分簇，又不至于三十个目录排开像调色盘。
  */
 export function folderColor(folder: string, theme: GraphTheme): FolderColor {
   const hue = folderHue(folder)
@@ -71,8 +71,8 @@ export function folderColor(folder: string, theme: GraphTheme): FolderColor {
     hue,
     fill:
       theme === 'dark'
-        ? `hsl(${hue}, 72%, 62%)`
-        : `hsl(${hue}, 62%, 44%)`
+        ? `hsl(${hue}, 72%, 64%)`
+        : `hsl(${hue}, 66%, 47%)`
   }
 }
 
@@ -81,7 +81,7 @@ export function folderColor(folder: string, theme: GraphTheme): FolderColor {
  *
  * 这一组值与官网（`website/assets/graph.css` + `style.css`）用的是同一套语义：
  * 底色＝面板 surface、边＝`--edge-hi`、常规标签＝三级文字、焦点标签＝正文墨色、
- * 选中＝强调色光环、断链＝红色虚线。两边长得一样，官网的截图才不是「美化过的假图」。
+ * 选中＝强调色光环、断链＝红色虚线。
  *
  * 放在这里而不是散在 `render.ts` 里，是因为画布拿不到 CSS 变量：
  * 所有颜色必须以纯函数形式随主题一起给出，才能在单元测试里断言。
@@ -89,8 +89,6 @@ export function folderColor(folder: string, theme: GraphTheme): FolderColor {
 export interface GraphPalette {
   /** 画布底色：与面板 surface 同一档，画布不再是独立的一张「纸」 */
   canvas: string
-  /** 点阵底 */
-  grid: string
   /** 普通边 */
   edge: string
   /** 与焦点（hover 优先于选中）相连的边 */
@@ -99,10 +97,8 @@ export interface GraphPalette {
   label: string
   /** 焦点 / 选中节点标签文字 */
   labelFocus: string
-  /** 标签的文字晕影（等于画布底色，用来把字从边上面托起来） */
-  labelHalo: string
   /** 选中光环 */
-  halo: string
+  accent: string
   /** 断链边与幽灵节点描边 */
   broken: string
 }
@@ -111,27 +107,23 @@ export function graphPalette(theme: GraphTheme): GraphPalette {
   if (theme === 'dark') {
     return {
       canvas: '#1f2937',
-      grid: 'rgba(148, 163, 184, 0.08)',
-      edge: '#4b5563',
-      edgeFocus: '#9ca3af',
+      edge: '#3a4553',
+      edgeFocus: '#94a3b8',
       label: '#8b95a4',
       labelFocus: '#e5e7eb',
-      labelHalo: 'rgba(31, 41, 55, 0.94)',
-      halo: '#60a5fa',
-      broken: 'hsl(2, 66%, 64%)'
+      accent: '#60a5fa',
+      broken: 'hsl(2, 78%, 68%)'
     }
   }
 
   return {
     canvas: '#ffffff',
-    grid: 'rgba(71, 85, 105, 0.1)',
-    edge: '#d1d5db',
-    edgeFocus: '#6b7280',
+    edge: '#d8dde4',
+    edgeFocus: '#8b95a4',
     label: '#5b6472',
     labelFocus: '#1f2937',
-    labelHalo: 'rgba(255, 255, 255, 0.94)',
-    halo: '#3b82f6',
-    broken: 'hsl(2, 60%, 52%)'
+    accent: '#2563eb',
+    broken: 'hsl(2, 68%, 46%)'
   }
 }
 

@@ -22,6 +22,9 @@ import { applyDirtyOverlay, toWorkspaceRelative, type DirtyGraphFile } from '../
 
 export type GraphMode = 'global' | 'local'
 
+/** 库健康抽屉的两个分区 */
+export type GraphIssueSection = 'unresolved' | 'orphans'
+
 export interface GraphFilters {
   /** 选中的顶层目录；'' 表示根目录 */
   folders: string[]
@@ -89,6 +92,26 @@ export const useGraphStore = defineStore('graph', () => {
 
   function requestFocus(id: string): void {
     focusRequest.value = { id, nonce: (focusRequest.value?.nonce ?? 0) + 1 }
+  }
+
+  /**
+   * 库健康抽屉。
+   *
+   * 抽屉的入口在顶条那四个计数上（断链 / 孤儿），而抽屉本体挂在画布那一层——
+   * 中间隔着组件，所以开合状态放在 store 里，两边读写同一份。
+   * 不为它单独复制一份 issues 数据：那会让「点开的是哪一栏」和「数字是哪一栏」
+   * 有两条真相。
+   */
+  const issuesOpen = ref(false)
+  const issuesSection = ref<GraphIssueSection>('unresolved')
+
+  function openIssues(section: GraphIssueSection): void {
+    issuesSection.value = section
+    issuesOpen.value = true
+  }
+
+  function closeIssues(): void {
+    issuesOpen.value = false
   }
 
   // ===== 派生：脏标签覆盖后的数据 =====
@@ -243,6 +266,7 @@ export const useGraphStore = defineStore('graph', () => {
     selectedId.value = null
     hoveredId.value = null
     centerId.value = null
+    issuesOpen.value = false
   }
 
   // ===== 面板生命周期 =====
@@ -482,6 +506,10 @@ export const useGraphStore = defineStore('graph', () => {
     isFiltered,
     focusRequest,
     requestFocus,
+    issuesOpen,
+    issuesSection,
+    openIssues,
+    closeIssues,
     setMode,
     setDepth,
     setCenter,

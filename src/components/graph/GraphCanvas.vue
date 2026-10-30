@@ -236,15 +236,6 @@ function centerOnNode(id: string | null): void {
   draw()
 }
 
-function zoomBy(factor: number): void {
-  userTouchedView = true
-  transform.value = zoomAt(transform.value, factor, {
-    x: width.value / 2,
-    y: height.value / 2
-  })
-  draw()
-}
-
 // ===== 指针交互 =====
 interface PointerState {
   mode: 'none' | 'pan' | 'drag-node'
@@ -528,7 +519,6 @@ if (graphStore.effectivePayload) {
 
 defineExpose({
   fitContent,
-  zoomBy,
   centerOnNode
 })
 </script>
@@ -550,27 +540,6 @@ defineExpose({
       @dblclick="onDblClick"
       @contextmenu.prevent="onContextMenu"
     />
-
-    <div class="graph-canvas__zoom">
-      <button
-        title="放大"
-        @click="zoomBy(1.25)"
-      >
-        +
-      </button>
-      <button
-        title="缩小"
-        @click="zoomBy(1 / 1.25)"
-      >
-        −
-      </button>
-      <button
-        title="适应内容"
-        @click="fitContent"
-      >
-        ⤢
-      </button>
-    </div>
   </div>
 </template>
 
@@ -594,36 +563,5 @@ defineExpose({
 
 .graph-canvas__surface:active {
   cursor: var(--graph-cursor-active, crosshair);
-}
-
-.graph-canvas__zoom {
-  position: absolute;
-  right: 12px;
-  bottom: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.graph-canvas__zoom button {
-  width: 28px;
-  height: 28px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: color-mix(in srgb, var(--color-bg-secondary) 88%, transparent);
-  color: var(--color-text-secondary);
-  font-size: 14px;
-  line-height: 1;
-  cursor: pointer;
-  transition: all 0.15s;
-  backdrop-filter: blur(4px);
-}
-
-.graph-canvas__zoom button:hover {
-  border-color: var(--color-primary);
-  color: var(--color-primary);
 }
 </style>
