@@ -100,10 +100,16 @@ describe('graphPalette', () => {
     }
   })
 
-  it('标签晕影带透明度（半透的底才能让字浮在线上）', () => {
-    expect(graphPalette('light').labelHalo).toContain('rgba')
-    expect(graphPalette('dark').labelHalo).toContain('rgba')
-    expect(graphPalette('light').labelHalo).not.toBe(graphPalette('dark').labelHalo)
+  it('选中光环用强调色，两套主题各一档', () => {
+    expect(graphPalette('light').accent).not.toBe(graphPalette('dark').accent)
+  })
+
+  it('边与标签是两档中性灰：边比字更淡，字比边更实', () => {
+    for (const theme of ['light', 'dark'] as const) {
+      const palette = graphPalette(theme)
+      expect(palette.edge).not.toBe(palette.edgeFocus)
+      expect(palette.edge).not.toBe(palette.label)
+    }
   })
 
   it('断链色与所有文件夹色相都不同族', () => {

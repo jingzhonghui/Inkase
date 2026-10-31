@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { ROOT_FOLDER_LABEL, folderColor } from '../../../shared/graph/colors'
 import type { GraphNode } from '../../../shared/graph/types'
 import { buildRelatedBullet, planRelatedLinkInsertion } from '../../../shared/graph/link-insert'
 import { encodeLinkTarget } from '../../../shared/graph/link-resolve'
 import { GRAPH_FORMAT_LABELS } from '../../../shared/graph/types'
 import { useFileStore } from '../../stores/file'
 import { useGraphStore } from '../../stores/graph'
+import { useThemeStore } from '../../stores/theme'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { nodeShape } from '../../utils/graph/shape'
 import GraphCanvas from './GraphCanvas.vue'
@@ -13,39 +15,34 @@ import GraphIssues from './GraphIssues.vue'
 import GraphSidebar from './GraphSidebar.vue'
 
 /**
- * 知识图谱容器：页头 + 侧栏 + 画布 + 问题抽屉 + 图上编辑。
+ * 知识图谱容器：侧栏 + 画布 + 库健康抽屉 + 图上编辑。
  *
  * 只在需要时才懒加载（`EditorPanel` 用 `defineAsyncComponent`），
  * 因此仿真与渲染代码不进首屏包——和思维导图、图表编辑器的处理一致。
  *
- * 布局分三层，各管一件事：
- * - 页头：搜索、状态（节点/链接/截断）、刷新 —— 「做事」的地方；
- * - 侧栏：概况 / 视图 / 目录 / 类型 —— 「看什么」的地方，图例与过滤器合并；
- * - 画布：只画面，不放控件。
+ * 版式照官网 §知识图谱 面板：一条顶栏（分段 / 搜索 / 四个计数 / 刷新）由工作台
+ * 统一提供，这里只有「索引栏 + 一整块画布」。画布上只允许浮两样东西：
+ * 选中节点的卡片、库健康抽屉——它们是「你现在正看着什么」的注脚，
+ * 不是控件。搜索、统计、刷新都在顶栏，「做事」的地方和「看什么」的地方分开。
  */
 
 const graphStore = useGraphStore()
 const fileStore = useFileStore()
+const themeStore = useThemeStore()
 const workspaceStore = useWorkspaceStore()
 
 /**
- * 嵌进工作台时：
- * - `embedded` 交出自己的页头（搜索 / 统计 / 刷新），由工作台顶条统一提供，
- *   否则顶部会叠出两条横条；
- * - `railVisible` 由工作台控制，用来实现「收起侧栏，画布占满」。
+ * `railVisible` 由工作台控制（顶条那个侧栏开关），用来实现「收起侧栏，画布占满」。
  */
-const props = withDefaults(defineProps<{ embedded?: boolean; railVisible?: boolean }>(), {
-  embedded: false,
+const props = withDefaults(defineProps<{ railVisible?: boolean }>(), {
   railVisible: true
 })
 
 const canvasRef = ref<InstanceType<typeof GraphCanvas> | null>(null)
-const issuesOpen = ref(false)
-const issuesSection = ref<'unresolved' | 'orphans'>('unresolved')
-/** 侧栏可收起：窄窗口下 236px 全给画布更划算 */
-const railOpen = ref(true)
 
-const showRail = computed(() => !props.embedded || (props.railVisible && railOpen.value))
+const showRail = computed(() => props.railVisible)
+
+const theme = computed(() => (themeStore.isDark ? 'dark' : 'light'))
 
 // ===== 空态 / 加载态 =====
 const hasFolder = computed(() => Boolean(fileStore.openedFolderPath))
@@ -68,52 +65,88 @@ const filteredEmpty = computed(
 const isLocal = computed(() => graphStore.mode === 'local')
 const hiddenNeighbors = computed(() => graphStore.hiddenNeighborCount)
 
-// ===== 搜索 =====
-const searchInput = ref('')
-
-watch(
-  () => graphStore.filters.query,
-  (query) => {
-    if (query !== searchInput.value) searchInput.value = query
-  }
-)
-
-function applySearch(): void {
-  graphStore.setQuery(searchInput.value)
-}
-
-function onSearchEnter(): void {
-  applySearch()
-  const matches = graphStore.searchMatches
-  if (!matches || matches.size === 0) return
-  // 选中并居中最靠前的命中，让用户马上看到结果在哪
-  const first = graphStore.visibleNodes.find((node) => matches.has(node.id))
-  if (!first) return
-  graphStore.selectNode(first.id)
-  canvasRef.value?.centerOnNode(first.id)
-}
-
-function clearSearch(): void {
-  searchInput.value = ''
-  applySearch()
-}
-
 // ===== 选中的节点信息卡 =====
 const selectedNode = computed(() => graphStore.selectedNode)
 const selectedKindLabel = computed(() => {
   const node = selectedNode.value
   if (!node) return ''
   // 幽灵节点下面那行已经写了「未解析的链接目标」，这里只点明它是什么
-  return node.unresolved ? '断链节点' : GRAPH_FORMAT_LABELS[node.format]
+  return node.unresolved ? '断链目标' : GRAPH_FORMAT_LABELS[node.format]
 })
 const selectedShape = computed(() =>
   selectedNode.value?.unresolved ? 'circle' : nodeShape(selectedNode.value?.format ?? 'markdown')
 )
+/** 卡片里「格式 · 目录」那行：目录是颜色编码的语义，写出来才不用回头看侧栏 */
+const selectedFolder = computed(() => {
+  const node = selectedNode.value
+  if (!node || node.unresolved) return ''
+  return node.folder || ROOT_FOLDER_LABEL
+})
+
+const selectedFormatText = computed(() =>
+  selectedFolder.value ? `${selectedKindLabel.value} · ${selectedFolder.value}` : selectedKindLabel.value
+)
+
+/**
+ * 选中卡片的出入链清单。
+ *
+ * 只铺前四行、其余折成「还有 N 条」：卡片宽 224px，铺满会把它撑成一列清单，
+ * 反而看不到「这个点在图上的哪」。要全量清单就去局部图。
+ */
+const CARD_LINK_LIMIT = 4
+
+interface CardLink {
+  id: string
+  label: string
+  dir: string
+  fill: string
+}
+
+function toCardLink(node: GraphNode): CardLink {
+  return {
+    id: node.id,
+    label: node.label,
+    dir: node.unresolved ? '断链' : node.folder || ROOT_FOLDER_LABEL,
+    fill: node.unresolved ? '' : folderColor(node.folder, theme.value).fill
+  }
+}
+
+const cardLinks = computed<{ out: CardLink[]; inc: CardLink[] }>(() => {
+  const node = selectedNode.value
+  const base = graphStore.effectivePayload
+  if (!node || !base) return { out: [], inc: [] }
+
+  const byId = new Map(base.nodes.map((item) => [item.id, item]))
+  const out: CardLink[] = []
+  const inc: CardLink[] = []
+  for (const edge of base.edges) {
+    if (edge.source === node.id) {
+      const target = byId.get(edge.target)
+      if (target) out.push(toCardLink(target))
+    }
+    if (edge.target === node.id) {
+      const source = byId.get(edge.source)
+      if (source) inc.push(toCardLink(source))
+    }
+  }
+  return { out, inc }
+})
 
 function openSelected(): void {
   const node = selectedNode.value
   if (!node?.path) return
   void fileStore.openFile(graphStore.joinRoot(node.path))
+}
+
+/** 从卡片跳到某个邻居：选中它，图上的高亮会跟着走 */
+function gotoNode(id: string): void {
+  graphStore.selectNode(id)
+  canvasRef.value?.centerOnNode(id)
+}
+
+function viewLocal(node: GraphNode): void {
+  graphStore.setCenter(node.id)
+  graphStore.setDepth(1)
 }
 
 async function copyPath(node: GraphNode): Promise<void> {
@@ -317,12 +350,6 @@ async function linkTo(target: GraphNode): Promise<void> {
   }
 }
 
-// ===== 问题抽屉 =====
-function openIssues(section: 'unresolved' | 'orphans'): void {
-  issuesSection.value = section
-  issuesOpen.value = true
-}
-
 onMounted(() => {
   void graphStore.build()
   document.addEventListener('click', closeMenu)
@@ -376,9 +403,7 @@ const GRAPH_REBUILD_DEBOUNCE_MS = 500
 const pendingRebuild = ref(false)
 let rebuildTimer: ReturnType<typeof setTimeout> | null = null
 
-const isShowing = computed(() =>
-  props.embedded ? workspaceStore.isGraph : graphStore.panelActive
-)
+const isShowing = computed(() => workspaceStore.isGraph)
 
 function scheduleRebuild(): void {
   if (rebuildTimer !== null) clearTimeout(rebuildTimer)
@@ -413,52 +438,7 @@ watch(isShowing, (showing) => {
     class="graph-view"
     @click="closeMenu"
   >
-    <!-- 页头：做事的地方（搜索 / 状态 / 刷新） -->
-    <header
-      v-if="!props.embedded"
-      class="graph-header"
-    >
-      <button
-        class="graph-header__rail"
-        :class="{ active: railOpen }"
-        title="显示或隐藏侧栏"
-        @click="railOpen = !railOpen"
-      >
-        ▤
-      </button>
-      <!-- 面板标签用 span 而不是 h1：视图名已经在标签页上，这里只是定位用的眉标 -->
-      <span class="graph-header__title">知识图谱</span>
-
-      <div class="graph-header__search">
-        <input
-          v-model="searchInput"
-          type="search"
-          placeholder="搜索笔记名…"
-          @input="applySearch"
-          @keydown.enter.prevent="onSearchEnter"
-        >
-        <button
-          v-if="searchInput"
-          class="graph-header__clear"
-          title="清除"
-          @click="clearSearch"
-        >
-          ×
-        </button>
-      </div>
-
-      <!-- 计数不在这里：四个读数统一在侧栏「概况」分组，页头只做「动作」 -->
-      <button
-        class="graph-header__refresh"
-        :disabled="loading"
-        title="重新扫描工作区"
-        @click="graphStore.refresh()"
-      >
-        ⟳
-      </button>
-    </header>
-
-    <!-- 告警条 -->
+    <!-- 告警条：扫描截断、链接解析异常这类「结果还可用但不完整」的说明 -->
     <div
       v-if="graphStore.warnings.length > 0"
       class="graph-warnings"
@@ -470,62 +450,98 @@ watch(isShowing, (showing) => {
       <span v-if="graphStore.warnings.length > 3">…等 {{ graphStore.warnings.length }} 条</span>
     </div>
 
-    <!-- 主体：侧栏 + 画布 + 问题抽屉 -->
+    <!-- 主体：侧栏 + 画布 + 库健康抽屉 -->
     <div class="graph-body">
       <div
         v-if="!hasFolder"
         class="graph-state"
       >
-        <h2>知识图谱以工作区为范围</h2>
-        <p>先打开一个文件夹，才能看到文档之间的链接关系。</p>
-        <button
-          class="graph-state__btn primary"
-          @click="fileStore.openFolder()"
-        >
-          打开文件夹
-        </button>
+        <div class="graph-state__box">
+          <div class="graph-state__k">
+            WORKSPACE
+          </div>
+          <div class="graph-state__t">
+            知识图谱以工作区为范围
+          </div>
+          <p class="graph-state__d">
+            先打开一个文件夹，才能看到文档之间的链接关系。
+          </p>
+          <button
+            class="graph-state__b"
+            @click="fileStore.openFolder()"
+          >
+            打开文件夹
+          </button>
+        </div>
       </div>
 
       <div
         v-else-if="loading"
         class="graph-state"
       >
-        <div class="graph-state__spinner" />
-        <p>{{ progressText }}</p>
+        <div class="graph-state__box">
+          <div class="graph-state__k">
+            SCAN
+          </div>
+          <div class="graph-state__t">
+            {{ progressText }}
+          </div>
+          <div class="graph-state__progress">
+            <i />
+          </div>
+        </div>
       </div>
 
       <div
         v-else-if="errorText"
         class="graph-state"
       >
-        <h2>构建失败</h2>
-        <p>{{ errorText }}</p>
-        <button
-          class="graph-state__btn"
-          @click="graphStore.refresh()"
-        >
-          重试
-        </button>
+        <div class="graph-state__box">
+          <div class="graph-state__k">
+            ERROR
+          </div>
+          <div class="graph-state__t">
+            构建失败
+          </div>
+          <p class="graph-state__d">
+            {{ errorText }}
+          </p>
+          <button
+            class="graph-state__b"
+            @click="graphStore.refresh()"
+          >
+            重试
+          </button>
+        </div>
       </div>
 
       <div
         v-else-if="emptyWorkspace"
         class="graph-state"
       >
-        <h2>这个工作区里还没有可索引的文档</h2>
-        <p>图谱会收录 .mdx / .md / .inkmind / .drawio，把它们之间的链接画出来。</p>
-        <button
-          class="graph-state__btn primary"
-          @click="openCreateDialog"
-        >
-          新建笔记
-        </button>
+        <div class="graph-state__box">
+          <div class="graph-state__k">
+            EMPTY
+          </div>
+          <div class="graph-state__t">
+            这个工作区里还没有可索引的文档
+          </div>
+          <p class="graph-state__d">
+            图谱会收录 .mdx / .md / .inkmind / .drawio，把它们之间的链接画出来。
+          </p>
+          <button
+            class="graph-state__b"
+            @click="openCreateDialog"
+          >
+            新建笔记
+          </button>
+        </div>
       </div>
 
       <template v-else>
         <GraphSidebar
           v-if="showRail"
-          @open-issues="openIssues"
+          class="graph-body__rail"
         />
 
         <div class="graph-stage">
@@ -541,70 +557,180 @@ watch(isShowing, (showing) => {
             v-if="filteredEmpty"
             class="graph-state graph-state--overlay"
           >
-            <h2>当前筛选下没有可显示的节点</h2>
-            <p>侧栏里的目录或类型被关掉了一些，放宽一下就回来了。</p>
-            <button
-              class="graph-state__btn primary"
-              @click="graphStore.resetFilters()"
-            >
-              重置筛选
-            </button>
+            <div class="graph-state__box">
+              <div class="graph-state__k">
+                FILTERED
+              </div>
+              <div class="graph-state__t">
+                当前筛选下没有可显示的节点
+              </div>
+              <p class="graph-state__d">
+                目录或类型被关掉了一些，放宽一下就回来了。
+              </p>
+              <button
+                class="graph-state__b"
+                @click="graphStore.resetFilters()"
+              >
+                重置筛选
+              </button>
+            </div>
           </div>
 
-          <!-- 选中节点信息卡 -->
-          <div
-            v-if="selectedNode && !filteredEmpty"
-            class="graph-info"
+          <!-- 选中卡片：只有名字、路径、出入链和几条可点的邻居。
+               抽屉打开时让位——两块浮卡叠在一起会互相盖住边角 -->
+          <aside
+            v-if="selectedNode && !filteredEmpty && !graphStore.issuesOpen"
+            class="graph-card"
           >
-            <div class="graph-info__kind">
-              <span
-                class="graph-info__shape"
-                :class="`graph-info__shape--${selectedShape}`"
-              />
-              {{ selectedKindLabel }}
-            </div>
-            <div class="graph-info__title">
-              {{ selectedNode.label }}
-            </div>
-            <div class="graph-info__path">
-              {{ selectedNode.path ?? '（未解析的链接目标）' }}
-            </div>
-            <div class="graph-info__meta">
-              <span>出链 {{ selectedNode.outDegree }}</span>
-              <span>入链 {{ selectedNode.inDegree }}</span>
-            </div>
-            <p
-              v-if="hiddenNeighbors > 0 && isLocal"
-              class="graph-info__hidden"
-            >
-              还有 {{ hiddenNeighbors }} 个邻居未显示
-              <button @click="graphStore.setMode('global')">
-                扩展到全库
-              </button>
-            </p>
-            <div class="graph-info__actions">
+            <div class="graph-card__head">
+              <span class="graph-card__k">选中</span>
               <button
-                v-if="selectedNode.path"
-                class="graph-info__btn"
-                @click="openSelected"
-              >
-                打开
-              </button>
-              <button
-                v-if="selectedNode.path"
-                class="graph-info__btn"
-                @click="openPicker(selectedNode)"
-              >
-                链接到…
-              </button>
-              <button
-                class="graph-info__btn"
+                class="graph-card__x"
+                title="关闭"
                 @click="graphStore.selectNode(null)"
               >
-                关闭
+                ×
               </button>
             </div>
-          </div>
+
+            <div class="graph-card__body">
+              <div class="graph-card__fmt">
+                <span
+                  class="graph-card__shape"
+                  :class="`graph-card__shape--${selectedShape}${selectedNode.unresolved ? ' graph-card__shape--ghost' : ''}`"
+                />
+                {{ selectedFormatText }}
+              </div>
+
+              <h2 class="graph-card__title">
+                {{ selectedNode.label }}
+              </h2>
+              <div class="graph-card__path">
+                {{ selectedNode.path ?? '（未解析的链接目标）' }}
+              </div>
+              <div class="graph-card__meta">
+                <span>入链 {{ selectedNode.inDegree }}</span>
+                <span>出链 {{ selectedNode.outDegree }}</span>
+              </div>
+
+              <div class="graph-card__acts">
+                <button
+                  v-if="selectedNode.path"
+                  class="graph-card__act"
+                  @click="openSelected"
+                >
+                  打开
+                </button>
+                <button
+                  class="graph-card__act"
+                  @click="viewLocal(selectedNode)"
+                >
+                  看局部
+                </button>
+                <button
+                  v-if="selectedNode.path"
+                  class="graph-card__act"
+                  @click="openPicker(selectedNode)"
+                >
+                  链接到…
+                </button>
+              </div>
+
+              <div class="graph-card__links">
+                <div class="graph-card__label">
+                  引用 <span class="graph-card__n">{{ cardLinks.out.length }}</span>
+                </div>
+                <template v-if="cardLinks.out.length > 0">
+                  <button
+                    v-for="link in cardLinks.out.slice(0, CARD_LINK_LIMIT)"
+                    :key="link.id"
+                    class="graph-card__link"
+                    @mouseenter="graphStore.setHovered(link.id)"
+                    @mouseleave="graphStore.setHovered(null)"
+                    @click="gotoNode(link.id)"
+                  >
+                    <span
+                      class="graph-card__dot"
+                      :style="{ backgroundColor: link.fill }"
+                    />
+                    <span class="graph-card__link-name">{{ link.label }}</span>
+                    <span class="graph-card__dir">{{ link.dir }}</span>
+                  </button>
+                  <button
+                    v-if="cardLinks.out.length > CARD_LINK_LIMIT"
+                    class="graph-card__more"
+                    @click="viewLocal(selectedNode)"
+                  >
+                    还有 {{ cardLinks.out.length - CARD_LINK_LIMIT }} 条 · 看局部图
+                  </button>
+                </template>
+                <div
+                  v-else
+                  class="graph-card__empty"
+                >
+                  没有出链
+                </div>
+              </div>
+
+              <div class="graph-card__links">
+                <div class="graph-card__label">
+                  被引用 <span class="graph-card__n">{{ cardLinks.inc.length }}</span>
+                </div>
+                <template v-if="cardLinks.inc.length > 0">
+                  <button
+                    v-for="link in cardLinks.inc.slice(0, CARD_LINK_LIMIT)"
+                    :key="link.id"
+                    class="graph-card__link"
+                    @mouseenter="graphStore.setHovered(link.id)"
+                    @mouseleave="graphStore.setHovered(null)"
+                    @click="gotoNode(link.id)"
+                  >
+                    <span
+                      class="graph-card__dot"
+                      :style="{ backgroundColor: link.fill }"
+                    />
+                    <span class="graph-card__link-name">{{ link.label }}</span>
+                    <span class="graph-card__dir">{{ link.dir }}</span>
+                  </button>
+                  <button
+                    v-if="cardLinks.inc.length > CARD_LINK_LIMIT"
+                    class="graph-card__more"
+                    @click="viewLocal(selectedNode)"
+                  >
+                    还有 {{ cardLinks.inc.length - CARD_LINK_LIMIT }} 条 · 看局部图
+                  </button>
+                </template>
+                <div
+                  v-else
+                  class="graph-card__empty"
+                >
+                  还没有文档链接到这里
+                </div>
+              </div>
+
+              <p
+                v-if="selectedNode.unresolved"
+                class="graph-card__note"
+              >
+                指向的文件不在库里。改链接或新建同名文件，虚线就会连上。
+              </p>
+              <p
+                v-else-if="isLocal && hiddenNeighbors > 0"
+                class="graph-card__note"
+              >
+                还有 {{ hiddenNeighbors }} 个邻居未显示
+                <button @click="graphStore.setMode('global')">
+                  扩展到全库
+                </button>
+              </p>
+            </div>
+          </aside>
+
+          <GraphIssues
+            v-if="graphStore.issuesOpen"
+            v-model:section="graphStore.issuesSection"
+            @close="graphStore.closeIssues()"
+          />
 
           <!-- 右键菜单：坐标是画布局部的，所以必须挂在这一层 -->
           <div
@@ -623,12 +749,6 @@ watch(isShowing, (showing) => {
             </button>
           </div>
         </div>
-
-        <GraphIssues
-          v-if="issuesOpen"
-          v-model:section="issuesSection"
-          @close="issuesOpen = false"
-        />
       </template>
     </div>
 
@@ -732,116 +852,10 @@ watch(isShowing, (showing) => {
   background-color: var(--color-bg-primary);
 }
 
-/* ===== 页头 ===== */
-.graph-header {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 7px 12px;
-  border-bottom: 1px solid var(--color-border);
-  background-color: var(--color-bg-secondary);
-  font-size: calc(var(--ui-font-size) - 1px);
-}
-
-.graph-header__rail {
-  width: 22px;
-  height: 22px;
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--color-text-tertiary);
-  font-size: 13px;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.graph-header__rail:hover {
-  background: var(--color-bg-primary);
-  color: var(--color-text);
-}
-
-.graph-header__rail.active {
-  color: var(--color-primary);
-}
-
-/* 标题用小号 + 字距而不是大字：这是工作台里的一个面板，不是落地页 */
-.graph-header__title {
-  flex-shrink: 0;
-  font-size: calc(var(--ui-font-size) - 2px);
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  color: var(--color-text-tertiary);
-}
-
-.graph-header__search {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  flex: 1;
-  min-width: 0;
-  max-width: 280px;
-}
-
-.graph-header__search input {
-  width: 100%;
-  padding: 3px 22px 3px 8px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: var(--color-bg-primary);
-  color: var(--color-text);
-  font-size: inherit;
-  outline: none;
-}
-
-.graph-header__search input:focus {
-  border-color: var(--color-primary);
-}
-
-.graph-header__clear {
-  position: absolute;
-  right: 2px;
-  border: none;
-  background: transparent;
-  color: var(--color-text-tertiary);
-  padding: 0 4px;
-  font-size: 14px;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.graph-header__refresh {
-  flex-shrink: 0;
-  width: 24px;
-  height: 22px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: var(--color-bg-primary);
-  color: var(--color-text-secondary);
-  font-size: 13px;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.graph-header__refresh:hover:not(:disabled) {
-  border-color: var(--color-primary);
-  color: var(--color-primary);
-}
-
-.graph-header__refresh:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
 .graph-warnings {
   display: flex;
   gap: 14px;
+  flex-shrink: 0;
   padding: 4px 12px;
   font-size: calc(var(--ui-font-size) - 2px);
   color: var(--color-warning, #b8860b);
@@ -858,6 +872,10 @@ watch(isShowing, (showing) => {
   overflow: hidden;
 }
 
+.graph-body__rail {
+  flex-shrink: 0;
+}
+
 .graph-stage {
   position: relative;
   flex: 1;
@@ -865,18 +883,17 @@ watch(isShowing, (showing) => {
   min-height: 0;
   display: flex;
   overflow: hidden;
+  background-color: var(--color-bg-primary);
 }
 
+/* ===== 空态 / 加载（照官网的居中卡：一个拉丁文眉标 + 一句正文 + 一个出口） ===== */
 .graph-state {
   flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
+  display: grid;
+  place-items: center;
   padding: 32px;
   text-align: center;
-  color: var(--color-text-secondary);
+  background-color: var(--color-bg-primary);
 }
 
 /* 盖在画布上而不是替掉画布：画布一旦卸载，仿真坐标就没了 */
@@ -884,171 +901,331 @@ watch(isShowing, (showing) => {
   position: absolute;
   inset: 0;
   z-index: 5;
-  background-color: var(--color-bg-primary);
 }
 
-.graph-state h2 {
-  margin: 0;
-  font-size: calc(var(--ui-font-size) + 3px);
-  font-weight: 600;
-  color: var(--color-text);
-}
-
-.graph-state p {
-  margin: 0;
-  max-width: 420px;
-  line-height: 1.6;
-  font-size: var(--ui-font-size);
-}
-
-.graph-state__btn {
-  padding: 6px 16px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-bg-primary);
-  color: var(--color-text);
-  cursor: pointer;
-  font-size: var(--ui-font-size);
-}
-
-.graph-state__btn.primary {
-  background: var(--color-primary);
-  border-color: var(--color-primary);
-  color: white;
-}
-
-.graph-state__spinner {
-  width: 26px;
-  height: 26px;
-  border: 2px solid var(--color-border);
-  border-top-color: var(--color-primary);
-  border-radius: 50%;
-  animation: graph-spin 0.9s linear infinite;
-}
-
-@keyframes graph-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-/* ===== 选中信息卡 ===== */
-/* 落在右上角：左下角是「画布的重心区」，卡片压在那里会盖住最先看到的那一簇；
-   右上角与右下角的缩放按钮分居两侧，互不遮挡 */
-.graph-info {
-  position: absolute;
-  top: 14px;
-  right: 14px;
-  width: 236px;
-  padding: 10px 12px;
-  border: 1px solid var(--color-border-hover);
-  border-radius: 7px;
-  background: var(--color-bg-primary);
-  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.18);
-}
-
-.graph-info__kind {
+.graph-state__box {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 5px;
-  margin-bottom: 5px;
-  font-size: calc(var(--ui-font-size) - 3px);
-  font-weight: 500;
-  letter-spacing: 0.09em;
+  gap: 6px;
+  max-width: 280px;
+  padding: 22px 26px;
+}
+
+/* 眉标用等宽大写：它是「这是什么状态」的系统标签，不是标题 */
+.graph-state__k {
+  font-family: var(--font-mono);
+  font-size: calc(var(--ui-font-size) - 3.5px);
+  letter-spacing: 0.14em;
   color: var(--color-text-tertiary);
 }
 
-/* 图例标记与画布上的节点同构：实心色块。画布上的点是实心的，
-   卡片里的样本却是空心细框的话，两处读法就对不上了 */
-.graph-info__shape {
-  width: 8px;
-  height: 8px;
-  flex-shrink: 0;
-  background: var(--color-text-tertiary);
+.graph-state__t {
+  font-size: var(--ui-font-size);
+  color: var(--color-text);
 }
 
-.graph-info__shape--circle {
+.graph-state__d {
+  margin: 0;
+  font-size: calc(var(--ui-font-size) - 1.5px);
+  line-height: 1.7;
+  color: var(--color-text-tertiary);
+}
+
+.graph-state__b {
+  margin-top: 4px;
+  padding: 4px 12px;
+  border: 1px solid var(--color-border-hover);
+  border-radius: 5px;
+  background: var(--color-bg-primary);
+  color: var(--color-text-secondary);
+  font-size: calc(var(--ui-font-size) - 1px);
+  cursor: pointer;
+}
+
+.graph-state__b:hover {
+  background: var(--color-bg-secondary);
+  color: var(--color-text);
+}
+
+/* 扫描进度：一条 2px 的扫描线，比转圈更贴近「正在读文件」这件事 */
+.graph-state__progress {
+  width: 128px;
+  height: 2px;
+  margin-top: 6px;
+  border-radius: 1px;
+  background: var(--color-border);
+  overflow: hidden;
+}
+
+.graph-state__progress i {
+  display: block;
+  width: 40%;
+  height: 100%;
+  background: var(--color-primary);
+  animation: graph-scan 1.1s ease-in-out infinite;
+}
+
+@keyframes graph-scan {
+  0% {
+    transform: translateX(-100%);
+  }
+
+  100% {
+    transform: translateX(250%);
+  }
+}
+
+/* ===== 选中卡片（224px，贴右上角） ===== */
+.graph-card {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 10;
+  width: 224px;
+  max-height: calc(100% - 28px);
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--color-border-hover);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-primary);
+  box-shadow: 0 10px 24px rgba(16, 24, 40, 0.1);
+  overflow: hidden;
+}
+
+.graph-card__head {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px 0;
+}
+
+.graph-card__k {
+  font-size: calc(var(--ui-font-size) - 3px);
+  letter-spacing: 0.1em;
+  color: var(--color-text-tertiary);
+}
+
+.graph-card__x {
+  margin-left: auto;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--color-text-tertiary);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.graph-card__x:hover {
+  background: var(--color-bg-secondary);
+  color: var(--color-text);
+}
+
+.graph-card__body {
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 7px 10px 10px;
+}
+
+.graph-card__fmt {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: calc(var(--ui-font-size) - 2px);
+  color: var(--color-text-tertiary);
+}
+
+/* 卡片里的样本与画布上的点同构：实心色块 / 圆 / 菱 / 方 / 三角 */
+.graph-card__shape {
+  width: 9px;
+  height: 9px;
+  flex-shrink: 0;
+  background: currentColor;
+}
+
+.graph-card__shape--circle {
   border-radius: 50%;
 }
 
-.graph-info__shape--diamond {
+.graph-card__shape--diamond {
   transform: rotate(45deg);
 }
 
-.graph-info__shape--square {
+.graph-card__shape--square {
   border-radius: 1px;
 }
 
-.graph-info__shape--triangle {
-  width: 0;
-  height: 0;
-  background: transparent;
-  border-left: 4px solid transparent;
-  border-right: 4px solid transparent;
-  border-bottom: 7px solid var(--color-text-tertiary);
+.graph-card__shape--triangle {
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
 }
 
-/* 文件名走等宽：与画布上的标签、与文件树里的名字是同一套字 */
-.graph-info__title {
+/* 断链目标：空心红虚线圆，和画布上的幽灵节点同一个读法 */
+.graph-card__shape--ghost {
+  background: none;
+  border: 1.2px dashed var(--color-danger, #b91c1c);
+  border-radius: 50%;
+}
+
+.graph-card__title {
+  margin: 0;
   font-family: var(--font-mono);
   font-size: calc(var(--ui-font-size) - 1px);
+  font-weight: 600;
+  line-height: 1.5;
   color: var(--color-text);
+  word-break: break-word;
+}
+
+.graph-card__path {
+  font-family: var(--font-mono);
+  font-size: calc(var(--ui-font-size) - 3px);
+  line-height: 1.55;
+  color: var(--color-text-tertiary);
+  word-break: break-all;
+}
+
+.graph-card__meta {
+  display: flex;
+  gap: 12px;
+  font-family: var(--font-mono);
+  font-size: calc(var(--ui-font-size) - 3px);
+  color: var(--color-text-tertiary);
+}
+
+.graph-card__acts {
+  display: flex;
+  gap: 4px;
+}
+
+.graph-card__act {
+  flex: 1;
+  padding: 3px 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--color-text-secondary);
+  font-size: calc(var(--ui-font-size) - 2px);
+  cursor: pointer;
+}
+
+.graph-card__act:hover {
+  background: var(--color-bg-secondary);
+  color: var(--color-text);
+}
+
+.graph-card__links {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.graph-card__label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0 3px;
+  font-size: calc(var(--ui-font-size) - 3.5px);
+  letter-spacing: 0.08em;
+  color: var(--color-text-tertiary);
+}
+
+.graph-card__n {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: calc(var(--ui-font-size) - 3.5px);
+  letter-spacing: 0;
+}
+
+.graph-card__link {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 3px 4px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--color-text-secondary);
+  font-size: calc(var(--ui-font-size) - 2px);
+  text-align: left;
+  cursor: pointer;
+}
+
+.graph-card__link:hover {
+  background: var(--color-bg-secondary);
+  color: var(--color-text);
+}
+
+.graph-card__dot {
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 50%;
+}
+
+.graph-card__link-name {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.graph-info__path {
-  margin-top: 3px;
+.graph-card__dir {
+  flex-shrink: 0;
+  margin-left: auto;
   font-family: var(--font-mono);
-  font-size: calc(var(--ui-font-size) - 3px);
+  font-size: calc(var(--ui-font-size) - 3.5px);
   color: var(--color-text-tertiary);
-  word-break: break-all;
 }
 
-.graph-info__meta {
-  display: flex;
-  gap: 10px;
-  margin-top: 7px;
-  font-family: var(--font-mono);
-  font-size: calc(var(--ui-font-size) - 3px);
-  color: var(--color-text-secondary);
-}
-
-.graph-info__hidden {
-  margin: 8px 0 0;
+.graph-card__empty {
+  padding: 1px 0 2px;
   font-size: calc(var(--ui-font-size) - 2px);
   color: var(--color-text-tertiary);
 }
 
-.graph-info__hidden button {
+.graph-card__more {
+  padding: 2px 4px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--color-text-tertiary);
+  font-size: calc(var(--ui-font-size) - 2.5px);
+  text-align: left;
+  cursor: pointer;
+}
+
+.graph-card__more:hover {
+  background: var(--color-bg-secondary);
+  color: var(--color-text);
+}
+
+.graph-card__note {
+  margin: 0;
+  padding-top: 6px;
+  border-top: 1px solid var(--color-border);
+  font-size: calc(var(--ui-font-size) - 2.5px);
+  line-height: 1.65;
+  color: var(--color-text-tertiary);
+}
+
+.graph-card__note button {
   border: none;
   background: transparent;
   color: var(--color-primary);
-  cursor: pointer;
   padding: 0;
   font-size: inherit;
-}
-
-.graph-info__actions {
-  display: flex;
-  gap: 6px;
-  margin-top: 10px;
-}
-
-.graph-info__btn {
-  padding: 3px 10px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: var(--color-bg-primary);
-  color: var(--color-text-secondary);
   cursor: pointer;
-  font-size: calc(var(--ui-font-size) - 1px);
-}
-
-.graph-info__btn:hover {
-  border-color: var(--color-primary);
-  color: var(--color-primary);
 }
 
 /* ===== 右键菜单 / 对话框 ===== */

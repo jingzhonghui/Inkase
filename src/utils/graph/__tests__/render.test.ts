@@ -165,32 +165,20 @@ describe('格式 → 形状', () => {
   })
 })
 
-describe('渲染 · 点阵背景', () => {
+describe('渲染 · 平色背景', () => {
   const empty = new Map<string, SimNode>()
 
-  it('画点阵（不止一次铺底）', () => {
+  it('画布只有一层平色：没有点阵、没有网格', () => {
     const ops = render([], empty)
-    // 第一次 fillRect 是整屏铺底，之后每次都是点阵上的一个点
-    expect(count(ops, 'fillRect')).toBeGreaterThan(1)
+    expect(count(ops, 'fillRect')).toBe(1)
   })
 
-  it('缩得很小时点间距自适应，最密也不低于阈值（否则会连成灰雾）', () => {
-    for (const k of [1, 0.5, 0.12, 0.05]) {
+  it('底色等于面板 surface，且不随缩放变化', () => {
+    for (const k of [1, 0.5, 0.12]) {
       const ops = render([], empty, { transform: { x: 0, y: 0, k } })
-      // 排除整屏铺底那一笔，只留 1×1 的格点
-      const xs = [
-        ...new Set(
-          ops
-            .filter((item) => item.op === 'fillRect' && item.args[2] === 1)
-            .map((item) => Number(item.args[0]))
-        )
-      ].sort((a, b) => a - b)
-
-      expect(xs.length).toBeGreaterThan(1)
-      const minGap = xs
-        .slice(1)
-        .reduce((min, x, index) => Math.min(min, x - xs[index]!), Number.POSITIVE_INFINITY)
-      expect(minGap).toBeGreaterThanOrEqual(15)
+      const background = ops.find((item) => item.op === 'fillRect')
+      expect(background?.fillStyle).toBe(graphPalette('light').canvas)
+      expect(background?.args).toEqual([0, 0, 800, 600])
     }
   })
 })
@@ -358,7 +346,7 @@ describe('渲染 · 与官网对齐的配色（shared/graph/colors.ts）', () =>
     const strokes = ops.filter((item) => item.op === 'stroke')
 
     expect(strokes.length).toBe(1)
-    expect(strokes[0]!.strokeStyle).toBe(graphPalette('light').halo)
+    expect(strokes[0]!.strokeStyle).toBe(graphPalette('light').accent)
     // 光环是半透明的：它标注位置，不抢节点的颜色
     expect(strokes[0]!.globalAlpha).toBeLessThan(1)
   })

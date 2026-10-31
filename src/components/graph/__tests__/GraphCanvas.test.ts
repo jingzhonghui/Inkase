@@ -304,11 +304,11 @@ describe('节点半径', () => {
         unresolved: false
       }) as const
 
-    // 实心点比旧版的空心环略大一点（4 起步），但上限收到 11：
-    // 一颗 14px 的高饱和实心球会盖住它周围的边，而半径本来只是「被引得多」的提示
-    expect(nodeRadius(node(0) as never)).toBe(4)
-    expect(nodeRadius(node(4) as never)).toBeCloseTo(7.2)
-    expect(nodeRadius(node(10_000) as never)).toBe(11)
+    // 点很小（3.2 起步、上限 9）：整库视图靠密度而不是体积表达结构，
+    // 每个点都读成一颗粒子，图才「铺得开」
+    expect(nodeRadius(node(0) as never)).toBeCloseTo(3.2)
+    expect(nodeRadius(node(4) as never)).toBeCloseTo(5.9)
+    expect(nodeRadius(node(10_000) as never)).toBe(9)
   })
 })
 
