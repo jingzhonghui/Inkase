@@ -1,0 +1,83 @@
+/* ==========================================================================
+   设置中心的共用控件样式。
+   数字输入 / 下拉 / 滑杆组 / 字体选择 / 主题分段按钮这几类控件跨多个分节共用，
+   复制进每个节的 scoped style 里必然走形，所以单独放一份，由 SettingsDialog 引入。
+   作用域是全局的——这些类名只出现在设置中心内部（原先在 AppHeader 里也是全局的）。
+   ========================================================================== */
+
+.settings-number {
+  width: 72px;
+  padding: 4px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-bg-primary);
+  color: var(--color-text);
+  font-size: var(--ui-font-size);
+}
+
+.settings-select {
+  max-width: 180px;
+  padding: 4px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-bg-primary);
+  color: var(--color-text);
+  font-size: var(--ui-font-size);
+  cursor: pointer;
+}
+
+/* 滑杆 + 当前值：滑杆不能被压扁，值固定宽度让数字跳动时不抖 */
+.quality-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.quality-control input {
+  width: 168px;
+}
+
+.quality-control output {
+  width: 32px;
+  color: var(--color-text-secondary);
+  font-size: calc(var(--ui-font-size) - 1px);
+  text-align: right;
+}
+
+/* 字体：预设下拉 + 「自定义…」时展开的文本框 */
+.font-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.font-custom-input {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+}
+
+/* 主题三选一 */
+.theme-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 120px));
+  gap: 8px;
+}
+
+.theme-options button {
+  padding: 7px 12px;
+  color: var(--color-text);
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: var(--ui-font-size);
+}
+
+.theme-options button:hover,
+.theme-options button.active {
+  color: var(--color-primary);
+  background: var(--color-primary-light);
+  border-color: var(--color-primary);
+}

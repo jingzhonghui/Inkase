@@ -45,15 +45,17 @@ export interface RenderGraphOptions {
 }
 
 /**
- * 节点半径：按入链数缩放，上限 9。
+ * 节点半径：**所有节点一律相同**。
  *
- * 3.2 起步、1.35 的系数是照官网示例图量出来的：图在一屏里铺开时，
- * 点只有几像素，靠**密度**而不是体积表达结构。早先从 4 起步、上限 11 的写法
- * 让每个点都像一颗按钮，缩到整库视图时连成一片色块。
+ * 早先按入链数缩放（3.2 起步、上限 9），想表达「被引得多 = 点更大」，
+ * 实际读起来是反的：同一屏里既有 3px 的小点又有 9px 的大团，密度读不出来，
+ * 整张图看着像一堆大小不一的斑点。入链数在图谱里另有表达——选中卡片的
+ * 「入链 N」、高亮时点亮的一跳邻居、标签的显示优先级——不必再占半径这条通道。
+ *
+ * 取值维持原来的起步值 3.2：点要小，靠**密度**而不是体积表达结构。
+ * 想整体调大 / 调小只改这一个常量；命中测试与仿真碰撞半径都读它。
  */
-export function nodeRadius(node: GraphNode): number {
-  return Math.min(9, 3.2 + 1.35 * Math.sqrt(Math.max(0, node.inDegree)))
-}
+export const NODE_RADIUS = 3.2
 
 /** 非焦点元素淡出到几乎消失，但仍保留「这里还有东西」的轮廓 */
 const DIMMED_ALPHA = 0.14
@@ -68,7 +70,16 @@ const TRIANGLE_APEX = 1.15
 const TRIANGLE_HALF_BASE = 1
 const TRIANGLE_BASE = 0.7
 /** 选中光环与图形之间留的空隙 */
-const HALO_OFFSET = 7
+const HALO_OFFSET = 5
+/**
+ * 低缩放下也铺标签的入链门槛。
+ *
+ * 半径不再随入链数变化后，原来那条「点够大（radius >= 7）就铺标签」的判断
+ * 等于永远不成立（统一 3.2 的点要缩放到 2.2 倍才够 7）。这里把同一个意图
+ * 直接写成入链数：被引 8 次以上（≈ 旧公式里半径到 7 的那一档）在 1:1 视图下
+ * 就能读到名字，其余仍靠放大或悬停。
+ */
+const LABEL_DEGREE_HINT = 8
 /** 焦点边箭头：落在 74% 处，不贴着目标点 */
 const ARROW_T = 0.74
 const ARROW_SIZE = 4.2
@@ -308,7 +319,7 @@ export function renderGraph(options: RenderGraphOptions): void {
 
     const screenX = position.x * zoom + transform.x
     const screenY = position.y * zoom + transform.y
-    const radius = Math.max(2, nodeRadius(node) * zoom)
+    const radius = Math.max(2, NODE_RADIUS * zoom)
 
     // 视口外直接跳过：大图上这一条能省掉大半绘制
     if (
@@ -361,7 +372,13 @@ export function renderGraph(options: RenderGraphOptions): void {
     const pinned =
       focus &&
       (selected || (highlight !== null) || (hasSearch && matches!.has(node.id)))
-    const showLabel = pinned || (hasSearch && matches!.has(node.id)) || zoom >= 1.05 || radius >= 7
+    const showLabel =
+      pinned ||
+      (hasSearch && matches!.has(node.id)) ||
+      zoom >= 1.05 ||
+      // 旧的「点够大就铺标签」等价于「缩放到 0.78 以上、且入链够多」，
+      // 这里把两个条件都写出来：远缩放下（点只有 2px）铺名字只会糊成一团。
+      (zoom >= 0.75 && node.inDegree >= LABEL_DEGREE_HINT)
 
     if (showLabel) {
       labelCandidates.push({

@@ -69,13 +69,21 @@ export const IPC_CHANNELS = {
     CONFIRM_CLOSE: 'app:confirm-close',
     CLOSE_CONFIRMED: 'app:close-confirmed',
     /**
-     * 主进程转发的快捷键（当前只有保存/另存为）。
+     * 主进程转发的快捷键。
      *
      * 图表编辑时焦点在 draw.io 的 iframe 里，跨域导致 keydown 不会冒泡到页面，
      * 渲染层自己的监听收不到 Ctrl+S；改由 webContents 的 before-input-event
-     * 统一拦截再转过来，保证画布里按保存也有效。
+     * 统一拦截再转过来，保证画布里按保存也有效。载荷是**命令 id**
+     * （`file.save`），不是键位——键位只有渲染层的注册表说了算。
      */
     SHORTCUT: 'app:shortcut',
+    /**
+     * 渲染层把「主进程需要拦截的那几条命令」的当前绑定推给主进程。
+     *
+     * 用户可以在设置里改键，主进程若还写着 `key === 's'` 就会两头对不上：
+     * 新键在画布里没反应、旧键反而还在保存。启动时推一次、每次改键后再推一次。
+     */
+    SYNC_SHORTCUTS: 'app:sync-shortcuts',
     RECOVERY_STATUS: 'recovery:status',
     RECOVERY_READ: 'recovery:read',
     RECOVERY_WRITE: 'recovery:write',

@@ -27,6 +27,7 @@ import {
   clearRecoverySnapshot
 } from './recovery'
 import { resolveExistingUserGuidePath } from './user-guide'
+import { matchesBinding, normalizePlatform, type KeyEventLike } from '../shared/shortcuts/binding'
 import { registerAiHandlers, disposeAiServices } from './ai/ipc-handlers'
 import {
   findRecentAliveInstance,
@@ -67,6 +68,34 @@ registerDiagramSchemePrivileges()
 let mainWindow: BrowserWindow | null = null
 const pendingOpenTargets: LaunchTarget[] = []
 let rendererReady = false
+
+/**
+ * 主进程要拦截并转发的命令 → 当前绑定。
+ *
+ * 内容由渲染层推送（`app:sync-shortcuts`）：主进程无从知道用户改过什么键，
+ * 命令注册表也只存在于渲染层。**只认推送过来的 id**，主进程自己不再维护
+ * 「保存是哪几个键」的知识。
+ *
+ * 初始为空：渲染层还没推之前不拦截任何键——这与改动前的行为一致
+ * （那时候还没有任何拦截规则能对得上），也避免拿旧默认值去猜。
+ */
+let mainInterceptedBindings: Array<{ id: string; binding: string }> = []
+/** 主进程的平台判定走 `process.platform`，不依赖 UA */
+const mainPlatform = normalizePlatform(process.platform)
+
+ipcMain.on(IPC_CHANNELS.APP.SYNC_SHORTCUTS, (_event, bindings: unknown) => {
+  // 只做形状校验：id 是不是合法命令由渲染层负责，主进程只管「能解析、能匹配」
+  if (!Array.isArray(bindings)) return
+  mainInterceptedBindings = bindings
+    .filter(
+      (item): item is { id: string; binding: string } =>
+        !!item &&
+        typeof item === 'object' &&
+        typeof (item as { id?: unknown }).id === 'string' &&
+        typeof (item as { binding?: unknown }).binding === 'string'
+    )
+    .map((item) => ({ id: item.id, binding: item.binding }))
+})
 
 /**
  * 凭据加密后端：Electron `safeStorage` 的最小抽象（形状见 `sync/credentials.ts` 的 `CryptoLike`）。
@@ -174,24 +203,35 @@ function createWindow(): void {
    * 这里在 webContents 层统一拦截：preventDefault 之后页面不会再收到这次按键，
    * 因此渲染层只经由 IPC 处理一次，不会重复保存。
    *
-   * Ctrl+W 同理走这条路：焦点在画布里时同样要能关标签页，而 Chromium 自己
-   * 对 Ctrl+W 没有任何默认行为，不拦就完全没反应。
+   * 拦截哪些键**不由主进程决定**：渲染层启动时、以及每次改键之后，通过
+   * `app:sync-shortcuts` 把「命令 id → 当前绑定」推过来（只推画面里那几个：
+   * 保存 / 另存为 / 关标签）。早先这里写死了 `key === 's'`，用户一改键就两头
+   * 对不上——新键在画布里没反应，旧键反而还在保存。匹配复用
+   * `shared/shortcuts/binding`，与渲染层是同一份解析逻辑。
    */
   win.webContents.on('before-input-event', (event, input) => {
-    if (input.type !== 'keyDown' || input.alt) return
-    const primary = process.platform === 'darwin' ? input.meta : input.control
-    if (!primary) return
+    if (input.type !== 'keyDown') return
 
-    const key = input.key.toLowerCase()
-    let shortcut: 'save' | 'save-as' | 'close-tab' | null = null
-    if (key === 's') shortcut = input.shift ? 'save-as' : 'save'
-    // Ctrl+Shift+W 留给窗口层，不在这里吃
-    else if (key === 'w' && !input.shift) shortcut = 'close-tab'
-    if (!shortcut) return
+    const eventLike: KeyEventLike = {
+      key: input.key,
+      ctrlKey: input.control,
+      altKey: input.alt,
+      shiftKey: input.shift,
+      metaKey: input.meta
+    }
+
+    let matched: string | null = null
+    for (const { id, binding } of mainInterceptedBindings) {
+      if (matchesBinding(binding, eventLike, mainPlatform)) {
+        matched = id
+        break
+      }
+    }
+    if (!matched) return
 
     event.preventDefault()
     if (!win.isDestroyed()) {
-      win.webContents.send(IPC_CHANNELS.APP.SHORTCUT, shortcut)
+      win.webContents.send(IPC_CHANNELS.APP.SHORTCUT, matched)
     }
   })
 
@@ -319,6 +359,18 @@ async function bootstrap(): Promise<void> {
       if (is.dev) return ''
       return app.getVersion()
     })
+    /**
+     * 平台标识。
+     *
+     * 这条通道一直在 preload 里声明、却没人注册 handler——渲染层一旦调用必
+     * reject（`Error: No handler registered for 'app:getPlatform'`）。渲染层的
+     * 快捷键判定因此绕开它改用 UA（见 `shared/shortcuts/binding.ts`），但
+     * 「声明了却不存在」本身就是个雷，这里补齐。
+     *
+     * 返回值直接给 `process.platform`（`win32` / `darwin` / `linux` 等），
+     * 与 `normalizePlatform` 的入参同源，调用方不需要再做映射。
+     */
+    ipcMain.handle(IPC_CHANNELS.APP.GET_PLATFORM, () => process.platform)
     ipcMain.handle(IPC_CHANNELS.APP.GET_USER_GUIDE_PATH, () => {
       const guidePath = resolveExistingUserGuidePath({
         isPackaged: app.isPackaged,

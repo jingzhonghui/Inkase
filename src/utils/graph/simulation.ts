@@ -39,12 +39,28 @@ export interface SimNodeSeed {
 export const SIM_ALPHA_MIN = 0.001
 export const SIM_ALPHA_DECAY = 0.0228
 const VELOCITY_DECAY = 0.4
-const LINK_DISTANCE = 60
-const LINK_STRENGTH = 0.1
-const CHARGE_STRENGTH = -120
+/**
+ * 布局张力：一组一起调的常量。
+ *
+ * 目标不是「把图拉得更开」本身，而是让**点与点之间的空气**变多：
+ * 半径统一成 3.2 之后，点只有原来的一半大（旧公式里枢纽点能到 9），
+ * 如果链接长度还留在 60，整张图会挤成一团细沙。所以弹簧静止长度、
+ * 斥力强度与向心力一起往「疏」的方向挪：
+ * - `LINK_DISTANCE` 60 → 96：相邻节点的目标间距；
+ * - `LINK_STRENGTH` 0.10 → 0.09：弹簧略松，成簇时不会被拽回死结；
+ * - `CHARGE_STRENGTH` -120 → -200：节点间斥力加强，散开不重叠；
+ * - `CENTER_STRENGTH` 0.04 → 0.03：图被撑开后，向心力别急着把外围压回来。
+ *
+ * 注意 `fitToBounds` 会把整张图缩放回一屏：改这些值真正影响的是
+ * **点径 / 间距的比值**，而不是屏幕上的绝对像素——比值变大，图才「透气」。
+ */
+const LINK_DISTANCE = 96
+const LINK_STRENGTH = 0.09
+const CHARGE_STRENGTH = -200
+/** 斥力的作用半径：再远的节点已经不挤了，算它们只是浪费 */
 const CHARGE_DISTANCE_MAX = 600
 const CHARGE_MIN_DISTANCE2 = 1
-const CENTER_STRENGTH = 0.04
+const CENTER_STRENGTH = 0.03
 /** 超过这个节点数就不注册碰撞力（碰撞是 O(邻域) 且洗牌感最强） */
 const COLLIDE_MAX_NODES = 1500
 

@@ -73,7 +73,7 @@ const { default: GraphCanvas } = await import('../GraphCanvas.vue')
 const { useGraphStore } = await import('../../../stores/graph')
 const { buildGraph } = await import('../../../../shared/graph/build')
 const { createSimulation } = await import('../../../utils/graph/simulation')
-const { nodeRadius } = await import('../../../utils/graph/render')
+const { NODE_RADIUS } = await import('../../../utils/graph/render')
 
 /** 假 2D 上下文：jsdom 没有 canvas 实现，所有绘制方法吃空实现即可 */
 function fakeContext(): CanvasRenderingContext2D {
@@ -291,24 +291,12 @@ describe('仿真收敛（TC-CANVAS-008 静止后停 rAF）', () => {
 })
 
 describe('节点半径', () => {
-  it('按入度增长且有上限', () => {
-    const node = (inDegree: number) =>
-      ({
-        id: 'x',
-        path: 'x.md',
-        label: 'x',
-        format: 'markdown',
-        folder: '',
-        inDegree,
-        outDegree: 0,
-        unresolved: false
-      }) as const
-
-    // 点很小（3.2 起步、上限 9）：整库视图靠密度而不是体积表达结构，
-    // 每个点都读成一颗粒子，图才「铺得开」
-    expect(nodeRadius(node(0) as never)).toBeCloseTo(3.2)
-    expect(nodeRadius(node(4) as never)).toBeCloseTo(5.9)
-    expect(nodeRadius(node(10_000) as never)).toBe(9)
+  it('与入度无关，所有节点一样大', () => {
+    // 半径曾经按入链数缩放（3.2 ~ 9），同一个屏幕上大小不一的斑点让密度读不出来；
+    // 现在统一成一个常量，入链数改由标签优先级与选中卡片表达。
+    expect(NODE_RADIUS).toBeCloseTo(3.2)
+    // 小到能靠密度而不是体积表达结构
+    expect(NODE_RADIUS).toBeLessThan(4)
   })
 })
 

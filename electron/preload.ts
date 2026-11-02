@@ -391,12 +391,19 @@ export interface ElectronAPI {
   getOpenTargets: () => Promise<LaunchTarget[]>
   onOpenTargets: (callback: (targets: LaunchTarget[]) => void) => () => void
   /**
-   * 主进程转发的快捷键（保存 / 另存为）。
+   * 主进程转发的快捷键（载荷是命令 id，如 `file.save`）。
    *
-   * 图表画布在跨域 iframe 里，页面收不到那里的 keydown，所以保存快捷键
+   * 图表画布在跨域 iframe 里，页面收不到那里的 keydown，所以保存这类快捷键
    * 由主进程统一拦截后转过来；返回值是取消订阅函数。
    */
-  onAppShortcut: (callback: (shortcut: 'save' | 'save-as' | 'close-tab') => void) => () => void
+  onAppShortcut: (callback: (commandId: string) => void) => () => void
+  /**
+   * 把「主进程要拦截的命令 → 当前绑定」推给主进程。
+   *
+   * 用户改键后必须重推，否则主进程还按旧键位拦截：新键在图表画布里没反应、
+   * 旧键反而仍然生效。解绑（没有绑定）的条目由调用方剔除。
+   */
+  syncShortcuts: (bindings: Array<{ id: string; binding: string }>) => void
 
   // 文件系统
   revealInExplorer: (filePath: string) => Promise<{ success: boolean; error?: string }>
@@ -629,9 +636,12 @@ const api: ElectronAPI = {
     return () => ipcRenderer.removeListener(IPC_CHANNELS.APP.OPEN_TARGETS, handler)
   },
   onAppShortcut: (callback) => {
-    const handler = (_event: unknown, shortcut: 'save' | 'save-as'): void => callback(shortcut)
+    const handler = (_event: unknown, commandId: string): void => callback(commandId)
     ipcRenderer.on(IPC_CHANNELS.APP.SHORTCUT, handler)
     return () => ipcRenderer.removeListener(IPC_CHANNELS.APP.SHORTCUT, handler)
+  },
+  syncShortcuts: (bindings) => {
+    ipcRenderer.send(IPC_CHANNELS.APP.SYNC_SHORTCUTS, bindings)
   },
 
   // 文件系统

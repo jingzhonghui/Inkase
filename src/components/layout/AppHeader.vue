@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watchEffect } from 'vue'
 import {
   IconChevronRight,
   IconCopy,
@@ -19,21 +19,17 @@ import { useUpdateStore } from '../../stores/update'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { buildBarItems } from '../../utils/tab-order'
 import { useSyncStore } from '../../stores/sync'
+import { detectPlatform } from '../../shortcuts/binding'
+import { isForwardedCommand, pushShortcutsToMain } from '../../shortcuts/main-sync'
+import { matchCommand } from '../../shortcuts/match'
 import {
-  useAppearanceStore,
-  MIN_UI_FONT_SIZE,
-  MAX_UI_FONT_SIZE,
-  MIN_EDITOR_FONT_SIZE,
-  MAX_EDITOR_FONT_SIZE,
-  MIN_EDITOR_LINE_HEIGHT,
-  MAX_EDITOR_LINE_HEIGHT,
-  EDITOR_FONT_FAMILY_PRESETS,
-  EDITOR_MONO_FONT_FAMILY_PRESETS,
-  CUSTOM_FONT_SENTINEL
-} from '../../stores/appearance'
+  formatShortcut,
+  type CommandId
+} from '../../shortcuts/registry'
 import { requestDialog } from '../../utils/dialog'
 import { findCodeLanguage, languageDisplayName } from '../../utils/editor-language'
 import SyncPanel from './SyncPanel.vue'
+import SettingsDialog from '../settings/SettingsDialog.vue'
 import QuickOpenPalette from '../common/QuickOpenPalette.vue'
 import Tooltip from '../common/Tooltip.vue'
 
@@ -42,9 +38,26 @@ const themeStore = useThemeStore()
 const updateStore = useUpdateStore()
 const workspaceStore = useWorkspaceStore()
 const syncStore = useSyncStore()
-const appearanceStore = useAppearanceStore()
 const isMaximized = ref(false)
 const quickOpenVisible = ref(false)
+
+/**
+ * 当前平台。
+ *
+ * 只影响快捷键的**显示文本**（`Ctrl+` 还是 `⌘`）与 `Mod` 的落地键；
+ * 不传 `getPlatform` IPC，因为主进程那边没有对应 handler，调用必 reject。
+ * 同一进程内平台不会变，取一次即可。
+ */
+const platform = detectPlatform()
+
+/**
+ * 把主进程要拦截的键位同步过去。
+ *
+ * `watchEffect` 里读的是 `bindingOf`（覆盖值 ?? 默认值），因此启动时推一次，
+ * 用户之后每改一次快捷键都会自动重推。不做这一步的话，图表画布里的
+ * 保存快捷键会一直按**旧键位**拦截——新键没反应、旧键还在存盘。
+ */
+watchEffect(pushShortcutsToMain)
 
 /** 官网地址（README 与安装包里对外的那个入口） */
 const OFFICIAL_SITE_URL = 'https://jingzhonghui.github.io/Inkase/'
@@ -86,6 +99,12 @@ interface MenuItem {
   kind: 'item' | 'divider' | 'submenu'
   label?: string
   action?: string
+  /**
+   * 快捷键的两条来源：
+   * - `shortcutId`：命令 id，显示文本由注册表按平台生成（首选）；
+   * - `shortcut`：字面量，只给「不是命令」的展示用（目前没有）。
+   */
+  shortcutId?: CommandId
   shortcut?: string
   payload?: string
   checked?: boolean
@@ -135,9 +154,9 @@ const fileMenu = computed<MenuItem[]>(() => {
     kind: 'submenu',
     label: '新建',
     children: [
-      { kind: 'item', label: '文件', action: 'new', shortcut: 'Ctrl+N' },
-      { kind: 'item', label: '思维导图', action: 'new-mindmap', shortcut: 'Ctrl+Shift+N' },
-      { kind: 'item', label: '图表', action: 'new-diagram', shortcut: 'Ctrl+Shift+D' },
+      { kind: 'item', label: '文件', action: 'new', shortcutId: 'file.new' },
+      { kind: 'item', label: '思维导图', action: 'new-mindmap', shortcutId: 'file.new-mindmap' },
+      { kind: 'item', label: '图表', action: 'new-diagram', shortcutId: 'file.new-diagram' },
       {
         kind: 'item',
         label: '由当前笔记生成',
@@ -151,9 +170,9 @@ const fileMenu = computed<MenuItem[]>(() => {
     kind: 'submenu',
     label: '打开',
     children: [
-      { kind: 'item', label: '文件', action: 'open', shortcut: 'Ctrl+O' },
+      { kind: 'item', label: '文件', action: 'open', shortcutId: 'file.open' },
       { kind: 'item', label: '文件夹', action: 'open-folder' },
-      { kind: 'item', label: '快速打开', action: 'quick-open', shortcut: 'Ctrl+P' },
+      { kind: 'item', label: '快速打开', action: 'quick-open', shortcutId: 'file.quick-open' },
       ...(fileStore.openedFolderPath
         ? [{ kind: 'item', label: '关闭文件夹', action: 'close-folder' } as MenuItem]
         : [])
@@ -220,10 +239,10 @@ const fileMenu = computed<MenuItem[]>(() => {
     openMenu,
     recentMenu,
     { kind: 'divider' },
-    { kind: 'item', label: '保存', action: 'save', shortcut: 'Ctrl+S' },
-    { kind: 'item', label: '另存为', action: 'save-as', shortcut: 'Ctrl+Shift+S' },
+    { kind: 'item', label: '保存', action: 'save', shortcutId: 'file.save' },
+    { kind: 'item', label: '另存为', action: 'save-as', shortcutId: 'file.save-as' },
     // 与保存同组：关标签页是收尾动作，不需要单独一段
-    { kind: 'item', label: '关闭标签页', action: 'close-tab', shortcut: 'Ctrl+W' },
+    { kind: 'item', label: '关闭标签页', action: 'close-tab', shortcutId: 'file.close-tab' },
     { kind: 'divider' },
     importMenu,
     exportMenu,
@@ -248,28 +267,28 @@ const fileMenu = computed<MenuItem[]>(() => {
  * 也就没有替换，所以替换仍然置灰）。
  */
 const editMenu = computed<MenuItem[]>(() => [
-  { kind: 'item', label: '撤销', action: 'undo', shortcut: 'Ctrl+Z' },
-  { kind: 'item', label: '重做', action: 'redo', shortcut: 'Ctrl+Y' },
+  { kind: 'item', label: '撤销', action: 'undo', shortcutId: 'edit.undo' },
+  { kind: 'item', label: '重做', action: 'redo', shortcutId: 'edit.redo' },
   { kind: 'divider' },
   {
     kind: 'item',
     label: '剪切',
     action: 'cut',
-    shortcut: 'Ctrl+X',
+    shortcutId: 'edit.cut',
     disabled: isCanvasDocumentActiveTab.value
   },
   {
     kind: 'item',
     label: '复制',
     action: 'copy',
-    shortcut: 'Ctrl+C',
+    shortcutId: 'edit.copy',
     disabled: isCanvasDocumentActiveTab.value
   },
   {
     kind: 'item',
     label: '粘贴',
     action: 'paste',
-    shortcut: 'Ctrl+V',
+    shortcutId: 'edit.paste',
     disabled: isCanvasDocumentActiveTab.value
   },
   { kind: 'divider' },
@@ -277,13 +296,13 @@ const editMenu = computed<MenuItem[]>(() => [
     kind: 'item',
     label: '查找',
     action: 'find',
-    shortcut: 'Ctrl+F'
+    shortcutId: 'edit.find'
   },
   {
     kind: 'item',
     label: '替换',
     action: 'replace',
-    shortcut: 'Ctrl+H',
+    shortcutId: 'edit.replace',
     disabled: isCanvasDocumentActiveTab.value
   }
 ])
@@ -381,12 +400,12 @@ const viewMenu = computed<MenuItem[]>(() => [
   },
   { kind: 'item', label: 'AI 助手', action: 'open-ai', checked: workspaceStore.isAi },
   { kind: 'divider' },
-  { kind: 'item', label: '设置', action: 'settings', shortcut: 'Ctrl+,' }
+  { kind: 'item', label: '设置', action: 'settings', shortcutId: 'app.settings' }
 ])
 
 const insertMenu: MenuItem[] = [
-  { kind: 'item', label: '插入图片', action: 'insert-image', shortcut: 'Ctrl+Shift+K' },
-  { kind: 'item', label: '插入链接', action: 'insert-link', shortcut: 'Ctrl+K' },
+  { kind: 'item', label: '插入图片', action: 'insert-image', shortcutId: 'insert.image' },
+  { kind: 'item', label: '插入链接', action: 'insert-link', shortcutId: 'insert.link' },
   { kind: 'divider' },
   { kind: 'item', label: '插入表格', action: 'insert-table' },
   { kind: 'item', label: '插入代码块', action: 'insert-code' },
@@ -397,38 +416,9 @@ const insertMenu: MenuItem[] = [
 
 const helpMenu: MenuItem[] = [
   { kind: 'item', label: '检查更新', action: 'check-updates' },
-  { kind: 'item', label: '快捷键速查', action: 'shortcuts' },
   { kind: 'item', label: '使用文档', action: 'docs' },
   { kind: 'divider' },
   { kind: 'item', label: '关于 Inkase', action: 'about' }
-]
-
-const shortcuts = [
-  { keys: 'Ctrl+N', label: '新建文件' },
-  { keys: 'Ctrl+Shift+N', label: '新建思维导图' },
-  { keys: 'Ctrl+Shift+D', label: '新建图表' },
-  { keys: 'Ctrl+O', label: '打开文件' },
-  { keys: 'Ctrl+P', label: '快速打开文件' },
-  { keys: 'Ctrl+S', label: '保存文件' },
-  { keys: 'Ctrl+Shift+S', label: '另存为' },
-  { keys: 'Ctrl+W', label: '关闭标签页' },
-  { keys: 'Ctrl+Z', label: '撤销' },
-  { keys: 'Ctrl+Y', label: '重做' },
-  { keys: 'Ctrl+X', label: '剪切' },
-  { keys: 'Ctrl+C', label: '复制' },
-  { keys: 'Ctrl+V', label: '粘贴' },
-  { keys: 'Ctrl+B', label: '粗体' },
-  { keys: 'Ctrl+I', label: '斜体' },
-  { keys: 'Ctrl+K', label: '插入链接' },
-  { keys: 'Ctrl+Shift+K', label: '插入图片' },
-  { keys: 'Ctrl+F', label: '查找' },
-  { keys: 'Ctrl+H', label: '替换' },
-  { keys: 'Shift+Alt+F', label: '格式化文档（代码/纯文本）' },
-  { keys: 'Ctrl+/', label: '切换编辑模式' },
-  { keys: 'Ctrl+Shift+G', label: '打开知识图谱' },
-  { keys: 'Ctrl+←/→', label: '切换标签' },
-  { keys: 'Ctrl+滚轮', label: '缩放编辑区字号' },
-  { keys: 'Ctrl+,', label: '打开设置' }
 ]
 
 const MENU_DEFS = [
@@ -452,55 +442,20 @@ const currentMenuItems = computed<MenuItem[]>(() => {
   return menus.value[activeMenu.value] ?? []
 })
 
+/** 菜单行右侧的快捷键文本：命令走注册表（按平台生成），无绑定则整列不占位 */
+function menuShortcut(item: MenuItem): string {
+  if (item.shortcutId) return formatShortcut(item.shortcutId, platform)
+  return item.shortcut ?? ''
+}
+
 const EDIT_ACTIONS = new Set(['undo', 'redo', 'cut', 'copy', 'paste', 'find', 'replace'])
 const settingsOpen = ref(false)
-const settingsCompressEnabled = ref(true)
-const settingsCompressQuality = ref(85)
-const settingsMaxTabs = ref(20)
-const settingsUiFontSize = ref(appearanceStore.uiFontSize)
-const settingsEditorFontSize = ref(appearanceStore.editorFontSize)
-const settingsEditorFontFamily = ref('')
-const settingsEditorMonoFontFamily = ref('')
-const settingsEditorLineHeight = ref(appearanceStore.editorLineHeight)
-// select 绑定值：预设 value，或「自定义…」哨兵
-const editorFontFamilySelect = ref('')
-const editorMonoFontFamilySelect = ref('')
-const editorFontFamilyCustom = ref(false)
-const editorMonoFontFamilyCustom = ref(false)
-
-/** 将存储的字体值映射为 select 值：预设原样，未知值进入自定义模式 */
-function toFontSelectValue(value: string): string {
-  if (!value) return ''
-  const isPreset =
-    EDITOR_FONT_FAMILY_PRESETS.some((p) => p.value === value) ||
-    EDITOR_MONO_FONT_FAMILY_PRESETS.some((p) => p.value === value)
-  return isPreset ? value : CUSTOM_FONT_SENTINEL
-}
-
-function handleEditorFontFamilyChange(): void {
-  if (editorFontFamilySelect.value === CUSTOM_FONT_SENTINEL) {
-    editorFontFamilyCustom.value = true
-  } else {
-    editorFontFamilyCustom.value = false
-    settingsEditorFontFamily.value = editorFontFamilySelect.value
-  }
-}
-
-function handleEditorMonoFontFamilyChange(): void {
-  if (editorMonoFontFamilySelect.value === CUSTOM_FONT_SENTINEL) {
-    editorMonoFontFamilyCustom.value = true
-  } else {
-    editorMonoFontFamilyCustom.value = false
-    settingsEditorMonoFontFamily.value = editorMonoFontFamilySelect.value
-  }
-}
 const linkDialogOpen = ref(false)
 const linkHref = ref('')
 const linkTitle = ref('')
 const imageDialogOpen = ref(false)
 const imageSrc = ref('')
 const imageAlt = ref('')
-const shortcutsOpen = ref(false)
 const aboutOpen = ref(false)
 const appVersion = ref('开发版')
 
@@ -774,9 +729,6 @@ async function runMenuItem(item: MenuItem): Promise<void> {
         // available 时由 UpdateDialog 自动弹出
       }
       break
-    case 'shortcuts':
-      shortcutsOpen.value = true
-      break
     case 'docs':
       {
         try {
@@ -884,40 +836,14 @@ async function selectAttachmentFile(): Promise<void> {
   )
 }
 
+/**
+ * 打开设置中心。
+ *
+ * 草稿的读取、主题预览与提交都在 `SettingsDialog` 里，这里只负责把面板打开。
+ * 入口只有菜单和快捷键两处，落在「外观」节（`SettingsDialog` 的默认节）。
+ */
 function openSettings(): void {
-  settingsCompressEnabled.value = fileStore.imageCompressSettings.enabled
-  settingsCompressQuality.value = fileStore.imageCompressSettings.quality
-  settingsMaxTabs.value = fileStore.maxOpenTabs
-  settingsUiFontSize.value = appearanceStore.uiFontSize
-  settingsEditorFontSize.value = appearanceStore.editorFontSize
-  settingsEditorFontFamily.value = appearanceStore.editorFontFamily
-  settingsEditorMonoFontFamily.value = appearanceStore.editorMonoFontFamily
-  settingsEditorLineHeight.value = appearanceStore.editorLineHeight
-  editorFontFamilySelect.value = toFontSelectValue(settingsEditorFontFamily.value)
-  editorFontFamilyCustom.value = editorFontFamilySelect.value === CUSTOM_FONT_SENTINEL
-  editorMonoFontFamilySelect.value = toFontSelectValue(settingsEditorMonoFontFamily.value)
-  editorMonoFontFamilyCustom.value = editorMonoFontFamilySelect.value === CUSTOM_FONT_SENTINEL
   settingsOpen.value = true
-}
-
-function saveSettings(): void {
-  fileStore.setImageCompressSettings({
-    enabled: settingsCompressEnabled.value,
-    quality: settingsCompressQuality.value
-  })
-  fileStore.setMaxOpenTabs(settingsMaxTabs.value)
-  appearanceStore.setUiFontSize(settingsUiFontSize.value)
-  appearanceStore.setEditorFontSize(settingsEditorFontSize.value)
-  appearanceStore.setEditorFontFamily(
-    editorFontFamilyCustom.value ? settingsEditorFontFamily.value : editorFontFamilySelect.value
-  )
-  appearanceStore.setEditorMonoFontFamily(
-    editorMonoFontFamilyCustom.value
-      ? settingsEditorMonoFontFamily.value
-      : editorMonoFontFamilySelect.value
-  )
-  appearanceStore.setEditorLineHeight(settingsEditorLineHeight.value)
-  settingsOpen.value = false
 }
 
 function toggleTheme(): void {
@@ -991,12 +917,19 @@ function isTextInputTarget(target: EventTarget | null): boolean {
 
 function handleTabNavigationKeydown(event: KeyboardEvent): boolean {
   if (event.isComposing) return false
-  if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return false
 
-  // 只保留 Ctrl+←/→（Alt+←/→ 已移除）。Ctrl+←/→ 与编辑器内「按词移动光标」冲突，
-  // 因此在捕获阶段先于编辑器处理并阻止其继续处理；输入框（查找/重命名/AI 输入等）
-  // 仍保留原生行为，由 handleTabNavigationCapture 过滤
-  if (!event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return false
+  // 「上一个/下一个标签」在注册表里标了 priority: 'capture'：
+  // Ctrl+←/→ 与编辑器内「按词移动光标」冲突，必须在捕获阶段先于编辑器处理。
+  // 修饰键的严格程度（不许带 Alt/Shift/⌘）由注册表的绑定本身决定——
+  // 这正是把「按词移动」与「切换标签」分开的那条线。
+  const command = matchCommand(event, platform, {
+    priority: 'capture',
+    // 对话框与输入框的前置条件在这里不适用：切换标签与焦点无关，
+    // 只由 handleTabNavigationCapture 单独过滤输入框（保留原生按词移动）。
+    hasDialogOpen: false,
+    isTextInput: false
+  })
+  if (!command || (command.id !== 'tab.prev' && command.id !== 'tab.next')) return false
 
   // 标签栏的序列是「工作台」+「文件标签」：工作台固定在第 0 位，
   // 因此键盘切换用同一份序列，否则会「跳到看不见的项」
@@ -1010,7 +943,7 @@ function handleTabNavigationKeydown(event: KeyboardEvent): boolean {
       fileItems.findIndex(
         (item) => item.kind === 'file' && item.tab.id === fileStore.activeTabId
       )
-  const offset = event.key === 'ArrowRight' ? 1 : -1
+  const offset = command.id === 'tab.next' ? 1 : -1
   const nextIndex = ((currentIndex < 0 ? 0 : currentIndex) + offset + total) % total
   event.preventDefault()
 
@@ -1030,6 +963,8 @@ function handleTabNavigationKeydown(event: KeyboardEvent): boolean {
 /** 捕获阶段拦截：编辑器会消费 Ctrl+方向键，冒泡阶段已来不及 */
 function handleTabNavigationCapture(event: KeyboardEvent): void {
   if (isTextInputTarget(event.target)) return
+  // 对话框开着时不该在背后换标签：用户以为焦点在面板里，切走了却看不出来
+  if (isAnyDialogOpen()) return
   if (handleTabNavigationKeydown(event)) event.stopPropagation()
 }
 
@@ -1039,9 +974,56 @@ function isAnyDialogOpen(): boolean {
     settingsOpen.value ||
     linkDialogOpen.value ||
     imageDialogOpen.value ||
-    shortcutsOpen.value ||
     aboutOpen.value
   )
+}
+
+/**
+ * 执行一个应用级命令。
+ *
+ * 派发只负责「命令 → 动作」的映射，键位判断全在注册表与 `matchCommand` 里。
+ * 这样将来加录制界面时，改的是绑定数据，不是这张表。
+ */
+function runCommand(id: CommandId): void {
+  switch (id) {
+    case 'file.new':
+      void newFile()
+      break
+    case 'file.new-mindmap':
+      void newMindMap()
+      break
+    case 'file.new-diagram':
+      void fileStore.newDiagram()
+      break
+    case 'file.open':
+      void openFile()
+      break
+    case 'file.quick-open':
+      void openQuickOpen()
+      break
+    case 'file.save':
+      void saveFile()
+      break
+    case 'file.save-as':
+      void saveAsFile()
+      break
+    case 'file.close-tab':
+      // 有对话框开着时不关标签：那时用户想关的多半是对话框，误关文档代价太大。
+      // 守卫放在派发器里（而不是按键监听里）：主进程会先一步拦下 Ctrl+W 再转
+      // IPC 回来，如果只守 keydown 那条路，生产环境里这个保护等于不存在。
+      if (isAnyDialogOpen()) return
+      void closeActiveTab()
+      break
+    case 'app.settings':
+      openSettings()
+      break
+    case 'view.graph':
+      openGraphPanel()
+      break
+    default:
+      // tab.prev / tab.next 在捕获阶段处理；editor / native 类的命令不归这里
+      break
+  }
 }
 
 function handleKeydown(event: KeyboardEvent): void {
@@ -1050,10 +1032,11 @@ function handleKeydown(event: KeyboardEvent): void {
 
   if (event.key === 'Escape') {
     if (isAnyDialogOpen()) {
-      settingsOpen.value = false
+      // 设置中心自己监听 Esc：它要先回滚主题预览，将来还要先退出快捷键录制态，
+      // 这里替它关会把这些步骤整个跳过。
+      if (settingsOpen.value) return
       linkDialogOpen.value = false
       imageDialogOpen.value = false
-      shortcutsOpen.value = false
       aboutOpen.value = false
       return
     }
@@ -1061,50 +1044,18 @@ function handleKeydown(event: KeyboardEvent): void {
     return
   }
 
-  if (!event.ctrlKey) return
+  // 其余按键一律交给注册表匹配：键位、平台差异（Ctrl / ⌘）、
+  // 「对话框开着时哪些命令不响应」都收在 matchCommand 里，
+  // 这里不再逐个 if (key === 'x')。
+  const command = matchCommand(event, platform, {
+    priority: 'bubble',
+    hasDialogOpen: isAnyDialogOpen(),
+    isTextInput: isTextInputTarget(event.target)
+  })
+  if (!command) return
 
-  // 带 Shift 时 event.key 是大写（Ctrl+Shift+N 得到 'N'），统一小写后再比较，
-  // 否则 Ctrl+Shift+N / Ctrl+Shift+S / Ctrl+Shift+D 这类组合永远匹配不上。
-  const key = event.key.toLowerCase()
-
-  if (key === 'n') {
-    event.preventDefault()
-    if (event.shiftKey) {
-      newMindMap()
-    } else {
-      newFile()
-    }
-  } else if (key === 'd' && event.shiftKey) {
-    // Ctrl+Shift+D：新建图表（D = diagram），与 Ctrl+Shift+N 的新建导图并列
-    event.preventDefault()
-    void fileStore.newDiagram()
-  } else if (key === 'g' && event.shiftKey) {
-    // Ctrl+Shift+G：知识图谱（G = graph）。编辑器没有同名组合，不会抢键
-    event.preventDefault()
-    openGraphPanel()
-  } else if (key === 'o') {
-    event.preventDefault()
-    openFile()
-  } else if (key === 'p') {
-    event.preventDefault()
-    void openQuickOpen()
-  } else if (key === 's') {
-    event.preventDefault()
-    if (event.shiftKey) {
-      saveAsFile()
-    } else {
-      saveFile()
-    }
-  } else if (key === 'w' && !event.shiftKey) {
-    // Ctrl+W：关闭当前标签页。Shift 组合留给窗口层（Ctrl+Shift+W 不进这里）
-    // 有对话框开着时不响应：那时用户想关的多半是对话框，误关掉文档代价太大。
-    if (isAnyDialogOpen()) return
-    event.preventDefault()
-    void closeActiveTab()
-  } else if (event.key === ',') {
-    event.preventDefault()
-    openSettings()
-  }
+  event.preventDefault()
+  runCommand(command.id)
 }
 
 let removeMaximizedListener: (() => void) | null = null
@@ -1138,13 +1089,12 @@ onMounted(async () => {
 
   // 保存/关闭标签页由主进程统一拦截后转发：图表画布在跨域 iframe 里，
   // 那里的 keydown 到不了页面，只有这条通道能让 Ctrl+S / Ctrl+W 仍然有效。
+  // 载荷就是命令 id，直接走同一个派发器；再校验一次是因为 IPC 属于跨进程边界。
   // 用 `?.` 保护方法本身：单测与旧版 preload 上没有 onAppShortcut，
   // 只判 electronAPI 是否存在会让这里直接抛 TypeError。
   removeShortcutListener =
-    window.electronAPI?.onAppShortcut?.((shortcut) => {
-      if (shortcut === 'close-tab') void closeActiveTab()
-      else if (shortcut === 'save-as') void saveAsFile()
-      else void saveFile()
+    window.electronAPI?.onAppShortcut?.((commandId) => {
+      if (isForwardedCommand(commandId)) runCommand(commandId)
     }) ?? null
 })
 
@@ -1321,11 +1271,13 @@ onUnmounted(() => {
                       }}</span>
                       {{ sub.label }}
                     </span>
-                    <!-- 二级菜单里的条目同样要显示快捷键，否则挪进子菜单的 Ctrl+N 会「消失」 -->
+                    <!-- 二级菜单里的条目同样要显示快捷键，否则挪进子菜单的 Ctrl+N 会「消失」。
+                         这里必须和顶层一样走 menuShortcut（= 注册表 + 用户覆盖值），
+                         不能读 sub.shortcut 字面量——那种写法在改键后就不跟手了 -->
                     <span
-                      v-if="sub.shortcut"
+                      v-if="menuShortcut(sub)"
                       class="shortcut"
-                    >{{ sub.shortcut }}</span>
+                    >{{ menuShortcut(sub) }}</span>
                     <button
                       v-if="
                         (sub.action === 'recent-file' || sub.action === 'recent-folder') &&
@@ -1358,205 +1310,18 @@ onUnmounted(() => {
               {{ item.label }}
             </span>
             <span
-              v-if="item.shortcut"
+              v-if="menuShortcut(item)"
               class="shortcut"
-            >{{ item.shortcut }}</span>
+            >{{ menuShortcut(item) }}</span>
           </div>
         </template>
       </div>
 
-      <div
+      <!-- 设置中心：左栏分组 + 右栏内容，草稿与主题预览由它自己管 -->
+      <SettingsDialog
         v-if="settingsOpen"
-        class="settings-overlay"
-        @mousedown.self="settingsOpen = false"
-      >
-        <section class="settings-dialog">
-          <h2>设置</h2>
-
-          <div class="settings-grid">
-            <label class="settings-row settings-row-inline">
-              <span>
-                <strong>图片自动压缩</strong>
-                <small>插入图片时自动压缩以减小文档体积</small>
-              </span>
-              <input
-                v-model="settingsCompressEnabled"
-                type="checkbox"
-              >
-            </label>
-
-            <label class="settings-row">
-              <span>
-                <strong>压缩质量</strong>
-                <small>数值越高画质越好、体积越大</small>
-              </span>
-              <span class="quality-control">
-                <input
-                  v-model.number="settingsCompressQuality"
-                  type="range"
-                  min="1"
-                  max="100"
-                  :disabled="!settingsCompressEnabled"
-                >
-                <output>{{ settingsCompressQuality }}</output>
-              </span>
-            </label>
-
-            <label class="settings-row">
-              <span>
-                <strong>最大打开标签数</strong>
-                <small>同时打开的标签数量上限，防止打开过多</small>
-              </span>
-              <input
-                v-model.number="settingsMaxTabs"
-                class="settings-number"
-                type="number"
-                min="1"
-                max="100"
-              >
-            </label>
-
-            <label class="settings-row">
-              <span>
-                <strong>编辑区域字体大小</strong>
-                <small>源码、即时渲染、预览与工具栏的字号，编辑器内可 Ctrl+滚轮缩放</small>
-              </span>
-              <input
-                v-model.number="settingsEditorFontSize"
-                class="settings-number"
-                type="number"
-                :min="MIN_EDITOR_FONT_SIZE"
-                :max="MAX_EDITOR_FONT_SIZE"
-              >
-            </label>
-
-            <label class="settings-row">
-              <span>
-                <strong>编辑器正文字体</strong>
-                <small>即时渲染编辑与预览的正文使用字体</small>
-              </span>
-              <span class="font-control">
-                <select
-                  v-model="editorFontFamilySelect"
-                  class="settings-select"
-                  @change="handleEditorFontFamilyChange"
-                >
-                  <option
-                    v-for="preset in EDITOR_FONT_FAMILY_PRESETS"
-                    :key="preset.value || 'system'"
-                    :value="preset.value"
-                  >
-                    {{ preset.label }}
-                  </option>
-                </select>
-                <input
-                  v-if="editorFontFamilyCustom"
-                  v-model="settingsEditorFontFamily"
-                  class="settings-number font-custom-input"
-                  type="text"
-                  placeholder="如 '字体名', sans-serif"
-                >
-              </span>
-            </label>
-
-            <label class="settings-row">
-              <span>
-                <strong>编辑器代码字体</strong>
-                <small>源码编辑模式与代码块使用的等宽字体</small>
-              </span>
-              <span class="font-control">
-                <select
-                  v-model="editorMonoFontFamilySelect"
-                  class="settings-select"
-                  @change="handleEditorMonoFontFamilyChange"
-                >
-                  <option
-                    v-for="preset in EDITOR_MONO_FONT_FAMILY_PRESETS"
-                    :key="preset.value || 'system'"
-                    :value="preset.value"
-                  >
-                    {{ preset.label }}
-                  </option>
-                </select>
-                <input
-                  v-if="editorMonoFontFamilyCustom"
-                  v-model="settingsEditorMonoFontFamily"
-                  class="settings-number font-custom-input"
-                  type="text"
-                  placeholder="如 '字体名', monospace"
-                >
-              </span>
-            </label>
-
-            <label class="settings-row">
-              <span>
-                <strong>编辑器行高</strong>
-                <small>数值越大行间距越宽松</small>
-              </span>
-              <span class="quality-control">
-                <input
-                  v-model.number="settingsEditorLineHeight"
-                  type="range"
-                  :min="MIN_EDITOR_LINE_HEIGHT"
-                  :max="MAX_EDITOR_LINE_HEIGHT"
-                  step="0.1"
-                >
-                <output>{{ settingsEditorLineHeight.toFixed(1) }}</output>
-              </span>
-            </label>
-
-            <label class="settings-row">
-              <span>
-                <strong>主界面字体大小</strong>
-                <small>菜单栏、标签页、侧边栏、状态栏等的字号</small>
-              </span>
-              <input
-                v-model.number="settingsUiFontSize"
-                class="settings-number"
-                type="number"
-                :min="MIN_UI_FONT_SIZE"
-                :max="MAX_UI_FONT_SIZE"
-              >
-            </label>
-
-            <div class="settings-theme">
-              <strong>默认主题</strong>
-              <div class="theme-options">
-                <button
-                  v-for="option in [
-                    { value: 'light', label: '浅色' },
-                    { value: 'dark', label: '深色' },
-                    { value: 'system', label: '跟随系统' }
-                  ]"
-                  :key="option.value"
-                  type="button"
-                  :class="{ active: themeStore.theme === option.value }"
-                  @click="themeStore.setTheme(option.value as 'light' | 'dark' | 'system')"
-                >
-                  {{ option.label }}
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div class="settings-actions">
-            <button
-              type="button"
-              class="secondary"
-              @click="settingsOpen = false"
-            >
-              取消
-            </button>
-            <button
-              type="button"
-              class="primary"
-              @click="saveSettings"
-            >
-              完成
-            </button>
-          </div>
-        </section>
-      </div>
+        @close="settingsOpen = false"
+      />
 
       <div
         v-if="linkDialogOpen"
@@ -1652,35 +1417,6 @@ onUnmounted(() => {
               @click="confirmInsertImage"
             >
               插入
-            </button>
-          </div>
-        </section>
-      </div>
-
-      <div
-        v-if="shortcutsOpen"
-        class="help-overlay"
-        @mousedown.self="shortcutsOpen = false"
-      >
-        <section class="help-dialog shortcuts-dialog">
-          <h2>快捷键速查</h2>
-          <div class="shortcuts-grid">
-            <div
-              v-for="shortcut in shortcuts"
-              :key="shortcut.keys"
-              class="shortcut-row"
-            >
-              <kbd>{{ shortcut.keys }}</kbd>
-              <span>{{ shortcut.label }}</span>
-            </div>
-          </div>
-          <div class="settings-actions">
-            <button
-              type="button"
-              class="primary"
-              @click="shortcutsOpen = false"
-            >
-              确定
             </button>
           </div>
         </section>
@@ -2053,16 +1789,6 @@ onUnmounted(() => {
   display: block;
 }
 
-.settings-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 10010;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.4);
-}
-
 .insert-dialog-overlay {
   position: fixed;
   inset: 0;
@@ -2081,19 +1807,6 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   background: rgba(0, 0, 0, 0.4);
-}
-
-.settings-dialog {
-  width: 720px;
-  max-width: calc(100vw - 48px);
-  max-height: calc(100vh - 48px);
-  padding: 24px;
-  overflow-y: auto;
-  color: var(--color-text);
-  background: var(--color-bg-primary);
-  border: 1px solid var(--color-border);
-  border-radius: 10px;
-  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.24);
 }
 
 .insert-dialog {
@@ -2123,39 +1836,6 @@ onUnmounted(() => {
 .help-dialog h2 {
   margin: 0 0 18px;
   font-size: calc(var(--ui-font-size) + 4px);
-}
-
-.shortcuts-dialog {
-  width: 560px;
-}
-
-.shortcuts-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 4px 24px;
-}
-
-.shortcut-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  min-width: 0;
-  padding: 7px 0;
-  color: var(--color-text-secondary);
-  font-size: var(--ui-font-size);
-}
-
-.shortcut-row kbd {
-  flex-shrink: 0;
-  padding: 3px 8px;
-  color: var(--color-text-secondary);
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
-  border-bottom-width: 2px;
-  border-radius: 5px;
-  font-family: var(--font-mono);
-  font-size: calc(var(--ui-font-size) - 2px);
 }
 
 .about-dialog p {
@@ -2273,124 +1953,6 @@ onUnmounted(() => {
   border-color: var(--color-primary);
 }
 
-.settings-dialog h2 {
-  margin: 0 0 12px;
-  font-size: calc(var(--ui-font-size) + 4px);
-}
-
-.settings-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 2px 32px;
-}
-
-.settings-row {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 8px;
-  min-width: 0;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--color-border);
-}
-
-/* 复选框等简单开关：标签与控件保持同行 */
-.settings-row-inline {
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.settings-row strong,
-.settings-theme > strong {
-  display: block;
-  font-size: var(--ui-font-size);
-  font-weight: 600;
-}
-
-.settings-row small {
-  display: block;
-  margin-top: 3px;
-  color: var(--color-text-tertiary);
-  font-size: calc(var(--ui-font-size) - 1px);
-}
-
-.quality-control {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.quality-control input {
-  width: 120px;
-}
-
-.quality-control output {
-  width: 24px;
-  color: var(--color-text-secondary);
-  font-size: calc(var(--ui-font-size) - 1px);
-  text-align: right;
-}
-
-.settings-number {
-  width: 72px;
-  padding: 4px 8px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background-color: var(--color-bg-primary);
-  color: var(--color-text);
-  font-size: var(--ui-font-size);
-}
-
-.font-control {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.font-custom-input {
-  flex: 1;
-  width: auto;
-  min-width: 0;
-}
-
-.settings-select {
-  max-width: 180px;
-  padding: 4px 8px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background-color: var(--color-bg-primary);
-  color: var(--color-text);
-  font-size: var(--ui-font-size);
-  cursor: pointer;
-}
-
-.settings-theme {
-  grid-column: 1 / -1;
-  padding-top: 14px;
-}
-
-/* 窄窗口回退：网格塌缩为单列，避免控件挤压 */
-@media (max-width: 680px) {
-  .settings-dialog {
-    width: 420px;
-  }
-
-  .settings-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-.theme-options {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 220px));
-  gap: 8px;
-  margin-top: 10px;
-}
-
-.theme-options button,
 .settings-actions button {
   padding: 7px 12px;
   color: var(--color-text);
@@ -2398,13 +1960,6 @@ onUnmounted(() => {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   cursor: pointer;
-}
-
-.theme-options button:hover,
-.theme-options button.active {
-  color: var(--color-primary);
-  background: var(--color-primary-light);
-  border-color: var(--color-primary);
 }
 
 .settings-actions {

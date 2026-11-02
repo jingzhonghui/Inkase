@@ -5,7 +5,7 @@ import { useGraphStore } from '../../stores/graph'
 import { useThemeStore } from '../../stores/theme'
 import { useFileStore } from '../../stores/file'
 import { themedCursor } from '../../utils/cursor'
-import { nodeRadius, renderGraph } from '../../utils/graph/render'
+import { NODE_RADIUS, renderGraph } from '../../utils/graph/render'
 import { createSimulation, type GraphSimulation } from '../../utils/graph/simulation'
 import {
   IDENTITY_TRANSFORM,
@@ -120,7 +120,7 @@ function rebuildSimulation(): void {
 
   // 已有的旧坐标一律沿用：重建后只有新增节点需要播种，图不会「跳一下」
   simulation.value = createSimulation({
-    nodes: nodes.map((node) => ({ id: node.id, radius: nodeRadius(node) })),
+    nodes: nodes.map((node) => ({ id: node.id, radius: NODE_RADIUS })),
     links: baseEdges().map((edge) => ({
       source: edge.source,
       target: edge.target,
@@ -275,7 +275,7 @@ function hitAt(screenPoint: { x: number; y: number }): string | null {
     .map((node) => {
       const position = sim.positions.get(node.id)
       return position
-        ? { id: node.id, x: position.x, y: position.y, radius: nodeRadius(node) }
+        ? { id: node.id, x: position.x, y: position.y, radius: NODE_RADIUS }
         : null
     })
     .filter((item): item is { id: string; x: number; y: number; radius: number } => item !== null)
