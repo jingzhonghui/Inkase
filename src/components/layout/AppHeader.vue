@@ -30,6 +30,7 @@ import { requestDialog } from '../../utils/dialog'
 import { findCodeLanguage, languageDisplayName } from '../../utils/editor-language'
 import SyncPanel from './SyncPanel.vue'
 import SettingsDialog from '../settings/SettingsDialog.vue'
+import type { SettingsSectionId } from '../settings/types'
 import QuickOpenPalette from '../common/QuickOpenPalette.vue'
 import Tooltip from '../common/Tooltip.vue'
 
@@ -837,13 +838,35 @@ async function selectAttachmentFile(): Promise<void> {
 }
 
 /**
+ * 设置中心的落点。
+ *
+ * 菜单与快捷键落在「外观」（默认节）；AI 面板的「设置」按钮要落在「AI 助手」，
+ * 用户点的是哪一块就让他在哪一节，别让他再翻一次目录。
+ */
+const settingsSection = ref<SettingsSectionId>('appearance')
+
+/**
  * 打开设置中心。
  *
  * 草稿的读取、主题预览与提交都在 `SettingsDialog` 里，这里只负责把面板打开。
- * 入口只有菜单和快捷键两处，落在「外观」节（`SettingsDialog` 的默认节）。
+ * 菜单与快捷键走这里，**每次都落回「外观」**——`settingsSection` 会记住上一次
+ * 的落点（AI 面板可能把它停在「AI 助手」），不复位的话用户从菜单进来会莫名
+ * 掉到 AI 节。
  */
 function openSettings(): void {
+  settingsSection.value = 'appearance'
   settingsOpen.value = true
+}
+
+function openSettingsAt(section: SettingsSectionId): void {
+  settingsSection.value = section
+  settingsOpen.value = true
+}
+
+/** App.vue 那边的 AI 入口经窗口事件转过来（AppHeader 是唯一持有设置面板开关的地方） */
+function handleOpenSettingsEvent(event: Event): void {
+  const section = (event as CustomEvent<{ section?: SettingsSectionId }>).detail?.section
+  openSettingsAt(section ?? 'appearance')
 }
 
 function toggleTheme(): void {
@@ -1071,6 +1094,7 @@ onMounted(async () => {
   window.addEventListener('editor:showLinkDialog', openLinkDialog)
   window.addEventListener('editor:showImageDialog', openImageDialog)
   window.addEventListener('inkase:quick-open', handleQuickOpenEvent)
+  window.addEventListener('inkase:open-settings', handleOpenSettingsEvent)
 
   const maximized = await window.electronAPI?.windowIsMaximized()
   isMaximized.value = maximized ?? false
@@ -1106,6 +1130,7 @@ onUnmounted(() => {
   window.removeEventListener('editor:showLinkDialog', openLinkDialog)
   window.removeEventListener('editor:showImageDialog', openImageDialog)
   window.removeEventListener('inkase:quick-open', handleQuickOpenEvent)
+  window.removeEventListener('inkase:open-settings', handleOpenSettingsEvent)
   removeMaximizedListener?.()
   removeUnmaximizedListener?.()
   removeShortcutListener?.()
@@ -1320,6 +1345,7 @@ onUnmounted(() => {
       <!-- 设置中心：左栏分组 + 右栏内容，草稿与主题预览由它自己管 -->
       <SettingsDialog
         v-if="settingsOpen"
+        :initial-section="settingsSection"
         @close="settingsOpen = false"
       />
 

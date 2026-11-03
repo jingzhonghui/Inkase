@@ -165,7 +165,8 @@ src/
 │   │   ├── FindReplacePanel.vue # 查找替换面板
 │   │   ├── DiagramEditor.vue # 图表（.drawio）：iframe 套自托管 draw.io，走 embed 协议
 │   │   ├── PdfViewer.vue / ImageViewer.vue / HtmlPreview.vue # 附件查看器
-│   │   └── ai/        # AI 面板组件（AiPanel、AiSettingsDialog、会话侧栏、消息列表、审批对话框、工具调用卡片等）
+│   │   └── ai/        # AI 面板组件（AiPanel、会话侧栏、消息列表、审批对话框、工具调用卡片等）
+│   ├── settings/     # 设置中心（左栏分组 + 右栏分节；sections/ 下每个分组一个组件，AI 配置也在其中）
 │   ├── common/       # 通用组件（QuickOpenPalette、Tooltip、ConfirmDialog、EditorContextMenu、FileDropOverlay）
 │   ├── export/       # PDF 导出视图（PdfExportView、批量进度对话框）
 │   └── update/       # UpdateDialog（应用内更新）
@@ -235,6 +236,7 @@ src/
 - **`isFiltered` 跟格式清单比，不写死数字**: 格式一共五种（mdx / markdown / mindmap / diagram / attachment），`ALL_GRAPH_FORMATS` 同时充当默认值与判定依据。早先按 `formats.length < 4` 判断，关掉一种后仍然报「没过滤」，侧栏那枚「重置筛选」的入口就不出现
 - **IR 回写必须「读当前文档」**: `IrEditor` 用 `requestAnimationFrame` 把文档序列化回 store（避免每次按键都全文档序列化）。两个铁律：① rAF 回调里序列化 `viewRef.value.state`，**不要**序列化调度时刻传进来的快照——同一帧内连打几个字符（快速键入、按键重复、输入法一次提交多个字符）时快照已经落后，回写会让 store 落后于编辑器；② store 的同步 watcher 见到「store 内容 ≠ 当前序列化」时**不能无条件整篇重建**（`EditorState.create` 的选区默认落在文档开头，表现为「光标莫名跳回开头」且吞掉刚打的字），先用 `lastPushedMarkdown` 判定这是不是自己上一帧写出去的回声，是就补一次回写、以编辑器为准。回写前还要校验 `editorTabId === activeTabId`，否则切标签时旧实例会把上一篇的内容写进新标签。回归用例：`src/components/editor/__tests__/ir-fast-typing-cursor.test.ts`
 - **快捷键的单一真相是 `src/shortcuts/registry.ts`**: 改键、菜单右侧文案、速查表/设置面板、实际派发全部从这一份命令注册表读，不要再往 `handleKeydown` 里加 `if (key === 'x')` 分支，也不要给菜单项写 `shortcut: 'Ctrl+S'` 字面量（用 `shortcutId`）。绑定一律用 `Mod`（Win/Linux = Ctrl，macOS = ⌘），存储与匹配只认 `Mod`，显示时才展开成 `Ctrl+…` / `⌘…`。**读键位一律走 `bindingOf(id)`**（= 用户覆盖值 ?? 默认值），不要在派发路径里读 `command.binding`——那是默认值，用户改过键就会出现「文案变了、行为没变」。用户覆盖值只存改过的条目（localStorage `inkase-shortcuts`，`{version:1, overrides}`），`null` 表示显式解绑，坏值只让那一条回落默认。`owner` 决定谁来执行：`app` 走 `AppHeader` 的派发器（`matchCommand` → `runCommand`），`editor` 由 ProseMirror/CodeMirror 的 keymap 执行（注册表只登记键位用于显示，派发器不抢），`native` 交给系统默认。标签切换（`Ctrl+←/→`）标了 `priority: 'capture'`：它与编辑器内「按词移动光标」冲突，必须在捕获阶段先于编辑器处理。解析/匹配/录制/保留键判定等纯函数在 `shared/shortcuts/binding.ts`（主进程也要用）；平台判定渲染层走 UA（`detectPlatform`，必须同步）、主进程走 `process.platform`——`app:getPlatform` 通道存在但别在同步路径上用（`detectPlatform` 被注册表格式化、菜单渲染直接调用，改成 await 会染成异步）
+- **AI 配置住在设置中心，不在 AI 面板里**: Provider 参数（API 地址/模型/Key/温度/上下文窗口/工具步骤）是 `src/components/settings/sections/AiSection.vue`，归设置中心的「AI 助手」节。AI 面板标题栏只剩一个「设置」按钮，点它发 `inkase:open-settings` 窗口事件（`detail.section = 'ai'`），由唯一持有设置面板开关的 `AppHeader` 打开并落到该节——不要在 App 层再养一个 `aiSettingsOpen`，那正是这次合并掉的旧结构（原先是独立对话框 `AiSettingsDialog`）。三条搬过来必须守住的契约：① **Key 不回显**，主进程只回 `hasApiKey`，输入框恒为空，提交留空就不带 `apiKey` 字段（后端据此保留已存的 Key）；② **探测要防竞态**，用配置指纹比对，回来时表单已变就丢弃结果；③ **测通 ≠ 就绪**，只有「探测通过 + 表单与已存配置一致」才把「配置已就绪」点亮。与其余分节的差别是落盘走主进程异步 IPC、可能失败，所以 `AiSection.save()` 返回 `boolean`：失败时 `SettingsDialog` **不关面板**并切回 AI 节，否则错误留在看不见的那一节里，用户只看到「点了保存没反应」。AI 节首次进入才创建、之后 `v-show` 保活（切节不能丢已填的表单）；就绪状态经 `ai:readiness` 窗口事件回给 `App.vue`，不要改成保存后重新 `getAiConfig`——那既多一次往返，也会抹掉「探测通过但未保存」的中间态
 - **快捷键设置面板只对 `owner: 'app'` 开放编辑**: 编辑器命令（加粗、查找、插入链接…）的键位写在 ProseMirror/CodeMirror 的 keymap 里，在这里让人改是**假的**（改完列表显示新键，按下去还是旧键），所以那些行只读并标注「编辑器」。`owner: 'native'` 的三条（剪切/复制/粘贴）**整行不列**——它们是 Chromium 原生行为，键位由操作系统定死，摆在应用设置里只会让人误以为 Ctrl+C 是本应用的可配置项；但注册表里必须保留这三条，编辑菜单右侧的 Ctrl+C 文案还要从它们读。冲突检测仍按**全量**算（撞到 Ctrl+C 要提醒），只是逐条列举时跳过键为系统原生命令的那一侧，否则会指向列表里根本不存在的行。将来做 Phase 4（从注册表生成 ProseMirror keymap）时才把编辑器行放开。`allowInInput`（默认 true）只对四条「新建/打开」置 false：它们会把用户眼前的输入框换成新标签或系统对话框；保存/另存为/关标签必须保持生效，否则「在搜索框里按 Ctrl+S」会没反应。改这个名单前先想清楚：`before-input-event` 是全窗口的，主进程转发那条路拿不到焦点信息
 
 ### MDX 文件结构

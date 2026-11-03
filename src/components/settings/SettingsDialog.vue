@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import {
   IconAdjustmentsHorizontal,
   IconKeyboard,
   IconPalette,
   IconPhoto,
+  IconRobot,
   IconTypography,
   type Icon
 } from '@tabler/icons-vue'
@@ -14,6 +15,7 @@ import { useFileStore } from '../../stores/file'
 import { useThemeStore } from '../../stores/theme'
 import { applyOverrides, getOverrides } from '../../shortcuts/overrides'
 import AppearanceSection from './sections/AppearanceSection.vue'
+import AiSection from './sections/AiSection.vue'
 import EditorSection from './sections/EditorSection.vue'
 import FilesSection from './sections/FilesSection.vue'
 import GeneralSection from './sections/GeneralSection.vue'
@@ -34,7 +36,18 @@ import './settings-controls.css'
  *    否则用户会以为「主题没保存成功」——这是旧实现里最容易误解的地方。
  * 3. **Esc 归这里管**：外壳自己监听 Esc，AppHeader 的全局 Esc 不再代为关闭
  *    （将来快捷键节要「第一次 Esc 退出录制、第二次才关面板」）。
+ *
+ * 落点由 `initialSection` 决定：菜单/快捷键打开落在「外观」，AI 面板的「设置」
+ * 按钮落在「AI 助手」——用户点的是哪一块，就把他放到哪一节，不要让他再找一次。
  */
+
+const props = withDefaults(
+  defineProps<{
+    /** 打开时落在哪一节。默认「外观」，也是菜单入口的落点。 */
+    initialSection?: SettingsSectionId
+  }>(),
+  { initialSection: 'appearance' }
+)
 
 const emit = defineEmits<{ close: [] }>()
 
@@ -54,6 +67,12 @@ const SECTIONS: readonly SectionDef[] = [
   { id: 'appearance', label: '外观', icon: IconPalette, desc: '主题与主界面字号。' },
   { id: 'editor', label: '编辑器', icon: IconTypography, desc: '编辑区的字号、字体与行高。' },
   { id: 'files', label: '文件与图片', icon: IconPhoto, desc: '插入图片时的压缩策略。' },
+  {
+    id: 'ai',
+    label: 'AI 助手',
+    icon: IconRobot,
+    desc: 'Provider 连接参数。API Key 只保存在本机。'
+  },
   { id: 'shortcuts', label: '快捷键', icon: IconKeyboard, desc: '点键位后按下新组合，Backspace 清除。' },
   {
     id: 'general',
@@ -63,7 +82,7 @@ const SECTIONS: readonly SectionDef[] = [
   }
 ]
 
-const activeSection = ref<SettingsSectionId>('appearance')
+const activeSection = ref<SettingsSectionId>(props.initialSection)
 const currentSection = computed(
   () => SECTIONS.find((section) => section.id === activeSection.value) ?? SECTIONS[0]
 )
@@ -94,7 +113,15 @@ const draftTheme = computed({
   }
 })
 
-function save(): void {
+/**
+ * 提交。
+ *
+ * 本地设置是同步落 store，AI 配置要过主进程异步 IPC。两者失败语义不同：
+ * 本地设置写不坏，AI 却可能因为地址非法、Key 失效而拒绝。所以 AI 保存失败时
+ * **不关面板**，并自动切回「AI 助手」节——否则错误信息留在看不见的那一节里，
+ * 用户只知道「点了保存没反应」。
+ */
+async function save(): Promise<void> {
   fileStore.setImageCompressSettings({
     enabled: draft.value.compressEnabled,
     quality: draft.value.compressQuality
@@ -106,7 +133,37 @@ function save(): void {
   appearanceStore.setEditorMonoFontFamily(draft.value.editorMonoFontFamily)
   appearanceStore.setEditorLineHeight(draft.value.editorLineHeight)
   applyOverrides(draft.value.overrides)
+
+  const aiSaved = await (aiSectionRef.value?.save() ?? Promise.resolve(true))
+  if (!aiSaved) {
+    activeSection.value = 'ai'
+    return
+  }
   emit('close')
+}
+
+/**
+ * AI 节常驻，其他节按需挂载。
+ *
+ * 它的表单状态活在组件里（草稿机制），跟着 `v-if` 走会在切节时被销毁——
+ * 用户改了 API 地址去看了眼「外观」，回来就没了。首次进入才创建，
+ * 之后用 `v-show` 保活，与工作台 `graph` / `ai` 两段同一种做法。
+ */
+const aiSectionRef = ref<InstanceType<typeof AiSection> | null>(null)
+const aiMounted = ref(props.initialSection === 'ai')
+watch(activeSection, (section) => {
+  if (section === 'ai') aiMounted.value = true
+})
+
+/**
+ * AI 配置的就绪状态要往外传。
+ *
+ * 「配置可用」的绿字挂在 AI 面板的标题栏，面板与设置中心不在同一棵子树里；
+ * 保存/探测都会改变它，而 AI 面板没有理由知道设置中心存在。走一条窗口事件，
+ * 与 `editor:image` 那几个同一种做法。
+ */
+function onAiReadiness(ready: boolean): void {
+  window.dispatchEvent(new CustomEvent('ai:readiness', { detail: ready }))
 }
 
 /** 取消：主题回滚是唯一的副作用，其余草稿直接丢弃 */
@@ -231,8 +288,16 @@ onUnmounted(() => {
             v-model:compress-quality="draft.compressQuality"
           />
           <GeneralSection
-            v-else
+            v-else-if="activeSection === 'general'"
             v-model:max-tabs="draft.maxTabs"
+          />
+          <!-- AI 节首次进入才创建，之后保活：切节不丢已填的表单 -->
+          <AiSection
+            v-if="aiMounted"
+            v-show="activeSection === 'ai'"
+            ref="aiSectionRef"
+            @readiness="onAiReadiness"
+            @submit="save"
           />
         </div>
 

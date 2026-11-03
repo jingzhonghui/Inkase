@@ -2,7 +2,7 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
-import AiSettingsDialog from '../AiSettingsDialog.vue'
+import AiSection from '../sections/AiSection.vue'
 
 const electronAPI = {
   getAiConfig: vi.fn(),
@@ -10,11 +10,32 @@ const electronAPI = {
   testAiConfig: vi.fn()
 }
 
+/**
+ * AI 配置现在住在设置中心的「AI 助手」节里（原先是一个独立对话框）。
+ * 这些用例守的是**契约**而不是外观：Key 不回显、留空保留、能力探测的竞态、
+ * 「测通 ≠ 就绪」。搬家不该改变其中任何一条。
+ */
 describe('AI settings', () => {
-  const mountDialog = () => mount(AiSettingsDialog, {
-    props: { open: true },
-    global: { stubs: { teleport: true } }
-  })
+  const mountSection = () => mount(AiSection)
+  /**
+   * 保存由外壳触发：本节的表单回车只发 `submit` 信号，真正落盘的是
+   * `SettingsDialog` 的「保存」（它还要一起保存其他节）。单测直接调这个方法。
+   */
+  const saveSection = (wrapper: ReturnType<typeof mountSection>) =>
+    (wrapper.vm as unknown as { save: () => Promise<boolean> }).save()
+  /**
+   * 点「测试连接」。
+   *
+   * 加载期间这个按钮是 `disabled` 的（探测与加载共用一把 `loading` 锁），
+   * 而 `getAiConfig` 被调用只代表 load 开始，不代表已经结束。所以要等到
+   * 按钮真正可点再点，否则 jsdom 会把这次点击直接丢掉。
+   */
+  const clickTest = async (wrapper: ReturnType<typeof mountSection>) => {
+    await vi.waitFor(() =>
+      expect(wrapper.get('[data-testid="ai-test-config"]').attributes('disabled')).toBeUndefined()
+    )
+    await wrapper.get('[data-testid="ai-test-config"]').trigger('click')
+  }
 
   beforeEach(() => {
     vi.clearAllMocks()
@@ -30,8 +51,11 @@ describe('AI settings', () => {
   })
 
   it('loads no plaintext key and indicates a saved key', async () => {
-    const wrapper = mountDialog()
-    await vi.waitFor(() => expect(electronAPI.getAiConfig).toHaveBeenCalledOnce())
+    const wrapper = mountSection()
+    // 等加载真正落地（模型名回填），而不是只等 IPC 被调用
+    await vi.waitFor(() =>
+      expect((wrapper.get('[data-testid="ai-model"]').element as HTMLInputElement).value).toBe('writer-pro')
+    )
 
     expect((wrapper.get('[data-testid="ai-api-key"]').element as HTMLInputElement).value).toBe('')
     expect(wrapper.text()).toContain('已保存 Key')
@@ -40,32 +64,34 @@ describe('AI settings', () => {
 
   it('omits an unchanged apiKey when saving so the encrypted key is preserved', async () => {
     electronAPI.setAiConfig.mockResolvedValue({ success: true, data: { hasApiKey: true } })
-    const wrapper = mountDialog()
+    const wrapper = mountSection()
     await vi.waitFor(() => expect((wrapper.get('[data-testid="ai-model"]').element as HTMLInputElement).value).toBe('writer-pro'))
-    await wrapper.get('[data-testid="ai-settings-form"]').trigger('submit')
+    await saveSection(wrapper)
 
-    expect(electronAPI.setAiConfig).toHaveBeenCalledOnce()
+    await vi.waitFor(() => expect(electronAPI.setAiConfig).toHaveBeenCalledOnce())
     expect(electronAPI.setAiConfig.mock.calls[0][0]).not.toHaveProperty('apiKey')
   })
 
   it('does not expose or submit a custom system prompt', async () => {
     electronAPI.setAiConfig.mockResolvedValue({ success: true, data: { hasApiKey: true } })
-    const wrapper = mountDialog()
+    const wrapper = mountSection()
     await vi.waitFor(() => expect(electronAPI.getAiConfig).toHaveBeenCalledOnce())
 
     expect(wrapper.text()).not.toContain('系统提示')
-    await wrapper.get('[data-testid="ai-settings-form"]').trigger('submit')
+    await saveSection(wrapper)
+    await vi.waitFor(() => expect(electronAPI.setAiConfig).toHaveBeenCalledOnce())
     expect(electronAPI.setAiConfig.mock.calls[0][0]).not.toHaveProperty('systemPrompt')
   })
 
   it('exposes and saves the model context window', async () => {
     electronAPI.setAiConfig.mockResolvedValue({ success: true, data: { hasApiKey: true } })
-    const wrapper = mountDialog()
+    const wrapper = mountSection()
     await vi.waitFor(() => expect((wrapper.get('[data-testid="ai-context-window"]').element as HTMLInputElement).value).toBe('32000'))
 
     const contextWindow = wrapper.get('[data-testid="ai-context-window"]')
     await contextWindow.setValue('64000')
-    await wrapper.get('[data-testid="ai-settings-form"]').trigger('submit')
+    await saveSection(wrapper)
+    await vi.waitFor(() => expect(electronAPI.setAiConfig).toHaveBeenCalledOnce())
     expect(electronAPI.setAiConfig.mock.calls[0][0]).toMatchObject({ contextWindow: 64000 })
   })
 
@@ -74,9 +100,9 @@ describe('AI settings', () => {
       success: true,
       data: { textGeneration: true, toolCalling: false }
     })
-    const wrapper = mountDialog()
+    const wrapper = mountSection()
     await vi.waitFor(() => expect(electronAPI.getAiConfig).toHaveBeenCalledOnce())
-    await wrapper.get('[data-testid="ai-test-config"]').trigger('click')
+    await clickTest(wrapper)
     await vi.waitFor(() => expect(electronAPI.testAiConfig).toHaveBeenCalledOnce())
 
     expect(wrapper.get('[data-testid="text-capability"]').text()).toContain('通过')
@@ -93,11 +119,11 @@ describe('AI settings', () => {
       success: true,
       data: { textGeneration: true, toolCalling: true }
     })
-    const wrapper = mountDialog()
+    const wrapper = mountSection()
     await vi.waitFor(() => expect(electronAPI.getAiConfig).toHaveBeenCalledOnce())
 
     await wrapper.get('[data-testid="ai-model"]').setValue('unsaved-model')
-    await wrapper.get('[data-testid="ai-test-config"]').trigger('click')
+    await clickTest(wrapper)
     await vi.waitFor(() => expect(electronAPI.testAiConfig).toHaveBeenCalledOnce())
 
     expect(wrapper.emitted('readiness')?.at(-1)).toEqual([false])
@@ -109,10 +135,10 @@ describe('AI settings', () => {
   it('ignores a successful probe when the form changes before it resolves', async () => {
     let finishProbe!: (value: { success: true; data: { textGeneration: true; toolCalling: true } }) => void
     electronAPI.testAiConfig.mockImplementation(() => new Promise((resolve) => { finishProbe = resolve }))
-    const wrapper = mountDialog()
+    const wrapper = mountSection()
     await vi.waitFor(() => expect(electronAPI.getAiConfig).toHaveBeenCalledOnce())
 
-    await wrapper.get('[data-testid="ai-test-config"]').trigger('click')
+    await clickTest(wrapper)
     await wrapper.get('[data-testid="ai-model"]').setValue('changed-during-probe')
     finishProbe({ success: true, data: { textGeneration: true, toolCalling: true } })
     await vi.waitFor(() => expect(electronAPI.testAiConfig).toHaveBeenCalledOnce())
@@ -134,20 +160,20 @@ describe('AI settings', () => {
         ready: true, capabilities: { textGeneration: true, toolCalling: true }
       }
     })
-    const wrapper = mountDialog()
+    const wrapper = mountSection()
     await vi.waitFor(() => expect(electronAPI.getAiConfig).toHaveBeenCalledOnce())
-    await wrapper.get('[data-testid="ai-test-config"]').trigger('click')
+    await clickTest(wrapper)
     await vi.waitFor(() => expect(electronAPI.testAiConfig).toHaveBeenCalledOnce())
     expect(wrapper.emitted('readiness')?.at(-1)).toEqual([true])
 
-    await wrapper.get('[data-testid="ai-settings-form"]').trigger('submit')
+    await saveSection(wrapper)
 
     await vi.waitFor(() => expect(electronAPI.setAiConfig).toHaveBeenCalledOnce())
     expect(wrapper.emitted('readiness')?.at(-1)).toEqual([true])
   })
 
   it('toggles the API key visibility with an eye button', async () => {
-    const wrapper = mountDialog()
+    const wrapper = mountSection()
     await vi.waitFor(() => expect(electronAPI.getAiConfig).toHaveBeenCalledOnce())
 
     const keyInput = () => wrapper.get('[data-testid="ai-api-key"]')
