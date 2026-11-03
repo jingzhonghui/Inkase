@@ -46,17 +46,35 @@ const MIME_TYPES: Record<string, string> = {
 }
 
 /**
- * webapp 所在目录。
+ * webapp 的候选目录，按优先级排列。
  *
  * `INKASE_DRAWIO_ROOT` 用来在测试/排障时指向别的副本（例如裁剪前后的两版），
  * 不设置时按 dev/prod 走默认位置。
+ *
+ * 开发环境给两个候选是必要的：electron-vite 的 `app.getAppPath()` 通常是仓库根，
+ * 但从别的 cwd 启动（IDE 调试配置、`pnpm --dir`）时并不总是；`process.cwd()`
+ * 正好补上这种「明明拉过却报组件缺失」的坑。
  */
-export function resolveDiagramWebappRoot(): string {
+export function diagramWebappCandidates(): string[] {
   const override = process.env.INKASE_DRAWIO_ROOT
-  if (override && override.trim().length > 0) return path.resolve(override)
-  return is.dev
-    ? path.join(app.getAppPath(), 'resources', 'drawio')
-    : path.join(process.resourcesPath, 'drawio')
+  if (override && override.trim().length > 0) return [path.resolve(override)]
+
+  if (is.dev) {
+    return [
+      path.join(app.getAppPath(), 'resources', 'drawio'),
+      path.join(process.cwd(), 'resources', 'drawio')
+    ]
+  }
+  return [path.join(process.resourcesPath, 'drawio')]
+}
+
+/** webapp 所在目录：返回第一个真正可用的候选；都不可用时返回首选路径（用于报错文案）。 */
+export function resolveDiagramWebappRoot(): string {
+  const candidates = diagramWebappCandidates()
+  for (const candidate of candidates) {
+    if (isDiagramWebappAvailable(candidate)) return candidate
+  }
+  return candidates[0]
 }
 
 /** webapp 是否就位（`index.html` 存在即视为可用）。 */
@@ -164,12 +182,15 @@ export function describeDiagramWebapp(): {
   root: string
   scheme: string
   host: string
+  /** 打包环境：缺失时说明安装包不完整，文案不能提 pnpm */
+  packaged: boolean
 } {
   const root = resolveDiagramWebappRoot()
   return {
     available: isDiagramWebappAvailable(root),
     root,
     scheme: DIAGRAM_SCHEME,
-    host: DIAGRAM_HOST
+    host: DIAGRAM_HOST,
+    packaged: Boolean(app.isPackaged)
   }
 }

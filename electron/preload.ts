@@ -171,11 +171,12 @@ export interface ElectronAPI {
    * 图表编辑器依赖的 draw.io webapp 是否就位。
    *
    * 打包后它在 `process.resourcesPath/drawio`，渲染层自己拼不出这个路径，
-   * 所以由主进程回答；缺失时渲染层给出「运行 pnpm run fetch:drawio」的提示。
+   * 所以由主进程回答；`packaged` 决定缺失提示是「安装包不完整」还是
+   * 「开发环境跑一次 pnpm run fetch:drawio」——普通用户不该看到构建命令。
    */
   getDiagramSupport: () => Promise<{
     success: boolean
-    data?: { available: boolean; root: string; scheme: string; host: string }
+    data?: { available: boolean; root: string; scheme: string; host: string; packaged: boolean }
     error?: string
   }>
   getRecentFiles: () => Promise<{ success: boolean; data?: RecentItem[]; error?: string }>

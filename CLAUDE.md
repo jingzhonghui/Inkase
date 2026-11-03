@@ -288,14 +288,15 @@ map.inkmind (ZIP)
 
 - **编辑器不是自己写的**：`src/components/editor/DiagramEditor.vue` 用一个 iframe 套住**自托管的 draw.io webapp**，双方只走官方的 embed 协议（`?embed=1&proto=json`）。draw.io 是强耦合单体，拆到最后只剩 mxGraph 内核，重造轮子的工作量在 spike 里量到 53–72 人日，且形状库、导出、撤销栈全都要自己补。iframe 换来的是完整功能，代价是 +45MB 磁盘 / +7.6MB 安装包
 - **协议托管**：`electron/diagram/protocol.ts` 用自定义协议 `inkase-drawio://app/...` 服务 `resources/drawio`（dev 走仓库目录，prod 走 `process.resourcesPath/drawio`），不占端口、不监听回环；响应头里注入严格 CSP（**不需要 `unsafe-eval`**，已实测）。注册分两步：`registerDiagramSchemePrivileges()` 在 app ready **之前**声明 standard/secure 特权，`registerDiagramProtocol()` 在 ready 之后挂文件服务——顺序错了协议直接不工作
-- **webapp 不入库**：`resources/drawio` 是 45MB / 767 文件，`pnpm run fetch:drawio`（`scripts/fetch-drawio.mjs`）从 npm 拉 `@guowenzhang/dsh-drawioedit` 解包得到，`.gitignore` 忽略、`electron-builder.yml` 用 `extraResources` 打包。`eslint.config.mjs` 也把它排除，否则 lint 会被这堆压缩产物淹掉
+- **webapp 不入库，但必须自动到位**：`resources/drawio` 是 45MB / 780 文件，`.gitignore` 忽略；`electron-builder.yml` 用 `extraResources` 把它放到安装包的 `resources/drawio`，同时 `files` 里用 `!resources/**` 排除——不排除的话它会被再打一份进 `app.asar`，安装包白胖 45MB。拉取由 `scripts/fetch-drawio.mjs` 负责：源包钉死 `@guowenzhang/dsh-drawioedit@1.2.1`，`registry.npmmirror.com` 优先、官方源兜底，tarball 缓存在 `node_modules/.cache/inkase-drawio/`，解包后校验文件数与体积再原子替换。它被三处自动调用——`pnpm install` 的 postinstall（`--optional`，网络抖动不阻断安装）、`pnpm run dev`、`pnpm run build`——**不要**再把「先跑 fetch:drawio」写回任何用户可见的流程。打包结束时 `build/after-pack.cjs` 的 `ensureDiagramWebapp` 会校验产物里确实有 `index.html` + `js/app.min.js` 且 ≥20MB，缺了直接让构建失败：electron-builder 对缺失的 `extraResources.from` 是**静默跳过**的，曾经就这样产出了「新建图表提示组件缺失」的安装包
+- **缺失态文案分环境**：`diagram:info` 返回 `packaged`，渲染层据此区分——开发环境提示 `pnpm run fetch:drawio`（并说明 install/dev 会自动做），打包环境只说「安装不完整，覆盖安装最新版即可」，**绝不**把构建命令暴露给普通用户
 - **桥接**：`src/utils/diagram/bridge.ts` 只管收发消息与请求配对，不碰 Pinia。三个实测得来的约束写在代码里：`format:'xml'` 的导出结果在 `payload.xml` 而非 `data`；一次编辑会连发**两条** autosave（第一条是中间态），所以按去抖合并、取最后一条；`EditorUi` 是闭包变量挂不到 `window`，任何程序化操作只能走用户输入或协议
 - **真相在 store**：`tab.content` 是唯一真相，画布是它的视图。改动经 autosave 回写；只有**不是自己写**的变更（重新打开、外部改文件、AI 改正文）才回灌给 iframe，否则「写回 → 监听到变化 → 再加载」会活锁。回灌会记在 `loadChain` 上，保存前冲刷要等它，否则会把装载前的旧模型写进文件
 - **保存前冲刷**：draw.io 的 autosave 是异步且去抖的，`Ctrl+S` 读的是 `tab.content`，刚拖完框就保存会丢最后一次改动。`src/utils/diagram/flush.ts` 是一张「标签 id → 冲刷函数」的登记表，`saveFile`/`saveAsFile` 写盘前按需冲一次；图表编辑器挂载时登记、卸载时先 `flushPendingAutosave()` 再注销
 - **快捷键跨域问题**：画布在跨域 iframe 里，那里的 keydown 不会冒泡到页面，`Ctrl+S` 会「按了没反应」。`electron/main.ts` 用 `webContents.on('before-input-event')` 统一拦截保存/另存为/关闭标签页，`preventDefault()` 之后转 `app:shortcut` 给渲染层——`preventDefault` 保证这次按键只被处理一次，不会重复保存、更不会一次关掉两个标签。`Ctrl+W` 必须走这条通道：Chromium 对它没有任何默认行为，不拦就完全没反应；有对话框开着时渲染层不响应，免得用户想关对话框却关掉了文档。**键位由渲染层推送**：拦截名单是 `registry.ts` 的 `MAIN_INTERCEPTED_COMMANDS`，`AppHeader` 用 `watchEffect(pushShortcutsToMain)` 在启动时与每次改键后把「命令 id → 当前绑定」通过 `app:sync-shortcuts` 推过去，主进程只做 `matchesBinding` 匹配并回传**命令 id**。主进程里**不要**再写 `key === 's'` 之类的判断——用户一改键就两头对不上（新键在画布里没反应、旧键反而还在存盘）。匹配逻辑放在 `shared/shortcuts/binding.ts`，主进程与渲染层共用同一份
 - **导出**：工具栏的 SVG/PNG 走协议 `export`，拿回 data URL 后解码，复用 `exportMindMapImage`（`FILE.EXPORT_IMAGE`）写盘。注意 SVG 里 `html=1` 的标签是 `<foreignObject>`，部分外部渲染器不认
 - **计数**：状态栏对图表显示「图元」而不是「字数」（`countDiagramCells` 数 `<mxCell>` 再减掉每页两个根 cell）
-- **组件缺失时**：`diagram:info` 告诉渲染层 webapp 是否就位；缺了就显示「运行 `pnpm run fetch:drawio`」的空状态，而不是白屏
+- **组件缺失时**：`diagram:info` 告诉渲染层 webapp 是否就位；缺了就显示空状态而不是白屏，并按 `packaged` 分文案（开发环境给命令，打包环境只提示重装）。安装包层面这条路径本不该出现——`after-pack` 已经拦住漏打 drawio 的构建
 
 ### IPC 通信模式
 

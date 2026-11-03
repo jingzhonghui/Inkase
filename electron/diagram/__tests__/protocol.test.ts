@@ -15,6 +15,8 @@ vi.mock('@electron-toolkit/utils', () => ({ is: { dev: true } }))
 
 import {
   createDiagramAssetResponse,
+  describeDiagramWebapp,
+  diagramWebappCandidates,
   isDiagramWebappAvailable,
   resolveDiagramAssetPath
 } from '../protocol'
@@ -123,5 +125,44 @@ describe('isDiagramWebappAvailable', () => {
   it('空目录视为缺失', () => {
     const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'inkase-drawio-empty-'))
     expect(isDiagramWebappAvailable(empty)).toBe(false)
+  })
+})
+
+describe('diagramWebappCandidates / describeDiagramWebapp', () => {
+  function withOverride<T>(root: string, run: () => T): T {
+    const previous = process.env.INKASE_DRAWIO_ROOT
+    process.env.INKASE_DRAWIO_ROOT = root
+    try {
+      return run()
+    } finally {
+      if (previous === undefined) delete process.env.INKASE_DRAWIO_ROOT
+      else process.env.INKASE_DRAWIO_ROOT = previous
+    }
+  }
+
+  it('INKASE_DRAWIO_ROOT 覆盖时只保留这一条候选', () => {
+    const root = makeWebapp()
+    withOverride(root, () => {
+      expect(diagramWebappCandidates()).toEqual([path.resolve(root)])
+    })
+  })
+
+  it('覆盖目录可用时 available 为真，packaged 为假（单测跑在开发模式）', () => {
+    const root = makeWebapp()
+    withOverride(root, () => {
+      const info = describeDiagramWebapp()
+      expect(info.available).toBe(true)
+      expect(info.root).toBe(path.resolve(root))
+      expect(info.packaged).toBe(false)
+    })
+  })
+
+  it('覆盖目录为空时 available 为假，但 root 仍指回该目录（用于报错文案）', () => {
+    const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'inkase-drawio-empty-'))
+    withOverride(empty, () => {
+      const info = describeDiagramWebapp()
+      expect(info.available).toBe(false)
+      expect(info.root).toBe(path.resolve(empty))
+    })
   })
 })

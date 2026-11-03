@@ -2,7 +2,7 @@
  * 图表相关的 IPC。
  *
  * 只有一条：把「webapp 在不在、在哪」告诉渲染层。
- * 渲染层据此决定是挂 iframe 还是显示「缺少组件，请运行 pnpm run fetch:drawio」。
+ * 渲染层据此决定是挂 iframe 还是显示缺失提示（开发环境给命令，打包环境只提示重装）。
  *
  * 为什么要问主进程而不是渲染层自己拼路径：
  * 打包后 webapp 在 `process.resourcesPath` 下，渲染层拿不到这个值；
@@ -18,6 +18,7 @@ export interface DiagramSupportInfo {
   root: string
   scheme: string
   host: string
+  packaged: boolean
 }
 
 export function registerDiagramHandlers(): void {

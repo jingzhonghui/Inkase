@@ -17,6 +17,10 @@ files:
   - '!**/node_modules/.bin'
   - '!**/*.map'
   - '!**/node_modules/pdfjs-dist/**'
+  # resources/ 全部走 extraResources 落到 `process.resourcesPath`
+  # （rg 搜索二进制、使用教程 PDF、draw.io webapp）。
+  # 不排除的话它们会被再打一份进 app.asar——drawio 一项就是 45MB 死重。
+  - '!resources/**'
   - '!**/*.{iml,o,hprof,orig,pyc,pyo,rbc,swp,csproj,sln,xproj}'
   - '!.editorconfig'
   - '!**/._*'

@@ -38,6 +38,8 @@ const bridge = shallowRef<DiagramBridge | null>(null)
 const status = ref<'checking' | 'loading' | 'ready' | 'missing' | 'error'>('checking')
 const errorMessage = ref('')
 const webappRoot = ref('')
+/** 打包环境：缺失时是「安装包不完整」，不能给用户看 pnpm 命令 */
+const packaged = ref(false)
 const exporting = ref<'svg' | 'png' | null>(null)
 const saving = ref(false)
 /** 换主题时重建 iframe（draw.io 的配色只能靠 URL 参数决定） */
@@ -128,6 +130,7 @@ async function checkWebapp(): Promise<void> {
       return
     }
     webappRoot.value = result.data.root
+    packaged.value = Boolean(result.data.packaged)
     if (!result.data.available) {
       status.value = 'missing'
       return
@@ -325,20 +328,38 @@ onBeforeUnmount(() => {
         class="diagram-overlay missing"
       >
         <IconAlertTriangle :size="22" />
-        <p class="overlay-title">
-          图表组件尚未安装
-        </p>
-        <p class="overlay-desc">
-          Inkase 的图表编辑器是本地自托管的 draw.io，需要先把它下载到
-          <code>resources/drawio</code>。
-        </p>
-        <code class="overlay-cmd">pnpm run fetch:drawio</code>
-        <p
-          v-if="webappRoot"
-          class="overlay-path"
+        <template v-if="packaged">
+          <p class="overlay-title">
+            图表组件缺失
+          </p>
+          <p class="overlay-desc">
+            这次安装不完整：图表画布（本地 draw.io）没有随应用装到本机。
+            重新下载并覆盖安装最新版 Inkase 即可恢复，不需要任何额外设置。
+          </p>
+        </template>
+        <template v-else>
+          <p class="overlay-title">
+            图表组件尚未就绪
+          </p>
+          <p class="overlay-desc">
+            这是开发环境：本地 draw.io 画布还没取回来。
+            <code>pnpm install</code> 与 <code>pnpm run dev</code> 都会自动取，
+            也可以手动执行下面这条命令。
+          </p>
+          <code class="overlay-cmd">pnpm run fetch:drawio</code>
+          <p
+            v-if="webappRoot"
+            class="overlay-path"
+          >
+            期望位置：{{ webappRoot }}
+          </p>
+        </template>
+        <button
+          class="diagram-btn primary"
+          @click="checkWebapp"
         >
-          期望位置：{{ webappRoot }}
-        </p>
+          重新检查
+        </button>
       </div>
 
       <div

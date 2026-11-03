@@ -7,19 +7,23 @@
 ## 特性
 
 - 📝 自包含的 `.mdx` 文件格式（标准 ZIP 压缩包：`mdx.json` + `content.md` + `assets/`）
-- 🖼️ 图片自动打包到文档内，粘贴或拖入即收入文档
+- 🖼️ 图片自动打包到文档内，粘贴或拖入即收入文档（可开启自动压缩）
 - ✍️ 三种编辑模式：即时渲染（Markdown 标记可见的所见即所得）/ 源码编辑 / 分屏预览
 - 📁 文件夹工作区：资源管理器式浏览、新建、重命名、拖拽移动，多标签页编辑
-- 📄 多格式支持：DOCX / Markdown / 文件夹导入，Markdown / PDF 导出（支持批量），PDF 与图片只读查看
+- 🗂️ 大纲视图：侧栏「文件 / 大纲」双标签，Markdown 标题与 PDF 目录都能点击跳转
+- 📄 多格式支持：DOCX / Markdown / XMind / 文件夹导入，Markdown / PDF 导出（支持批量），PDF 与图片只读查看、HTML 可切浏览器式预览
 - 🧠 思维导图：`.inkmind` 单文件容器，节点可带备注、标签、链接、图标、图片与附件，支持关系线、概要、画布内查找；笔记可一键转成导图，导图能导出为 Markdown 大纲、PNG/SVG 与 XMind
 - 🗺️ 图表：`.drawio` 纯文本 mxfile，内置自托管的 draw.io 画布（离线、不走端口），流程图 / 架构图 / ER 图 / UML 等随画随改，可导出 SVG / PNG
 - 🕸️ 知识图谱：把工作区里 `.mdx` / `.md` / `.inkmind` / `.drawio` 之间的链接画成力导向图，可看全库拓扑或某篇笔记的 1–3 跳邻居，并列出断链与孤儿笔记
+- 🧩 工作台：固定标签，知识图谱与 AI 助手两段切换（`v-show` 保活），默认落在图谱
 - 🔍 基于 ripgrep 的工作区全文搜索与快速打开（`Ctrl+P`）
 - 🤖 内置 AI 助手：兼容 OpenAI 接口配置，文档读写与检索工具均可审批、可预览
-- 🔀 Git 同步：绑定仓库后一键拉取 / 推送，冲突可视化处理
-- 💾 自动保存与崩溃恢复，外部修改自动监听刷新
-- 🌓 浅色 / 深色 / 跟随系统主题；编辑器正文字体、代码字体、行高可调，`Ctrl+滚轮` 缩放编辑区字号
-- 💻 跨平台：Windows（NSIS / zip）与 Linux（AppImage / deb）
+- ⌨️ 快捷键可配置：设置面板里录制新键位、检测冲突、一键恢复默认，菜单文案同步更新
+- 🔀 Git / WebDAV 同步：Git 仓库或 WebDAV 网盘任选其一，一键拉取 / 推送，冲突可视化处理
+- 💾 崩溃恢复：未保存内容实时快照，异常退出后自动恢复；外部修改自动监听刷新
+- 🧰 日常小工具：最近文件、文档格式化（`Shift+Alt+F`，代码 / JSON / 纯文本）、应用内检查更新、内置 PDF 使用教程
+- 🌓 浅色 / 深色 / 跟随系统主题；编辑区字号、正文字体、代码字体、行高与主界面字号均可调，编辑器内 `Ctrl+滚轮` 缩放
+- 💻 跨平台：Windows（NSIS / zip）与 Linux（AppImage / deb）；macOS 的 dmg 打包配置已就绪，暂未纳入发布流水线
 
 ## 思维导图
 
@@ -50,6 +54,7 @@
 
 - **画布不是自己写的**：把自托管的 draw.io webapp 装进 iframe，双方只走官方 embed 协议（`?embed=1&proto=json`），换来完整的形状库、导出、快捷键与撤销栈，而不是一个残缺的仿制品
 - **托管方式**：用 `inkase-drawio://` 自定义协议服务本地 webapp，不占端口、不监听回环，断网可用
+- **开箱即用**：webapp 随安装包一起落到安装目录的 `resources/drawio`，装完即可新建图表，用户不需要联网、也不需要任何额外设置；开发与构建阶段由脚本自动准备（见「开发 › 关于 `resources/drawio`」）
 - **入口**：文件 › 新建 › 图表（`Ctrl+Shift+D`）、资源管理器右键「新建 › 图表」、命令行 `inkase 流程.drawio` 直接打开（`.drawio` 没有注册 Windows 文件关联，双击不会拉起 Inkase；拖放目前只认 `.md` / `.mdx` / `.inkmind`）
 - **保存**：画布改动异步回写，`Ctrl+S` 之前会先冲刷最后一次自动保存，刚拖完框就保存也不会丢；焦点在画布内时快捷键由主进程统一拦截，照样生效
 - **导出**：顶栏一键导出 SVG / PNG（SVG 里 `html=1` 的标签是 `<foreignObject>`，个别外部渲染器认不出）
@@ -60,7 +65,7 @@
 
 笔记之间的链接（正文里的 `[标题](相对路径.mdx)`）会被索引成一张图，用来回答「这篇笔记连着谁」「哪里断了」这类结构问题——文件树与全文搜索都不回答这些。
 
-- **入口**：视图 › 知识图谱（`Ctrl+Shift+G`）；资源管理器右键文件 ›「显示图谱」直接进局部模式，中心为该文件
+- **入口**：工作台标签的图谱段，或 视图 › 知识图谱（`Ctrl+Shift+G`）；资源管理器右键文件 ›「显示图谱」直接进局部模式，中心为该文件
 - **全库图**：滚轮以光标为中心缩放、空白处拖拽平移、拖拽节点临时钉住（双击释放并重新舒展）、双击节点打开文件、单击显示路径与出入链数
 - **局部图**：以当前文件（或选中节点）为中心按双向 BFS 展开 1–3 跳，侧栏切换「全库 ⇄ 局部」、滑块调深度；图外还有邻居时信息卡会提示并支持一键扩展到全库
 - **左侧栏**：视图（全库 / 局部 + 深度）、目录（色标 + 该目录节点数）、类型（文档 / 导图 / 图表 / 其他，按形状分组整组开关）、质量（断链 / 孤儿条数，点击展开清单）。目录不截断，多了在栏内滚动
@@ -71,6 +76,18 @@
 - **非文档目标**：链到脚本、PDF、图片时，只要文件真实存在就以三角节点入图（只收被链接到的，不会把 `assets/` 灌进来）；无法解析出链
 - **计数**：工具条显示节点 / 链接 / 断链 / 孤儿四个数字，扫到文件上限时会挂出「结果不完整」的警告
 - **不污染文档状态**：图谱是视图不是文档，不进入最近文件、不写入会话恢复、关闭时不弹保存提示
+
+## 设置与快捷键
+
+`Ctrl+,` 打开设置面板，大部分改动即时生效；主题会先预览，点「取消」则回滚到打开时的样子。
+
+- **外观**：浅色 / 深色 / 跟随系统，主界面字号
+- **编辑器**：编辑区字号、正文字体、代码字体、行高；编辑器内 `Ctrl+滚轮` 也能缩放字号
+- **文件**：插入图片时自动压缩，压缩质量可调
+- **通用**：最大同时打开的标签数
+- **快捷键**：按「文件 / 编辑 / 视图 / 导航」分组列出应用级命令，点键位进入录制态重新绑定；`Backspace` 清除绑定，`Esc` 只退出录制；改过的行会标出来并提供「恢复」；撞键会提示（同一优先级层只有排在前面的命令生效）
+
+键位是单一来源：菜单右侧文案、设置面板、实际派发都读同一份命令注册表（`src/shortcuts/registry.ts`），改键不会出现「文案变了、行为没变」。编辑器内部命令（加粗、查找、插入链接等）的键位写在 ProseMirror / CodeMirror 里，在设置面板中只读展示；剪切 / 复制 / 粘贴是系统原生行为，不列入可配置项。绑定统一用 `Mod`（Windows / Linux 为 `Ctrl`，macOS 为 `⌘`）。
 
 ## 下载
 
@@ -85,18 +102,18 @@
 - mind-elixir（思维导图画布）
 - 自托管的 [draw.io](https://www.drawio.com/) webapp（图表画布，走官方 embed 协议）
 - markdown-it + Shiki + KaTeX（预览渲染与高亮）
+- AI SDK（`ai` + `@ai-sdk/openai-compatible`，接任意 OpenAI 兼容接口）
+- pdf.js（PDF 阅读）、mammoth（DOCX 导入）、sharp（图片压缩）、adm-zip（容器读写）、webdav（WebDAV 同步）、Prettier standalone（文档格式化）
 - electron-vite
 
 ## 开发
 
 ```bash
 # 安装依赖（使用 pnpm）
+# 依赖装完后会自动把图表画布所需的 draw.io webapp 取到 resources/drawio
 pnpm install
 
-# 拉取图表编辑器所需的 draw.io webapp（首次开发必做）
-pnpm run fetch:drawio
-
-# 开发模式
+# 开发模式（启动前会再确认一次 draw.io webapp 是否就位）
 pnpm run dev
 
 # 类型检查（Node 与 Web 双端）
@@ -116,9 +133,18 @@ pnpm run build
 
 # 打包
 pnpm run build:win    # Windows
-pnpm run build:mac    # macOS
+pnpm run build:mac    # macOS（dmg 配置已就绪，发布流水线暂未启用）
 pnpm run build:linux  # Linux
 ```
+
+### 关于 `resources/drawio`
+
+图表画布是自托管的 draw.io webapp（约 45 MB / 780 个文件），**不进 git**，但它不是「可选组件」：
+
+- `pnpm install`（postinstall）、`pnpm run dev`、`pnpm run build` 都会自动调用 `scripts/fetch-drawio.mjs` 把它取到 `resources/drawio`，已有就跳过；
+- 打包时 `electron-builder.yml` 用 `extraResources` 把它放进安装包的 `resources/drawio`，用户装完即可直接新建图表，不需要任何额外操作；
+- `build/after-pack.cjs` 会在打包完成时校验产物里确实有它，缺失直接让构建失败——不会再产出一个「新建图表提示组件缺失」的安装包；
+- 需要重取时：`pnpm run fetch:drawio --force`；只想确认就位情况：`pnpm run fetch:drawio --check`。版本钉在脚本常量里（当前 `1.2.1`），换版本改常量即可。
 
 ## 发布
 
@@ -129,9 +155,9 @@ git tag v1.0.1
 git push origin v1.0.1
 ```
 
-流水线会使用 `dist/` 目录下的安装包自动创建 GitHub Release 并上传资产。
+流水线从构建产物里收集安装包（`dist/` 下的 exe / zip / AppImage / deb），自动创建 GitHub Release 并上传资产。macOS 打包任务目前仍被注释掉（等签名与公证就绪），因此发布包只有 Windows 与 Linux。
 
-官网主页（`website/` 目录）在推送到 `main` 且内容变更时自动部署到 GitHub Pages。
+官网主页（`website/` 目录）在推送到 `master`、且改动命中 `website/**`（或版本号印章脚本、部署工作流本身）时自动部署到 GitHub Pages；每次 Release 成功跑完后也会经 `workflow_run` 再部署一次，用最新版本号刷新页面。
 
 ## 项目结构
 
@@ -140,22 +166,31 @@ inkase/
 ├── electron/            # Electron 主进程
 │   ├── main.ts          # 主进程入口
 │   ├── preload.ts       # 预加载脚本（contextBridge API）
-│   ├── ipc/             # IPC handlers（文件/MDX/PDF/同步/AI）
+│   ├── ipc/             # IPC handlers（文件/MDX/导图/PDF/同步/AI/外部改动）
 │   ├── mdx/             # .mdx 读写、导入导出
 │   ├── mindmap/         # .inkmind 容器读写、XMind 互转
 │   ├── diagram/         # 图表协议（inkase-drawio:// 托管自托管 draw.io webapp）
+│   ├── graph/           # 知识图谱扫描、断链解析与链接写入
 │   ├── ai/              # AI 运行时、工具、审批
-│   ├── sync/            # Git 同步引擎
-│   └── workspace/       # 工作区搜索（ripgrep）
+│   ├── sync/            # 同步引擎（Git / WebDAV 两个提供者）
+│   ├── workspace/       # 工作区搜索（ripgrep）
+│   ├── clipboard/       # 系统文件剪切板集成
+│   ├── recovery.ts      # 崩溃恢复快照
+│   ├── updater.ts       # 应用内更新
+│   ├── window-state.ts  # 窗口尺寸/位置记忆
+│   ├── instance-broker.ts # 单实例与文件关联拉起
+│   └── user-guide.ts / launch-target.ts # 内置教程、命令行目标解析
 ├── src/                 # Vue 3 渲染进程
-│   ├── components/      # 组件（编辑器/布局/侧栏/AI/导出）
-│   ├── stores/          # Pinia 状态（file/ai/sync/appearance/theme 等）
-│   ├── utils/           # 工具集（markdown/ProseMirror/mindmap/diagram 等）
+│   ├── components/      # 组件（编辑器/布局/侧栏/AI/导出/图谱/设置）
+│   ├── stores/          # Pinia 状态（file/ai/sync/appearance/theme/graph/workspace 等）
+│   ├── shortcuts/       # 快捷键注册表、覆盖值存储、派发匹配
+│   ├── composables/     # 组合式函数（文件拖放、字号缩放等）
+│   ├── utils/           # 工具集（markdown/ProseMirror/mindmap/diagram/graph/格式化 等）
 │   └── styles/          # 主题样式（CSS 变量）
 ├── website/             # 官网主页（GitHub Pages）
-├── shared/              # 主进程与渲染进程共享类型（mindmap / diagram 格式与转换）
+├── shared/              # 主进程与渲染进程共享（mindmap / diagram / graph / shortcuts / sync / ai / fs）
 ├── resources/drawio/    # draw.io webapp（`pnpm run fetch:drawio` 生成，不入库）
-├── docs/                # 设计文档
+├── docs/prototype/      # 界面原型（HTML）
 └── scripts/             # 构建/开发辅助脚本
 ```
 
