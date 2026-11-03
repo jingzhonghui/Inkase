@@ -179,6 +179,16 @@ export interface ElectronAPI {
     data?: { available: boolean; root: string; scheme: string; host: string; packaged: boolean }
     error?: string
   }>
+  /**
+   * 把应用主题同步成系统级暗色偏好（`nativeTheme.themeSource`）。
+   *
+   * 图表编辑器是跨域 iframe 里的 draw.io，配色取决于 `prefers-color-scheme`；
+   * 渲染层改 `data-theme` 影响不到它。这条通道让画布跟随应用主题自己翻色，
+   * 从而**不必**在切主题时重建 iframe（重建要 765–1250ms，翻色只要 ~35ms）。
+   */
+  setThemeSource: (
+    source: 'light' | 'dark' | 'system'
+  ) => Promise<{ success: boolean; data?: 'light' | 'dark' | 'system'; error?: string }>
   getRecentFiles: () => Promise<{ success: boolean; data?: RecentItem[]; error?: string }>
   addRecentFile: (
     filePath: string,
@@ -532,6 +542,7 @@ const api: ElectronAPI = {
   exportMindMapImage: (title, format, data) =>
     ipcRenderer.invoke(IPC_CHANNELS.FILE.EXPORT_IMAGE, title, format, data),
   getDiagramSupport: () => ipcRenderer.invoke(IPC_CHANNELS.DIAGRAM.INFO),
+  setThemeSource: (source) => ipcRenderer.invoke(IPC_CHANNELS.THEME.SET_SOURCE, source),
   getRecentFiles: () => ipcRenderer.invoke(IPC_CHANNELS.FILE.RECENT),
   addRecentFile: (filePath, type) =>
     ipcRenderer.invoke(IPC_CHANNELS.FILE.RECENT_ADD, filePath, type),

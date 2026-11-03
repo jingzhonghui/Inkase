@@ -49,6 +49,8 @@ export class DiagramBridge {
   private pendingAutosaveXml = ''
   private initResolve: ((event: DiagramEditorEvent) => void) | null = null
   private initPromise: Promise<DiagramEditorEvent> | null = null
+  /** 已经收到过的 init 事件：用来避免「事件早于等待」时白等满超时 */
+  private initEvent: DiagramEditorEvent | null = null
   private disposed = false
 
   constructor(options: DiagramBridgeOptions) {
@@ -72,6 +74,10 @@ export class DiagramBridge {
 
   /** 等到 draw.io 发来 `{event:'init'}`：此时编辑器已就绪，可以发指令了。 */
   waitForInit(timeoutMs = 30000): Promise<DiagramEditorEvent> {
+    // 已经收到过 init 就直接兑现。否则在「iframe 早就加载完」的场景
+    // （重试、重新挂载、复用已就绪的画布）里，等待者会白等满 30 秒才报超时，
+    // 表现出来就是「第一次打开图表卡住，点一下重试又好了」。
+    if (this.initEvent) return Promise.resolve(this.initEvent)
     if (this.initPromise) return this.initPromise
     this.start()
     this.initPromise = new Promise<DiagramEditorEvent>((resolve, reject) => {
@@ -161,6 +167,7 @@ export class DiagramBridge {
     }
     this.initResolve = null
     this.initPromise = null
+    this.initEvent = null
   }
 
   private handleMessage(event: MessageEvent): void {
@@ -182,6 +189,7 @@ export class DiagramBridge {
     const message = payload as DiagramEditorEvent
 
     if (message.event === 'init') {
+      this.initEvent = message
       this.initResolve?.(message)
       this.initResolve = null
       return

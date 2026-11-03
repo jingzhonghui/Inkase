@@ -19,6 +19,7 @@ import {
   registerDiagramSchemePrivileges
 } from './diagram/protocol'
 import { registerDiagramHandlers } from './diagram/handlers'
+import { registerThemeHandlers } from './ipc/theme-handlers'
 import {
   hadAbnormalExit,
   markAppRunning,
@@ -431,6 +432,9 @@ async function bootstrap(): Promise<void> {
 
     // 注册图表（draw.io webapp）能力探测 handlers
     registerDiagramHandlers()
+
+    // 注册主题 → nativeTheme.themeSource（图表 iframe 靠它翻色，不必重建）
+    registerThemeHandlers()
 
     // 注册 HTML 预览协议 handlers
     registerPreviewProtocol()

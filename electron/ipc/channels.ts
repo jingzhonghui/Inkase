@@ -61,6 +61,17 @@ export const IPC_CHANNELS = {
     /** 自托管 draw.io webapp 是否就位（渲染层据此决定挂 iframe 还是提示缺组件） */
     INFO: 'diagram:info'
   },
+  THEME: {
+    /**
+     * 把应用当前主题告诉主进程，落到 `nativeTheme.themeSource`。
+     *
+     * 这是「切主题不重建图表 iframe」的关键一环：draw.io 的配色由
+     * `prefers-color-scheme` 决定，而 Electron 里这个媒体特性的值由
+     * `nativeTheme.themeSource` 控制。改它会让所有渲染进程（含跨域 iframe）
+     * 收到 media change，draw.io 自己就翻色了。
+     */
+    SET_SOURCE: 'theme:setSource'
+  },
   APP: {
     PING: 'ping',
     GET_VERSION: 'app:getVersion',

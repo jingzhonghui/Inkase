@@ -1,4 +1,4 @@
-﻿import { ref, computed } from 'vue'
+import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
 
 export type ThemeType = 'light' | 'dark' | 'system'
@@ -48,11 +48,33 @@ export const useThemeStore = defineStore('theme', () => {
     document.documentElement.dataset.theme = currentTheme.value
   }
 
+  /**
+   * 把当前主题同步成系统级暗色偏好（主进程的 `nativeTheme.themeSource`）。
+   *
+   * 为什么需要：图表编辑器是跨域 iframe 里的 draw.io，它的配色只看
+   * `prefers-color-scheme`，渲染层改 `data-theme` 影响不到它。同步之后画布会
+   * 自己翻色（实测 ~35ms），就不必在切主题时重建整个 iframe（那要 765–1250ms）。
+   *
+   * 反过来要注意：一旦覆盖成 light/dark，`matchMedia` 读到的就是**我们的覆盖值**
+   * 而不是真实系统偏好。所以只有跟随系统时才把读到的东西记进 `systemPreference`。
+   */
+  async function syncNativeTheme(): Promise<void> {
+    const source: ThemeType =
+      followSystem.value || theme.value === 'system' ? 'system' : theme.value
+    try {
+      await window.electronAPI?.setThemeSource?.(source)
+    } catch {
+      // 配色偏好同步失败不影响主题本身，静默降级即可
+    }
+    if (source === 'system') updateSystemPreference()
+  }
+
   function setTheme(newTheme: ThemeType): void {
     theme.value = newTheme
     followSystem.value = newTheme === 'system'
     applyThemeToDocument()
     saveTheme()
+    void syncNativeTheme()
   }
 
   /**
@@ -110,11 +132,17 @@ export const useThemeStore = defineStore('theme', () => {
    */
   function initTheme(): void {
     loadTheme()
+    // 此刻 `themeSource` 还是系统的默认值，读到的就是真实系统偏好
     updateSystemPreference()
+    // 推给主进程，图表 iframe 一打开就是对的配色
+    void syncNativeTheme()
     // 监听系统主题变化
     if (window.matchMedia) {
       const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
       mediaQuery.addEventListener('change', () => {
+        // 应用内选了 light/dark 时，这个媒体特性已被我们覆盖，
+        // 此时读到的是自己的覆盖值，记下来会污染「切回跟随系统」的结果。
+        if (!followSystem.value && theme.value !== 'system') return
         updateSystemPreference()
       })
     }

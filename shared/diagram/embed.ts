@@ -38,8 +38,20 @@ export const DIAGRAM_CONTENT_SECURITY_POLICY = [
 ].join('; ')
 
 export interface DiagramEmbedOptions {
-  /** 深色主题（决定 draw.io 自己的配色） */
-  dark?: boolean
+  /**
+   * 深色主题（决定 draw.io 自己的配色）。
+   *
+   * - `true` / `false`：写死一种配色，之后不会再变；
+   * - `'auto'`：**图表编辑器用这个**。draw.io 会用 `prefers-color-scheme`
+   *   决定初始配色，并注册 `matchMedia(...)` 的 change 监听，此后跟随系统级
+   *   暗色偏好自动翻色。
+   *
+   * 为什么必须支持 `'auto'`：切主题时重建 iframe 要把整份 webapp
+   * （17–33MB、二三十个请求、9.2MB 的 `app.min.js`）重新下载并解析一遍，
+   * 实测 765–1250ms；而 `'auto'` 配合主进程改 `nativeTheme.themeSource`
+   * 让画布自己翻色只要 ~35ms（同一台机器、同一张图）。
+   */
+  dark?: boolean | 'auto'
   /** 界面语言，默认中文 */
   lang?: string
   /** 允许调用的额外能力；`libraries=1` 打开形状库 */
@@ -59,6 +71,7 @@ export interface DiagramEmbedOptions {
  * - `noExitBtn=1`：去掉「退出」按钮（否则会跳回 draw.io 首页）
  * - `modified=0`：不让 draw.io 自己弹未保存提示，脏标记由 Inkase 管
  * - `saveAndExit=0`、`noSaveBtn=1`：保存入口由我们自己的工具栏负责
+ * - `dark=auto`：配色交给 `prefers-color-scheme`，切主题不必重建 iframe
  */
 export function buildDiagramEmbedUrl(options: DiagramEmbedOptions = {}): string {
   const base = options.baseUrl ?? `${DIAGRAM_SCHEME}://${DIAGRAM_HOST}/`
@@ -74,7 +87,9 @@ export function buildDiagramEmbedUrl(options: DiagramEmbedOptions = {}): string 
   params.set('lang', options.lang ?? 'zh')
   if (options.libraries !== false) params.set('libraries', '1')
   params.set('ui', options.ui ?? 'min')
-  params.set('dark', options.dark ? '1' : '0')
+  params.set('dark',
+    options.dark === 'auto' ? 'auto' : options.dark ? '1' : '0'
+  )
   return url.toString()
 }
 

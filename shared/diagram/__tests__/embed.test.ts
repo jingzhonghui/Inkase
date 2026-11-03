@@ -28,6 +28,12 @@ describe('buildDiagramEmbedUrl', () => {
     expect(new URL(buildDiagramEmbedUrl({ dark: false })).searchParams.get('dark')).toBe('0')
   })
 
+  it('dark=auto 原样透传：画布自己跟随 prefers-color-scheme 翻色', () => {
+    // 这是「切主题不重建 iframe」的前提：写死 1/0 就只能靠重载 iframe 换配色
+    const url = new URL(buildDiagramEmbedUrl({ dark: 'auto' }))
+    expect(url.searchParams.get('dark')).toBe('auto')
+  })
+
   it('可以关掉形状库（只读预览场景）', () => {
     const url = new URL(buildDiagramEmbedUrl({ libraries: false }))
     expect(url.searchParams.get('libraries')).toBeNull()

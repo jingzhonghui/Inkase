@@ -10,7 +10,6 @@ import {
   IconRefresh
 } from '@tabler/icons-vue'
 import { useFileStore } from '../../stores/file'
-import { useThemeStore } from '../../stores/theme'
 import { DiagramBridge } from '../../utils/diagram/bridge'
 import { registerDiagramFlusher } from '../../utils/diagram/flush'
 import { decodeDiagramDataUrl } from '../../../shared/diagram/embed'
@@ -31,7 +30,6 @@ import { normalizeDiagramXml } from '../../../shared/diagram/document'
  */
 
 const fileStore = useFileStore()
-const themeStore = useThemeStore()
 
 const iframeRef = ref<HTMLIFrameElement | null>(null)
 const bridge = shallowRef<DiagramBridge | null>(null)
@@ -42,8 +40,14 @@ const webappRoot = ref('')
 const packaged = ref(false)
 const exporting = ref<'svg' | 'png' | null>(null)
 const saving = ref(false)
-/** 换主题时重建 iframe（draw.io 的配色只能靠 URL 参数决定） */
-const frameKey = ref(0)
+/**
+ * iframe 的地址；为空表示「还不该创建 iframe」。
+ *
+ * 用 `v-if` 而不是让隐藏的 iframe 提前挂在 DOM 里：`v-show=false` 时浏览器
+ * 照样会去加载 src，于是首次打开图表会白加载一整份 webapp，紧接着确认可用后
+ * 再重建一次 —— 用户要等两遍。
+ */
+const frameUrl = ref('')
 
 /** 最近一次「由自己写回 store」的 revision，用来识别外部变更 */
 let lastWrittenRevision = -1
@@ -55,9 +59,16 @@ const tab = computed(() => fileStore.activeTab)
 const content = computed(() => String(tab.value?.content ?? ''))
 const title = computed(() => tab.value?.fileInfo?.name ?? '未命名图表')
 
+/**
+ * 配色交给 draw.io 自己跟随 `prefers-color-scheme`（`dark=auto`）。
+ *
+ * 应用主题由 `themeStore` 同步到主进程的 `nativeTheme.themeSource`，改它会让
+ * iframe 收到 media change 后自己翻色，实测 ~35ms。**不要**再把主题写进 URL：
+ * 那等于每次切换都要把 17–33MB 的 webapp 重新加载一遍（765–1250ms）。
+ */
 const embedUrl = computed(() =>
   DiagramBridge.url({
-    dark: themeStore.isDark,
+    dark: 'auto',
     lang: 'zh',
     libraries: true,
     ui: 'min'
@@ -118,8 +129,12 @@ async function initBridge(): Promise<void> {
   await bridgeInstance.fit().catch(() => undefined)
 }
 
-/** 检查 webapp 是否就位：缺失时给可执行的提示，而不是白屏 */
-async function checkWebapp(): Promise<void> {
+/**
+ * 检查 webapp 是否就位：缺失时给可执行的提示，而不是白屏。
+ *
+ * `force` 只给「显式重试」用：正常流程里 iframe 一旦建好就不再重建它。
+ */
+async function checkWebapp(force = false): Promise<void> {
   status.value = 'checking'
   errorMessage.value = ''
   try {
@@ -136,16 +151,28 @@ async function checkWebapp(): Promise<void> {
       return
     }
     status.value = 'loading'
-    await nextTickInit()
+    await mountFrame(force)
   } catch (error) {
     status.value = 'error'
     errorMessage.value = error instanceof Error ? error.message : '检查组件失败'
   }
 }
 
-async function nextTickInit(): Promise<void> {
-  frameKey.value += 1
-  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+/**
+ * 创建 iframe 并接上桥接。
+ *
+ * 顺序要紧：先填 `frameUrl` 让 Vue 挂上 iframe，再 `initBridge()` —— 里面
+ * 第一步就是 `start()` 监听消息，必须早于 draw.io 发出 `init`。
+ */
+async function mountFrame(force = false): Promise<void> {
+  if (force) {
+    // 只有显式重试才重建：先拆掉旧 iframe，避免桥接与旧 contentWindow 错配
+    disposeBridge()
+    frameUrl.value = ''
+    await nextTick()
+  }
+  if (!frameUrl.value) frameUrl.value = embedUrl.value
+  await nextTick()
   await initBridge()
 }
 
@@ -209,28 +236,17 @@ watch(
   }
 )
 
-watch(
-  () => themeStore.isDark,
-  async () => {
-    // 主题影响 draw.io 自己的配色与形状默认色：重建 iframe，再把当前内容装回去
-    const snapshot = await bridge.value?.flushXml().catch(() => '')
-    disposeBridge()
-    status.value = 'loading'
-    await nextTickInit()
-    if (snapshot) {
-      lastLoadedContent = ''
-      applyModelXmlSilently(snapshot)
-    }
-  }
-)
-
-/** 主题切换后的重装：内容与已落盘的一致，不该把标签标脏 */
-function applyModelXmlSilently(xml: string): void {
-  const normalized = normalizeDiagramXml(xml)
-  if (!normalized) return
-  lastLoadedContent = normalized
-  lastWrittenRevision = tab.value?.revision ?? -1
-}
+/**
+ * 主题切换**不在这里做任何事**。
+ *
+ * 画布是 `dark=auto` 打开的，配色由 `prefers-color-scheme` 决定；应用主题由
+ * `themeStore` 同步到主进程的 `nativeTheme.themeSource`，draw.io 收到 media
+ * change 会自己翻色（实测 ~35ms）。
+ *
+ * 早先这里写的是「拆掉 iframe 再重建」，代价是把 17–33MB 的 webapp 重新加载
+ * 一遍（765–1250ms），而且重建后还得靠 `flushXml` + `load` 把内容搬回去，
+ * 一旦 snapshot 与 store 有偏差就会丢改动。
+ */
 
 let unregisterFlusher: (() => void) | null = null
 
@@ -356,7 +372,7 @@ onBeforeUnmount(() => {
         </template>
         <button
           class="diagram-btn primary"
-          @click="checkWebapp"
+          @click="checkWebapp()"
         >
           重新检查
         </button>
@@ -375,18 +391,18 @@ onBeforeUnmount(() => {
         </p>
         <button
           class="diagram-btn primary"
-          @click="checkWebapp"
+          @click="checkWebapp(true)"
         >
           重试
         </button>
       </div>
 
       <iframe
+        v-if="frameUrl"
         v-show="status === 'ready' || status === 'loading' || status === 'error'"
-        :key="`${frameKey}-${embedUrl}`"
         ref="iframeRef"
         class="diagram-frame"
-        :src="embedUrl"
+        :src="frameUrl"
         :title="`图表编辑器：${title}`"
         allow="clipboard-read; clipboard-write"
       />
