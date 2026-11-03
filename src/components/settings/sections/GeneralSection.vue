@@ -14,7 +14,6 @@ const maxTabs = defineModel<number>('maxTabs', { required: true })
   <SettingsRow
     title="最大打开标签数"
     desc="同时打开的标签数量上限，防止打开过多"
-    layout="inline"
   >
     <input
       v-model.number="maxTabs"
@@ -23,5 +22,6 @@ const maxTabs = defineModel<number>('maxTabs', { required: true })
       min="1"
       max="100"
     >
+    <span class="settings-unit">个</span>
   </SettingsRow>
 </template>

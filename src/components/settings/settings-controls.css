@@ -5,19 +5,27 @@
    作用域是全局的——这些类名只出现在设置中心内部（原先在 AppHeader 里也是全局的）。
    ========================================================================== */
 
+/* 数字输入：单独占一行的上下布局下，宽度要够写满六位数（上下文窗口这类）
+   还要给右侧单位留位置，否则 72px 会被 spinner 挤成一条缝 */
 .settings-number {
-  width: 72px;
-  padding: 4px 8px;
+  width: 200px;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 6px 9px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   background-color: var(--color-bg-primary);
   color: var(--color-text);
+  font-family: inherit;
   font-size: var(--ui-font-size);
+  /* 等宽数字：按住步进或滚轮调值时，位数变化不会让整行左右跳 */
+  font-variant-numeric: tabular-nums;
 }
 
 .settings-select {
-  max-width: 180px;
-  padding: 4px 8px;
+  max-width: 200px;
+  padding: 6px 9px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   background-color: var(--color-bg-primary);
@@ -26,22 +34,40 @@
   cursor: pointer;
 }
 
+/* 聚焦态与 AI 那节的输入框保持一致，避免同一面板里两套高亮 */
+.settings-number:focus,
+.settings-select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px var(--color-primary-light);
+}
+
+/* 数字右侧的单位（px / tokens / 次…）：只做注解，不占控件宽度 */
+.settings-unit {
+  flex-shrink: 0;
+  color: var(--color-text-tertiary);
+  font-size: calc(var(--ui-font-size) - 1px);
+}
+
 /* 滑杆 + 当前值：滑杆不能被压扁，值固定宽度让数字跳动时不抖 */
 .quality-control {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
 }
 
+/* 与数字输入同宽：两种控件在同一列里出现时左右边缘都对得上 */
 .quality-control input {
-  width: 168px;
+  width: 200px;
+  min-width: 0;
 }
 
 .quality-control output {
-  width: 32px;
+  width: 40px;
   color: var(--color-text-secondary);
   font-size: calc(var(--ui-font-size) - 1px);
   text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 /* 字体：预设下拉 + 「自定义…」时展开的文本框 */
@@ -52,9 +78,11 @@
   min-width: 0;
 }
 
+/* 自定义字体串可能很长，要撑满剩余空间而不是停在 200px */
 .font-custom-input {
   flex: 1;
   width: auto;
+  max-width: none;
   min-width: 0;
 }
 

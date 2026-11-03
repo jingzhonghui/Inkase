@@ -260,7 +260,6 @@ defineExpose({ save })
     <SettingsRow
       title="温度"
       desc="0 更稳定、2 更发散"
-      layout="inline"
     >
       <input
         v-model.number="form.temperature"
@@ -275,7 +274,6 @@ defineExpose({ save })
     <SettingsRow
       title="最大输出"
       desc="单次回复的 token 上限，留空由 Provider 决定"
-      layout="inline"
     >
       <input
         v-model.number="form.maxOutputTokens"
@@ -283,12 +281,12 @@ defineExpose({ save })
         type="number"
         min="1"
       >
+      <span class="settings-unit">tokens</span>
     </SettingsRow>
 
     <SettingsRow
       title="上下文窗口"
       desc="模型可接受的上下文长度，用于裁剪历史消息"
-      layout="inline"
     >
       <input
         v-model.number="form.contextWindow"
@@ -297,12 +295,12 @@ defineExpose({ save })
         type="number"
         min="1"
       >
+      <span class="settings-unit">tokens</span>
     </SettingsRow>
 
     <SettingsRow
       title="最大工具步骤"
       desc="一次提问里最多连续调用工具的次数"
-      layout="inline"
     >
       <input
         v-model.number="form.maxSteps"
@@ -312,6 +310,7 @@ defineExpose({ save })
         max="100"
         placeholder="默认 20"
       >
+      <span class="settings-unit">次</span>
     </SettingsRow>
 
     <p class="ai-privacy">

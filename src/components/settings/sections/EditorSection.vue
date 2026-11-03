@@ -54,7 +54,6 @@ const lineHeightText = computed(() => lineHeight.value.toFixed(1))
   <SettingsRow
     title="编辑区域字体大小"
     desc="源码、即时渲染、预览与工具栏的字号，编辑器内可 Ctrl+滚轮缩放"
-    layout="inline"
   >
     <input
       v-model.number="fontSize"
@@ -63,6 +62,7 @@ const lineHeightText = computed(() => lineHeight.value.toFixed(1))
       :min="MIN_EDITOR_FONT_SIZE"
       :max="MAX_EDITOR_FONT_SIZE"
     >
+    <span class="settings-unit">px</span>
   </SettingsRow>
 
   <SettingsRow

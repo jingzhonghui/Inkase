@@ -42,7 +42,6 @@ const THEME_OPTIONS: ReadonlyArray<{ value: ThemeMode; label: string }> = [
   <SettingsRow
     title="主界面字体大小"
     desc="菜单栏、标签页、侧边栏、状态栏等的字号"
-    layout="inline"
   >
     <input
       v-model.number="uiFontSize"
@@ -51,5 +50,6 @@ const THEME_OPTIONS: ReadonlyArray<{ value: ThemeMode; label: string }> = [
       :min="MIN_UI_FONT_SIZE"
       :max="MAX_UI_FONT_SIZE"
     >
+    <span class="settings-unit">px</span>
   </SettingsRow>
 </template>
