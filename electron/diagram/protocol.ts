@@ -121,6 +121,39 @@ export function resolveDiagramAssetPath(root: string, rawUrl: string): string | 
   return absolute
 }
 
+/**
+ * 注入到 draw.io 页面里的宿主样式。
+ *
+ * 目前只有一条：藏掉页签栏右侧的 GitHub 图标。
+ * 它由 draw.io 在 `updateTabContainer` 里无条件创建（`<a href="https://github.com/jgraph/drawio">`
+ * 塞进 `.geTabContainer`），webapp 没有提供开关（`PreConfig.js` 里也没有对应配置），
+ * 所以只能在托管层用 CSS 关掉。
+ *
+ * 为什么放在协议层而不是改磁盘上的文件：`resources/drawio` 是 `scripts/fetch-drawio.mjs`
+ * 从 npm 包解出来的，重跑一次就会覆盖掉手工改动。协议层注入对上游不可见、重新拉取后
+ * 依然生效，也不会让「文件数与体积」的校验跟实际产物对不上。
+ */
+export const DIAGRAM_HOST_STYLE = [
+  '.geTabContainer a[href^="https://github.com/jgraph/drawio"]{display:none!important}'
+].join('')
+
+/** 注入标记：重复经过这里时不叠加第二份 */
+const HOST_STYLE_MARKER = 'id="inkase-diagram-host-style"'
+
+/**
+ * 把宿主样式插进 HTML 的 `</head>` 之前。
+ *
+ * CSP 里 `style-src` 已放开 `'unsafe-inline'`（draw.io 自己的内联样式必需），
+ * 所以这里用内联 `<style>` 是合法且不需要再放宽策略的。
+ */
+export function injectDiagramHostStyle(html: string): string {
+  if (!html || html.includes(HOST_STYLE_MARKER)) return html
+  const tag = `<style ${HOST_STYLE_MARKER}>${DIAGRAM_HOST_STYLE}</style>`
+  const headEnd = html.lastIndexOf('</head>')
+  if (headEnd < 0) return `${tag}${html}`
+  return `${html.slice(0, headEnd)}${tag}${html.slice(headEnd)}`
+}
+
 /** 读文件构造响应；目录或不存在一律 404，并带上注入的 CSP。 */
 export function createDiagramAssetResponse(absolutePath: string): Response {
   let stat: fs.Stats
@@ -138,7 +171,11 @@ export function createDiagramAssetResponse(absolutePath: string): Response {
     return new Response('Read Error', { status: 500 })
   }
 
-  const mime = MIME_TYPES[path.extname(absolutePath).toLowerCase()] ?? 'application/octet-stream'
+  const extension = path.extname(absolutePath).toLowerCase()
+  const mime = MIME_TYPES[extension] ?? 'application/octet-stream'
+  if (extension === '.html') {
+    body = Buffer.from(injectDiagramHostStyle(body.toString('utf8')), 'utf8')
+  }
   return new Response(new Uint8Array(body), {
     status: 200,
     headers: {

@@ -17,6 +17,7 @@ import {
   createDiagramAssetResponse,
   describeDiagramWebapp,
   diagramWebappCandidates,
+  injectDiagramHostStyle,
   isDiagramWebappAvailable,
   resolveDiagramAssetPath
 } from '../protocol'
@@ -114,6 +115,43 @@ describe('createDiagramAssetResponse', () => {
     const root = makeWebapp()
     expect(createDiagramAssetResponse(root).status).toBe(404)
     expect(createDiagramAssetResponse(path.join(root, 'missing.js')).status).toBe(404)
+  })
+
+  it('HTML 响应注入隐藏 GitHub 图标的样式，非 HTML 不注入', async () => {
+    const root = makeWebapp()
+    const html = await createDiagramAssetResponse(path.join(root, 'index.html')).text()
+    expect(html).toContain('inkase-diagram-host-style')
+    expect(html).toContain('github.com/jgraph/drawio')
+
+    const js = await createDiagramAssetResponse(path.join(root, 'js', 'app.min.js')).text()
+    expect(js).not.toContain('inkase-diagram-host-style')
+  })
+})
+
+describe('injectDiagramHostStyle', () => {
+  it('插在 </head> 之前', () => {
+    const out = injectDiagramHostStyle('<html><head><title>t</title></head><body></body></html>')
+    const style = out.indexOf('inkase-diagram-host-style')
+    expect(style).toBeGreaterThan(-1)
+    expect(style).toBeLessThan(out.indexOf('</head>'))
+    expect(out.indexOf('<title>')).toBeLessThan(style)
+  })
+
+  it('没有 </head> 时兜底放在最前面，不丢原文', () => {
+    const out = injectDiagramHostStyle('<div>裸片段</div>')
+    expect(out.startsWith('<style')).toBe(true)
+    expect(out).toContain('<div>裸片段</div>')
+  })
+
+  it('重复调用不会叠加第二份', () => {
+    const once = injectDiagramHostStyle('<html><head></head><body></body></html>')
+    const twice = injectDiagramHostStyle(once)
+    expect(twice).toBe(once)
+    expect(twice.match(/inkase-diagram-host-style/g)).toHaveLength(1)
+  })
+
+  it('空输入原样返回', () => {
+    expect(injectDiagramHostStyle('')).toBe('')
   })
 })
 
