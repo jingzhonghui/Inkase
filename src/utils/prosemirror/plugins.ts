@@ -113,29 +113,6 @@ export function createDocumentChangePlugin(onChange: (doc: EditorState) => void)
 }
 
 /**
- * 任务列表点击插件
- * 处理任务列表复选框的点击
- */
-export const taskListClickPlugin = new Plugin({
-  props: {
-    handleClickOn(view, _pos, node, nodePos, event) {
-      // 检查是否点击了任务列表的复选框
-      if (node.type.name === 'task_item') {
-        const target = event.target as HTMLElement
-        if (target && target.tagName === 'INPUT' && (target as HTMLInputElement).type === 'checkbox') {
-          const tr = view.state.tr
-          const checked = (target as HTMLInputElement).checked
-          tr.setNodeMarkup(nodePos, undefined, { ...node.attrs, checked })
-          view.dispatch(tr)
-          return true
-        }
-      }
-      return false
-    }
-  }
-})
-
-/**
  * 图片点击插件
  * 处理图片点击，显示图片工具栏
  */

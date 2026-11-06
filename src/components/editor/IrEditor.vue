@@ -18,6 +18,8 @@ import {
 import { useFileStore } from '../../stores/file'
 import { useOutlineStore } from '../../stores/outline'
 import { findHeadingForAnchor } from '../../utils/prosemirror/anchors'
+import { elementTopWithin, readScrollRatio, restoreScroll, scrollRestoreTarget, type ScrollRestoreTarget } from '../../utils/editor-scroll'
+import { blockAtLine, blockAtPos, buildScrollAnchorTable, type ScrollAnchorTable } from '../../utils/prosemirror/scroll-anchor'
 import { useThemeStore } from '../../stores/theme'
 import { storeToRefs } from 'pinia'
 import { Decoration, DecorationSet, EditorView } from 'prosemirror-view'
@@ -29,7 +31,6 @@ import {
   serializeMarkdown,
   createPlugins,
   createDocumentChangePlugin,
-  taskListClickPlugin,
   toggleHeading,
   insertLink,
   createIRPlugin,
@@ -130,6 +131,13 @@ class MathBlockView implements NodeView {
 }
 
 const fileStore = useFileStore()
+/**
+ * 组件挂载时所在的编辑模式。
+ * 切换模式时 store 先改成新模式、旧组件随后才卸载，卸载时读
+ * `fileStore.effectiveEditorMode` 会拿到新模式，导致保存的位置被误判为
+ * 「同模式」而错用像素值（跨模式像素不可复用，会明显漂移）。
+ */
+const editorModeAtMount = fileStore.effectiveEditorMode
 const themeStore = useThemeStore()
 const ctrlPressed = ref(false)
 const clearCtrlPressedOnBlur = (): void => { ctrlPressed.value = false }
@@ -1136,7 +1144,6 @@ function createEditorState(content: string): EditorState {
   const doc = parseMarkdown(content || '')
   const plugins = [
     ...createPlugins(markdownSchema),
-    taskListClickPlugin,
     createPastePlugin((view, file) => {
       // 异步处理图片插入，使用最新的 view 状态
       handlePasteImage(view, file)
@@ -1313,9 +1320,9 @@ function initEditor(): void {
 }
 
 /**
- * 切回该标签页时，恢复上次阅读位置（滚动 + 光标）。
+ * 切回该标签页 / 切回即时渲染模式时，恢复上次阅读位置（滚动 + 光标）。
  * EditorPanel 以 activeTabId 作为 :key 重建 IrEditor，若不恢复，
- * 切换标签后再切回来文档会回到开头。
+ * 切换标签或编辑模式后文档会回到开头。
  */
 function restoreEditorPosition(): void {
   const view = viewRef.value
@@ -1335,41 +1342,141 @@ function restoreEditorPosition(): void {
   } catch {
     // 位置非法时仅恢复滚动
   }
-  applySavedScroll(saved.scrollTop)
+
+  // 优先按锚点定位：IR 与源码/分屏的布局高度不同（图片尤其明显），比例会漂移；
+  // 同模式（标签切换）用像素更精确。
+  const crossMode = saved.mode != null && saved.mode !== editorModeAtMount
+  if (crossMode && saved.anchorLine != null) {
+    const table = getAnchorTable(view.state.doc)
+    const block = table ? blockAtLine(table, saved.anchorLine) : null
+    if (block) {
+      const offset = saved.anchorOffsetPx ?? 0
+      startScrollRestore(container, {
+        resolve: () => {
+          const dom = view.nodeDOM(block.pos) as HTMLElement | null
+          // 复用 elementTopWithin 的布局未就绪保护
+          const contentTop = elementTopWithin(container, dom)
+          return contentTop == null ? null : Math.max(0, contentTop - offset)
+        }
+      })
+      return
+    }
+  }
+  // 没有锚点时退回像素/比例
+  const target = scrollRestoreTarget(saved, editorModeAtMount)
+  if (target) {
+    startScrollRestore(container, target)
+  }
 }
 
 /**
- * 把容器滚动到上次位置。
- * 组件刚重建时布局可能尚未就绪（scrollHeight/clientHeight 为 0），
- * 一次设置会被 clamp 到顶部，因此重试直至滚动真正生效。
+ * 开始恢复滚动，并在恢复真正落地前暂停位置写回。
+ *
+ * 挂载后 initShiki 会触发一次调度（updateCodeHighlights）；如果这时恢复还没落地，
+ * updateSavedPosition 会把「当前顶部」写回去，锚点就被抹成第 1 行了。
  */
-function applySavedScroll(savedScrollTop: number, attempt = 0): void {
-  const container = containerRef.value
-  const view = viewRef.value
-  if (!container || view?.isDestroyed) return
-  const maxScroll = Math.max(0, container.scrollHeight - container.clientHeight)
-  const target = Math.min(Math.max(0, savedScrollTop), maxScroll)
-  container.scrollTop = target
-
-  const settled = maxScroll > 0 && Math.abs(container.scrollTop - target) < 1
-  if (settled || attempt >= 40) return
-  setTimeout(() => applySavedScroll(savedScrollTop, attempt + 1), 50)
+function startScrollRestore(container: HTMLElement, target: ScrollRestoreTarget): void {
+  const token = ++scrollRestoreToken
+  isRestoringScroll = true
+  const onDone = (): void => {
+    setTimeout(() => {
+      if (token === scrollRestoreToken) isRestoringScroll = false
+    }, 150)
+  }
+  cancelScrollRestore?.()
+  cancelScrollRestore = restoreScroll(container, target, { onDone })
 }
 
 /** 实时把当前阅读位置写回标签（滚动/选区变化时调用） */
 function updateSavedPosition(): void {
+  // 恢复尚未落地时不要写回：否则会把「当前顶部」当成新位置，锚点被抹成第 1 行
+  if (isRestoringScroll) return
   const view = viewRef.value
   if (!view || !editorTabId) return
   const tab = fileStore.tabs.find((t) => t.id === editorTabId)
   if (!tab) return
+  const container = containerRef.value
+  const prev = tab.savedEditorPosition
   tab.savedEditorPosition = {
-    scrollTop: containerRef.value?.scrollTop ?? tab.savedEditorPosition?.scrollTop ?? 0,
+    scrollTop: container?.scrollTop ?? prev?.scrollTop ?? 0,
+    scrollRatio: readScrollRatio(container) ?? prev?.scrollRatio,
+    // 行号与偏移必须成对保留：只留行号会让恢复时的偏移退化成 0，
+    // 等于把锚点块底边顶到视口顶部，内容会整段上移。
+    anchorLine: prev?.anchorLine,
+    anchorOffsetPx: prev?.anchorOffsetPx,
+    mode: editorModeAtMount,
     from: view.state.selection.from,
     to: view.state.selection.to
   }
+  updateAnchorLine()
+}
+
+/**
+ * 记录锚点：**视口里最下面那个文本块**，以及它顶边相对视口的像素偏移。
+ *
+ * 为什么锚最下面的文本块：阅读时注意力在"即将读到"的那一段，用户判断位置也是看
+ * 视口底部。锚定它并对齐顶边，这句话在切换模式后会留在原处，上方图片/段落的高度
+ * 差异不会影响它。
+ *
+ * 跳过纯媒体块（图片段落、分割线、空段落）：图片在 IR / 分屏里的高度差异极大。
+ * 用 DOM 几何找块（而不是 posAtCoords），块表按文档对象缓存。
+ */
+function updateAnchorLine(): void {
+  const view = viewRef.value
+  const container = containerRef.value
+  const tab = fileStore.tabs.find((t) => t.id === editorTabId)
+  if (!view || !container || !tab?.savedEditorPosition) return
+  if (container.scrollHeight <= container.clientHeight) return
+
+  const containerRect = container.getBoundingClientRect()
+  const blocks = Array.from(view.dom.children) as HTMLElement[]
+
+  let target: HTMLElement | null = null
+  for (const block of blocks) {
+    const rect = block.getBoundingClientRect()
+    if (rect.height <= 0) continue
+    if (rect.top >= containerRect.bottom) break
+    // 完全被视口顶部裁掉、只剩底边的块不参与
+    if (rect.bottom <= containerRect.top) continue
+    if ((block.textContent ?? '').trim().length === 0) continue
+    target = block
+  }
+  if (!target) return
+
+  const table = getAnchorTable(view.state.doc)
+  if (!table) return
+  let pos: number
+  try {
+    pos = view.posAtDOM(target, 0)
+  } catch {
+    return
+  }
+  const block = blockAtPos(table, pos)
+  if (!block) return
+  const targetRect = target.getBoundingClientRect()
+  tab.savedEditorPosition.anchorLine = block.line
+  tab.savedEditorPosition.anchorOffsetPx = targetRect.top - containerRect.top
+}
+
+let anchorTableDoc: unknown = null
+let anchorTableCache: ScrollAnchorTable | null = null
+
+/** 块↔行号表按文档对象缓存；文档变化（编辑/重开）后自动失效。 */
+function getAnchorTable(doc: Parameters<typeof buildScrollAnchorTable>[0]): ScrollAnchorTable | null {
+  if (anchorTableDoc === doc) return anchorTableCache
+  anchorTableDoc = doc
+  anchorTableCache = buildScrollAnchorTable(doc)
+  return anchorTableCache
 }
 
 let scrollSaveRaf = 0
+/** 恢复滚动的取消函数：用户接管滚动或组件卸载时停掉重试 */
+let cancelScrollRestore: (() => void) | null = null
+/** 恢复期间暂停位置写回，避免把恢复中的中间位置当成新位置 */
+let isRestoringScroll = false
+/** 抑制令牌：新的恢复开始时让旧的解除定时器失效 */
+let scrollRestoreToken = 0
+
 function handlePositionScroll(): void {
   if (scrollSaveRaf) return
   scrollSaveRaf = requestAnimationFrame(() => {
@@ -1384,17 +1491,27 @@ function handlePositionScroll(): void {
  * 若之前已记录过非零滚动位置则保留旧值，避免误把位置重置到顶部。
  */
 function saveEditorPosition(): void {
+  // 恢复尚未落地时不要写回：此时读到的是恢复前的过渡位置
+  if (isRestoringScroll) return
   const view = viewRef.value
   if (!view || !editorTabId) return
   const tab = fileStore.tabs.find((t) => t.id === editorTabId)
   if (!tab) return
-  const scrollTop = containerRef.value?.scrollTop ?? 0
+  const container = containerRef.value
+  const scrollTop = container?.scrollTop ?? 0
   const prev = tab.savedEditorPosition
   tab.savedEditorPosition = {
     scrollTop: scrollTop > 0 ? scrollTop : (prev?.scrollTop ?? 0),
+    scrollRatio: readScrollRatio(container) ?? prev?.scrollRatio,
+    // 卸载时 DOM 已移除，updateAnchorLine 会失败；必须原样保留上一次的
+    // 行号与偏移，不能只留行号（偏移缺失会被当成 0）
+    anchorLine: prev?.anchorLine,
+    anchorOffsetPx: prev?.anchorOffsetPx,
+    mode: editorModeAtMount,
     from: view.state.selection.from,
     to: view.state.selection.to
   }
+  updateAnchorLine()
 }
 
 function setBlockTypeCommand(type: string, attrs?: Record<string, unknown>): void {
@@ -1818,6 +1935,8 @@ onMounted(() => {
 
 onUnmounted(() => {
   saveEditorPosition()
+  cancelScrollRestore?.()
+  cancelScrollRestore = null
   if (outlineScrollRaf) cancelAnimationFrame(outlineScrollRaf)
   // 组件卸载前强制同步内容到 store，防止切换模式时内容丢失
   const view = viewRef.value
@@ -2102,14 +2221,23 @@ defineExpose({
   opacity: 0.4; font-family: var(--editor-mono-font-family, var(--font-mono)); font-size: 0.85em;
   user-select: none; pointer-events: none;
 }
-.ir-editor-wrapper :deep(.ProseMirror li[data-type="task_item"][data-checked="true"]::before) {
-  content: '- [x] ';
+.ir-editor-wrapper :deep(.ProseMirror li[data-type="task_item"]) {
+  position: relative;
+  padding-left: 1.6em;
+  list-style: none;
 }
-.ir-editor-wrapper :deep(.ProseMirror li[data-type="task_item"][data-checked="false"]::before) {
-  content: '- [ ] ';
+.ir-editor-wrapper :deep(.ProseMirror li[data-type="task_item"] > .task-checkbox) {
+  position: absolute;
+  left: 0;
+  top: 0.45em;
+  width: 1em;
+  height: 1em;
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--color-primary);
 }
-.ir-editor-wrapper :deep(.ProseMirror li[data-type="task_item"] input[type="checkbox"]) {
-  display: none;
+.ir-editor-wrapper :deep(.ProseMirror li[data-type="task_item"][data-checked="true"]) {
+  color: var(--color-text-secondary);
 }
 .ir-editor-wrapper :deep(.ProseMirror blockquote) {
   border-left: 4px solid var(--color-primary);
@@ -2254,12 +2382,9 @@ defineExpose({
 .ir-editor-wrapper :deep(.ProseMirror th) {
   background: var(--color-bg-secondary); font-weight: 600;
 }
-.ir-editor-wrapper :deep(.ProseMirror ul[data-type="task_list"]) { list-style: none; padding-left: 0; }
-.ir-editor-wrapper :deep(.ProseMirror li[data-type="task_item"]) {
-  display: flex; align-items: flex-start; gap: 8px;
-}
-.ir-editor-wrapper :deep(.ProseMirror li[data-type="task_item"] input[type="checkbox"]) {
-  margin-top: 0.3em; cursor: pointer;
+.ir-editor-wrapper :deep(.ProseMirror ul[data-type="task_list"]) {
+  list-style: none;
+  padding-left: 0;
 }
 .ir-editor-wrapper :deep(.ProseMirror ::selection) { background: var(--color-selection); }
 .ir-editor-wrapper :deep(.ProseMirror p.is-editor-empty:first-child::before) {

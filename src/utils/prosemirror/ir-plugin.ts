@@ -1,5 +1,5 @@
 import { Plugin, PluginKey, EditorState } from 'prosemirror-state'
-import { Decoration, DecorationSet } from 'prosemirror-view'
+import { Decoration, DecorationSet, type EditorView } from 'prosemirror-view'
 import type { MarkType, Node as ProseMirrorNode, ResolvedPos } from 'prosemirror-model'
 import { HEADING_MARKER_RE } from './heading-markers'
 
@@ -29,6 +29,7 @@ export function createIRPlugin(): Plugin {
         collectHeadingMarkerDecorations(state, decorations)
         collectMarkDecorations(state, decorations)
         collectLinkDecorations(state, decorations)
+        collectTaskCheckboxDecorations(state, decorations)
         return decorations.length
           ? DecorationSet.create(state.doc, decorations)
           : DecorationSet.empty
@@ -188,6 +189,77 @@ function collectLinkDecorations(state: EditorState, decorations: Decoration[]): 
 
     return false
   })
+}
+
+/**
+ * 任务列表项的勾选框。
+ *
+ * IR 模式的 task_item 没有可编辑输入控件，这里用 widget 装饰在项内容最前插入一个
+ * 真实 <input type="checkbox">（装饰不进入文档，序列化仍写 `- [x]` / `- [ ]`）。
+ * 点击时翻转节点的 checked 属性，key 带上选中态，使 DOM 与文档状态同步重建。
+ */
+function collectTaskCheckboxDecorations(state: EditorState, decorations: Decoration[]): void {
+  state.doc.descendants((node, pos) => {
+    if (node.type.name !== 'task_item') return true
+    const checked = node.attrs.checked === true
+    decorations.push(
+      Decoration.widget(
+        pos + 1,
+        (view, getPos) => createTaskCheckbox(view, getPos, checked),
+        {
+          side: -1,
+          ignoreSelection: true,
+          key: `task-checkbox:${pos}:${checked ? 'x' : 'o'}`
+        }
+      )
+    )
+    return true
+  })
+}
+
+/** 创建任务列表勾选框，并接管点击（翻转 task_item 的 checked 属性）。 */
+function createTaskCheckbox(
+  view: EditorView,
+  getPos: () => number | undefined,
+  checked: boolean
+): HTMLElement {
+  const input = document.createElement('input')
+  input.type = 'checkbox'
+  input.className = 'task-checkbox'
+  input.checked = checked
+  input.contentEditable = 'false'
+  // 不参与 Tab 焦点链，键盘导航仍留在正文里
+  input.tabIndex = -1
+  input.setAttribute('aria-label', checked ? '标记为未完成' : '标记为已完成')
+
+  // 阻止默认的焦点转移与状态切换，全部由文档状态驱动
+  input.addEventListener('mousedown', (event) => {
+    event.preventDefault()
+    event.stopPropagation()
+  })
+
+  input.addEventListener('click', (event) => {
+    event.preventDefault()
+    event.stopPropagation()
+    const widgetPos = getPos()
+    if (typeof widgetPos !== 'number') return
+    const $pos = view.state.doc.resolve(widgetPos)
+    for (let depth = $pos.depth; depth > 0; depth--) {
+      const node = $pos.node(depth)
+      if (node.type.name !== 'task_item') continue
+      const itemPos = $pos.before(depth)
+      view.dispatch(
+        view.state.tr.setNodeMarkup(itemPos, undefined, {
+          ...node.attrs,
+          checked: !node.attrs.checked
+        })
+      )
+      view.focus()
+      return
+    }
+  })
+
+  return input
 }
 
 /**

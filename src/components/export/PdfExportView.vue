@@ -87,6 +87,37 @@ import { pdfHtml, pdfSource } from '../../utils/pdf-export'
   #pdf-export-content img { display: block; max-width: 100%; max-height: 235mm; margin: 8px auto; break-inside: avoid-page; }
   #pdf-export-content hr { height: 2px; margin: 20px 0; background: #d0d7de; border: 0; }
   #pdf-export-content .katex-display { overflow: hidden; break-inside: avoid-page; }
-  #pdf-export-content li.task-list-item { list-style: none; }
+  #pdf-export-content li.task-list-item {
+    list-style: none;
+    padding-left: 1.5em;
+    position: relative;
+  }
+  #pdf-export-content li.task-list-item .task-checkbox {
+    appearance: none;
+    -webkit-appearance: none;
+    position: absolute;
+    left: 0;
+    top: 0.35em;
+    width: 1em;
+    height: 1em;
+    margin: 0;
+    border: 1.5px solid #57606a;
+    border-radius: 3px;
+    background-color: #fff;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  #pdf-export-content li.task-list-item .task-checkbox:checked {
+    border-color: #0969da;
+    background-color: #0969da;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='white'%3E%3Cpath d='M13.78 4.22a.75.75 0 010 1.06l-7.25 7.25a.75.75 0 01-1.06 0L2.22 9.28a.75.75 0 011.06-1.06L6 10.94l6.72-6.72a.75.75 0 011.06 0z'/%3E%3C/svg%3E");
+    background-size: 75%;
+    background-position: center;
+    background-repeat: no-repeat;
+  }
+  #pdf-export-content li.task-list-item[data-checked="true"] .task-text {
+    color: #57606a;
+    text-decoration: line-through;
+  }
 }
 </style>

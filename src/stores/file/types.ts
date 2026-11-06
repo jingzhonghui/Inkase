@@ -53,10 +53,25 @@ export interface TabInfo {
    * 只对 format='mindmap' 有意义，关闭标签即失效。
    */
   mindMapAssets?: Record<string, string>
-  /** 上次阅读位置（切换标签页时保存、切回时恢复；关闭标签即丢弃） */
+  /** 上次阅读位置（切换标签页/编辑模式时保存、切回时恢复；关闭标签即丢弃） */
   savedEditorPosition?: {
     /** 滚动容器纵向偏移 */
     scrollTop: number
+    /**
+     * 滚动进度比例（0..1）。
+     * 只作为兜底：源码 / 即时渲染 / 分屏的布局高度不同，比例会随换行宽度漂移。
+     */
+    scrollRatio?: number
+    /** 视口顶部所在的 Markdown 行号（1 基）。跨模式恢复用它定位内容 */
+    anchorLine?: number
+    /**
+     * 锚点块顶部相对视口顶部的像素偏移（可为负）。
+     * 锚点是「视口里最下面那个文本块」，恢复时把它的顶边放回同一屏幕位置：
+     * 图片等块在不同模式下高度差异巨大，只按行号对齐会让文字大幅跳动。
+     */
+    anchorOffsetPx?: number
+    /** 记录位置时所在的编辑模式；恢复时据此决定用像素还是比例 */
+    mode?: EditorMode
     /** 选区起点（文档偏移） */
     from: number
     /** 选区终点（文档偏移） */

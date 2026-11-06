@@ -185,4 +185,71 @@ describe('IrEditor 标签页切换保持阅读位置', () => {
     expect(container2.scrollTop).toBe(3000)
     second.unmount()
   })
+
+  it('从源码模式切回时按滚动比例恢复（布局高度不同）', async () => {
+    stubElectronAPI(longContent)
+    const store = useFileStore()
+    await store.openFile('C:/ws/a.md')
+    // 当前处于即时渲染模式，上次记录来自源码模式
+    store.setEditorMode('ir')
+    const tab = store.activeTab!
+    tab.savedEditorPosition = { scrollTop: 3000, scrollRatio: 0.5, mode: 'source', from: 0, to: 0 }
+
+    const wrapper = mount(IrEditor, { attachTo: document.body })
+    const container = wrapper.find('.ir-container').element
+    let scrollTop = 0
+    Object.defineProperty(container, 'scrollHeight', { configurable: true, get: () => 5000 })
+    Object.defineProperty(container, 'clientHeight', { configurable: true, get: () => 800 })
+    Object.defineProperty(container, 'scrollTop', {
+      configurable: true,
+      get: () => scrollTop,
+      set: (v: number) => { scrollTop = v }
+    })
+    await settle()
+
+    // 像素 3000 属于源码编辑器，跨模式只能按比例：0.5 × (5000 - 800) = 2100
+    expect(container.scrollTop).toBe(2100)
+    wrapper.unmount()
+  })
+})
+
+describe('IrEditor 滚动保存不丢锚点偏移', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.clearAllMocks()
+  })
+
+  it('选区变化触发位置写回时，anchorLine / anchorOffsetPx 应原样保留', async () => {
+    stubElectronAPI(longContent)
+    const store = useFileStore()
+    await store.openFile('C:/ws/a.md')
+    const tab = store.activeTab!
+    // 模拟上一次滚动记下的锚点（jsdom 没有布局，updateAnchorLine 会跳过）
+    tab.savedEditorPosition = {
+      scrollTop: 1200,
+      scrollRatio: 0.3,
+      anchorLine: 7,
+      anchorOffsetPx: 640,
+      mode: 'ir',
+      from: 0,
+      to: 0
+    }
+
+    const wrapper = mount(IrEditor, { attachTo: document.body })
+    await settle()
+    const view = getView(wrapper)
+
+    // 触发一次 dispatch（dispatchTransaction 内会调用 updateSavedPosition）
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, 5)))
+    await nextTick()
+
+    const saved = store.activeTab!.savedEditorPosition!
+    expect(saved.anchorLine).toBe(7)
+    expect(saved.anchorOffsetPx).toBe(640)
+    wrapper.unmount()
+  })
 })

@@ -80,6 +80,12 @@ export function applyAdjacentOrderedListSplit(md: MarkdownIt): void {
 }
 
 /**
+ * GFM 任务列表标记：`[ ]` / `[x]` / `[X]`，后接空白；空任务项（`- [ ]`）到行尾也算。
+ * 与预览渲染（utils/markdown.ts）保持同一套判定。
+ */
+const TASK_MARKER_RE = /^\[( |x|X)\](?:[ \t]+|$)/
+
+/**
  * markdown-it 规则：把「每个列表项都以 [ ] / [x] 开头」的无序列表识别为任务列表。
  * CommonMark/GFM 的 markdown-it 默认不产出任务列表 token，这里在 core 阶段直接改写 token：
  * bullet_list → task_list，list_item → task_item，同时剥离文本前缀并写入 checked 属性。
@@ -113,11 +119,12 @@ export function applyTaskListRule(md: MarkdownIt): void {
       }
       if (closeIndex === -1 || items.length === 0) continue
 
-      // 每个列表项的首个 inline 都必须以任务标记开头，否则保持普通无序列表
+      // 每个列表项的首个 inline 都必须以任务标记开头，否则保持普通无序列表。
+      // 标记后允许没有正文（`- [ ]`，空任务项），与预览渲染保持同一套 GFM 语义。
       const checks = items.map((it) => {
         for (let k = it.open + 1; k < it.close; k++) {
           if (tokens[k].type === 'inline') {
-            const m = /^\[( |x|X)\]\s+/.exec(tokens[k].content)
+            const m = TASK_MARKER_RE.exec(tokens[k].content)
             return m ? { checked: m[1].toLowerCase() === 'x', inlineIndex: k } : null
           }
         }
@@ -134,9 +141,9 @@ export function applyTaskListRule(md: MarkdownIt): void {
         tokens[it.close].type = 'task_item_close'
         tokens[it.open].attrSet('checked', check.checked ? 'true' : 'false')
         const inlineTok = tokens[check.inlineIndex]
-        inlineTok.content = inlineTok.content.replace(/^\[( |x|X)\]\s+/, '')
+        inlineTok.content = inlineTok.content.replace(TASK_MARKER_RE, '')
         const firstText = inlineTok.children?.find((c) => c.type === 'text')
-        if (firstText) firstText.content = firstText.content.replace(/^\[( |x|X)\]\s+/, '')
+        if (firstText) firstText.content = firstText.content.replace(TASK_MARKER_RE, '')
       }
     }
   })

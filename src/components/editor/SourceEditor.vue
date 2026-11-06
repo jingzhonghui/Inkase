@@ -18,6 +18,7 @@ import { findCodeLanguage } from '../../utils/editor-language'
 import { formatCode, isFormattable } from '../../utils/formatters'
 import { requestDialog } from '../../utils/dialog'
 import { useEditorFontZoom } from '../../composables/useEditorFontZoom'
+import { restoreScroll, saveScrollPosition as writeScrollPosition, scrollRestoreTarget } from '../../utils/editor-scroll'
 import EditorContextMenu from '../common/EditorContextMenu.vue'
 import FindReplacePanel from './FindReplacePanel.vue'
 import type { EditorContextMenuItem } from '../../types/editor-context-menu'
@@ -42,6 +43,14 @@ const emit = defineEmits<{
 const fileStore = useFileStore()
 const themeStore = useThemeStore()
 const outlineStore = useOutlineStore()
+
+/**
+ * 组件挂载时所在的编辑模式。
+ * 切换模式时 store 先改成新模式、旧组件随后才卸载，卸载时读
+ * `fileStore.effectiveEditorMode` 会拿到新模式，导致保存的位置被误判为
+ * 「同模式」而错用像素值（跨模式像素不可复用，会明显漂移）。
+ */
+const editorModeAtMount = fileStore.effectiveEditorMode
 
 // ====== 大纲：发布到 store + 响应跳转 ======
 /** 最近一次发布的标题（含行号），供跳转与高亮定位 */
@@ -931,6 +940,10 @@ function loadPlainLanguage(view: EditorView): void {
  */
 function handleScroll(): void {
   if (isSyncing) return
+  // 恢复阅读位置期间，程序触发的滚动不应再同步给预览，否则会覆盖按行定位的结果
+  if (isRestoringScroll) return
+  scheduleSaveScrollPosition()
+
   const view = editorView.value
   if (!view) return
 
@@ -941,6 +954,162 @@ function handleScroll(): void {
     emit('scroll', ratio)
   }
   updateActiveOutline()
+}
+
+let scrollSaveRaf = 0
+/** 滚动事件很密集，写回标签位置按帧合并 */
+function scheduleSaveScrollPosition(): void {
+  if (scrollSaveRaf) return
+  scrollSaveRaf = requestAnimationFrame(() => {
+    scrollSaveRaf = 0
+    saveScrollPosition()
+  })
+}
+
+/**
+ * 把当前滚动进度写回标签。
+ *
+ * 锚点取「视口里最下面那个文本行」+ 该行顶边相对视口的像素偏移：
+ * 阅读注意力在视口底部即将读到的那一段，锚定它并对齐顶边，
+ * 切换模式后这句话会留在原处，上方图片/段落的高度差异不影响它。
+ */
+function saveScrollPosition(tabId: string | null = fileStore.activeTabId): void {
+  const view = editorView.value
+  if (!view || !tabId) return
+  const tab = fileStore.tabs.find((t) => t.id === tabId)
+  if (!tab) return
+
+  writeScrollPosition(tab, view.scrollDOM, editorModeAtMount)
+  if (!tab.savedEditorPosition) return
+
+  const scroller = view.scrollDOM
+  if (scroller.scrollHeight <= scroller.clientHeight) return
+
+  const doc = view.state.doc
+  // 视口最下面一行（-1px 避免取到视口外的下一行）
+  let lineNo = doc.lineAt(view.lineBlockAtHeight(scroller.scrollTop + scroller.clientHeight - 1).from).number
+  // 纯图片行/空行/分割线不能当锚点，向上找最近的有文字的行
+  const limit = Math.max(1, lineNo - 40)
+  while (lineNo > limit && isMediaOnlyLine(doc.line(lineNo).text)) lineNo--
+  const lineFrom = doc.line(lineNo).from
+
+  tab.savedEditorPosition.anchorLine = lineNo
+  // 用行盒（.cm-line）的真实矩形记录偏移：与 IR/预览的「块元素矩形」是同一语义，
+  // 避免 text-top 与行高 leading 带来的几像素残差；CodeMirror 内部坐标含不含
+  // .cm-content 的 24px 内边距都不影响。
+  const rect = lineElementRect(view, lineFrom)
+  const scrollerRect = scroller.getBoundingClientRect()
+  tab.savedEditorPosition.anchorOffsetPx = rect
+    ? rect.top - scrollerRect.top
+    : view.lineBlockAt(lineFrom).top - scroller.scrollTop
+}
+
+/** 取某一行对应的 .cm-line 元素矩形；行未渲染时返回 null。 */
+function lineElementRect(view: EditorView, pos: number): DOMRect | null {
+  try {
+    const dom = view.domAtPos(pos)
+    let node: Node | null = dom.node
+    while (node && node.nodeType !== 1) node = node.parentNode
+    const element = node as HTMLElement | null
+    return element?.closest('.cm-line')?.getBoundingClientRect() ?? null
+  } catch {
+    return null
+  }
+}
+
+/** 纯图片行 / 空行 / 分割线 / 围栏：不能当阅读锚点 */
+function isMediaOnlyLine(text: string): boolean {
+  const trimmed = text.trim()
+  if (!trimmed) return true
+  if (/^!\[[^\]]*\]\([^)]*\)$/.test(trimmed)) return true
+  if (/^(-{3,}|\*{3,}|_{3,})$/.test(trimmed)) return true
+  if (/^(```|~~~)/.test(trimmed)) return true
+  return false
+}
+
+/**
+ * 把某一行恢复到「顶边距视口顶部 offsetPx」的位置。
+ *
+ * CodeMirror 是虚拟列表：目标行离当前视口很远时，lineBlockAt 给的是**估算高度**，
+ * 直接按它设置 scrollTop 会短一截（文档里图片/长段落越多、估算误差越大，可能差十几行）。
+ * 所以先用 EditorView.scrollIntoView 让该行真正进入渲染范围，再用真实 DOM 坐标
+ * 闭环校正差值，直到误差小于 1px。
+ */
+function restoreLinePosition(lineFrom: number, offsetPx: number, onDone: () => void): () => void {
+  const view = editorView.value
+  const scroller = view?.scrollDOM
+  if (!view || !scroller) {
+    onDone()
+    return () => {}
+  }
+  let cancelled = false
+  let attempts = 0
+
+  const step = (): void => {
+    if (cancelled) return
+    const rect = lineElementRect(view, lineFrom)
+    if (!rect) {
+      // 目标行还不在渲染范围内：交给 CodeMirror 自己滚过去（它会边测量边推进）
+      if (attempts++ > 40) {
+        onDone()
+        return
+      }
+      view.dispatch({ effects: EditorView.scrollIntoView(lineFrom, { y: 'start' }) })
+      requestAnimationFrame(step)
+      return
+    }
+
+    const currentOffset = rect.top - scroller.getBoundingClientRect().top
+    const delta = currentOffset - offsetPx
+    if (Math.abs(delta) < 1 || attempts++ > 40) {
+      onDone()
+      return
+    }
+    scroller.scrollTop += delta
+    requestAnimationFrame(step)
+  }
+
+  requestAnimationFrame(step)
+  return () => {
+    cancelled = true
+  }
+}
+
+/** 恢复指定标签的滚动进度（组件重建 / 切换标签时调用） */
+function restoreScrollPosition(tabId: string | null = fileStore.activeTabId): void {
+  const view = editorView.value
+  if (!view || !tabId) return
+  const tab = fileStore.tabs.find((t) => t.id === tabId)
+  const saved = tab?.savedEditorPosition
+  if (!saved) return
+
+  cancelScrollRestore?.()
+  const token = ++scrollRestoreToken
+  isRestoringScroll = true
+  const onDone = (): void => {
+    setTimeout(() => {
+      if (token === scrollRestoreToken) isRestoringScroll = false
+    }, 150)
+  }
+
+  // 跨模式才用锚点：同一模式内像素更精确（标签切换时布局未变）
+  const crossMode = saved.mode != null && saved.mode !== editorModeAtMount
+  if (crossMode && saved.anchorLine != null) {
+    // 用 CodeMirror 自己的行号（它的文档坐标与 fileContent 在 CRLF 下长度不一致）
+    const lineNo = Math.min(Math.max(1, Math.floor(saved.anchorLine)), view.state.doc.lines)
+    const lineFrom = view.state.doc.line(lineNo).from
+    const offset = saved.anchorOffsetPx ?? 0
+    cancelScrollRestore?.()
+    cancelScrollRestore = restoreLinePosition(lineFrom, offset, onDone)
+    return
+  }
+
+  const fallback = scrollRestoreTarget(saved, editorModeAtMount)
+  if (!fallback) {
+    isRestoringScroll = false
+    return
+  }
+  cancelScrollRestore = restoreScroll(view.scrollDOM, fallback, { onDone })
 }
 
 /**
@@ -954,6 +1123,13 @@ function destroyEditor(): void {
   }
   editorView.value = null
 }
+
+/** 恢复滚动的取消函数：用户接管滚动或组件卸载时停掉重试 */
+let cancelScrollRestore: (() => void) | null = null
+/** 恢复期间抑制滚动同步，避免两侧互相按比例拉扯 */
+let isRestoringScroll = false
+/** 抑制令牌：新的恢复开始时让旧的解除定时器失效 */
+let scrollRestoreToken = 0
 
 /**
  * 处理拖放事件 - 图片拖放
@@ -1355,6 +1531,9 @@ onMounted(() => {
   initEditor()
   publishOutline()
 
+  // 恢复上次阅读位置（切换编辑模式 / 切回标签后组件重建时）
+  restoreScrollPosition()
+
   // 添加拖放和粘贴事件监听
   const editorEl = editorRef.value
   if (editorEl) {
@@ -1384,6 +1563,15 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  // 卸载前把阅读位置写回当前标签（切换编辑模式时组件会被重建）
+  if (scrollSaveRaf) {
+    cancelAnimationFrame(scrollSaveRaf)
+    scrollSaveRaf = 0
+  }
+  saveScrollPosition()
+  cancelScrollRestore?.()
+  cancelScrollRestore = null
+
   // 移除事件监听
   const editorEl = editorRef.value
   if (editorEl) {
@@ -1418,10 +1606,16 @@ watch(() => [fileStore.activeTabId, fileStore.fileContent] as const, ([newTabId,
   const view = editorView.value
   if (!view) return
 
-  const currentContent = view.state.doc.toString()
   const tabChanged = newTabId !== oldTabId
+  // 切换标签时，先把「离开的那个标签」的阅读位置写回（此刻容器仍对应旧内容）
+  if (tabChanged) saveScrollPosition(oldTabId ?? null)
+
+  const currentContent = view.state.doc.toString()
   if (currentContent === newContent) {
-    if (tabChanged) view.dispatch({ selection: { anchor: 0 } })
+    if (tabChanged) {
+      view.dispatch({ selection: { anchor: 0 } })
+      restoreScrollPosition(newTabId)
+    }
     updateCursorPosition(view.state)
     updateEditorSelectionSnapshot(view.state)
     return
@@ -1447,6 +1641,7 @@ watch(() => [fileStore.activeTabId, fileStore.fileContent] as const, ([newTabId,
     selection: tabChanged ? { anchor: 0 } : undefined
   })
   isSyncing = false
+  if (tabChanged) restoreScrollPosition(newTabId)
   updateCursorPosition(view.state)
   updateEditorSelectionSnapshot(view.state)
 })
@@ -1462,6 +1657,10 @@ defineExpose({
   scrollTo: (ratio: number) => {
     const view = editorView.value
     if (!view) return
+    // 外部（分屏滚动同步）接管滚动时停止尚未完成的恢复重试
+    cancelScrollRestore?.()
+    cancelScrollRestore = null
+    isRestoringScroll = false
     const scroller = view.scrollDOM
     const maxScroll = scroller.scrollHeight - scroller.clientHeight
     if (maxScroll > 0) {

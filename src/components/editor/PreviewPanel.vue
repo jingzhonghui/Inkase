@@ -6,6 +6,7 @@ import { renderMarkdown } from '../../utils/markdown'
 import { getHighlighter, type Highlighter } from '../../utils/shiki'
 import { requestDialog } from '../../utils/dialog'
 import { useEditorFontZoom } from '../../composables/useEditorFontZoom'
+import { restoreScroll, scrollRestoreTarget, scrollTargetForViewportOffset } from '../../utils/editor-scroll'
 import Tooltip from '../common/Tooltip.vue'
 
 interface Props {
@@ -210,6 +211,8 @@ function handleLinkClick(event: MouseEvent): void {
 
 // ────── Scroll sync ──────
 function handleScroll(): void {
+  // 恢复阅读位置期间，程序触发的滚动不应同步回源码编辑器
+  if (isRestoringScroll) return
   if (!previewRef.value || !props.enableScrollSync) return
   const container = previewRef.value.parentElement
   if (!container) return
@@ -218,9 +221,84 @@ function handleScroll(): void {
   emit('scroll', ratio)
 }
 
+// ────── 阅读位置恢复 ──────
+// 分屏里预览只是源码编辑器的视图：阅读位置由源码编辑器保存，
+// 预览滚动时 EditorPanel 会把同一比例同步回源码编辑器，因此这里只负责恢复。
+let cancelScrollRestore: (() => void) | null = null
+/** 恢复期间抑制滚动同步，避免两侧互相按比例拉扯 */
+let isRestoringScroll = false
+/** 抑制令牌：新的恢复开始时让旧的解除定时器失效 */
+let scrollRestoreToken = 0
+
+/** 恢复上次阅读进度（组件随分屏模式重建时调用） */
+function restoreScrollPosition(): void {
+  const container = previewRef.value?.parentElement
+  const tabId = fileStore.activeTabId
+  if (!container || !tabId) return
+  const tab = fileStore.tabs.find((t) => t.id === tabId)
+  const saved = tab?.savedEditorPosition
+  if (!saved) return
+
+  cancelScrollRestore?.()
+  const token = ++scrollRestoreToken
+  isRestoringScroll = true
+  // 恢复结束的最后一帧仍会冒一个 scroll 事件；立即解除抑制会让它按比例把源码编辑器拉走，
+  // 所以延迟一小段再恢复同步（用户此时滚动最多晚 150ms 生效，感知不到）。
+  const onDone = (): void => {
+    setTimeout(() => {
+      if (token === scrollRestoreToken) isRestoringScroll = false
+    }, 150)
+  }
+
+  // 预览按锚点行 + 屏幕偏移定位（它不保存自己的像素位置，像素值属于源码编辑器）。
+  // 图片在预览里很高，只按行号把块顶到顶部会让文字大幅跳动。
+  if (saved.anchorLine != null) {
+    const anchorLine = saved.anchorLine
+    const offset = saved.anchorOffsetPx ?? 0
+    cancelScrollRestore = restoreScroll(container, {
+      resolve: () => {
+        const block = findBlockAtLine(anchorLine)
+        return block ? scrollTargetForViewportOffset(container, block, offset) : null
+      }
+    }, { onDone })
+    return
+  }
+
+  const target = scrollRestoreTarget(saved, fileStore.effectiveEditorMode)
+  if (!target) {
+    isRestoringScroll = false
+    return
+  }
+  cancelScrollRestore = restoreScroll(container, target, { onDone })
+}
+
+/**
+ * 找到锚点行所在的块：优先「起始行等于锚点行」的第一个块，否则退回
+ * 「起始行不超过锚点行」的最后一个块（锚点行可能落在块内部）。
+ */
+function findBlockAtLine(line: number): HTMLElement | null {
+  const preview = previewRef.value
+  if (!preview) return null
+  const blocks = Array.from(preview.querySelectorAll<HTMLElement>('[data-source-line]'))
+  if (blocks.length === 0) return null
+  let best: HTMLElement | null = null
+  for (const block of blocks) {
+    const blockLine = Number(block.getAttribute('data-source-line'))
+    if (!Number.isFinite(blockLine)) continue
+    if (blockLine === line) return block
+    if (blockLine < line) best = block
+    else break
+  }
+  return best ?? blocks[0]
+}
+
 function scrollTo(ratio: number): void {
   const container = previewRef.value?.parentElement
   if (!container) return
+  // 外部（分屏滚动同步）接管滚动时停止尚未完成的恢复重试
+  cancelScrollRestore?.()
+  cancelScrollRestore = null
+  isRestoringScroll = false
   const maxScroll = container.scrollHeight - container.clientHeight
   container.scrollTop = ratio * maxScroll
 }
@@ -279,11 +357,14 @@ watch(() => themeStore.isDark, () => {
 onMounted(() => {
   initShiki()
   renderPreview()
+  restoreScrollPosition()
   if (previewWrapperRef.value) attachFontZoom(previewWrapperRef.value)
   window.addEventListener('inkase:outline-jump', handleOutlineJump)
 })
 
 onUnmounted(() => {
+  cancelScrollRestore?.()
+  cancelScrollRestore = null
   teardownScrollLazy()
   window.removeEventListener('inkase:outline-jump', handleOutlineJump)
 })
@@ -495,26 +576,29 @@ defineExpose({
   margin-bottom: 0;
 }
 
-/* 任务列表 */
+/* 任务列表：渲染层已输出真实 <input type="checkbox">，这里只负责外观（只读态） */
 .preview-content :deep(li.task-list-item) {
   list-style-type: none;
   padding-left: 1.5em;
   position: relative;
 }
 
-.preview-content :deep(li.task-list-item::before) {
-  content: '';
+.preview-content :deep(li.task-list-item .task-checkbox) {
+  appearance: none;
+  -webkit-appearance: none;
   position: absolute;
   left: 0;
-  top: 0.35em;
+  top: 0.4em;
   width: 1em;
   height: 1em;
+  margin: 0;
   border: 2px solid var(--color-border);
   border-radius: 3px;
   background-color: var(--color-bg-primary);
+  cursor: default;
 }
 
-.preview-content :deep(li.task-list-item[data-checked="true"]::before) {
+.preview-content :deep(li.task-list-item .task-checkbox:checked) {
   background-color: var(--color-primary);
   border-color: var(--color-primary);
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='white'%3E%3Cpath d='M13.78 4.22a.75.75 0 010 1.06l-7.25 7.25a.75.75 0 01-1.06 0L2.22 9.28a.75.75 0 011.06-1.06L6 10.94l6.72-6.72a.75.75 0 011.06 0z'/%3E%3C/svg%3E");
@@ -523,7 +607,8 @@ defineExpose({
   background-repeat: no-repeat;
 }
 
-.preview-content :deep(li.task-list-item[data-checked="true"]) {
+/* 只给本项文字划线，嵌套子列表不受影响 */
+.preview-content :deep(li.task-list-item[data-checked="true"] .task-text) {
   text-decoration: line-through;
   color: var(--color-text-tertiary);
 }

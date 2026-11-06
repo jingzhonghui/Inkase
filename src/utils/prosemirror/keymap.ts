@@ -175,6 +175,10 @@ function customSplitListItem(itemType: NodeType): Command {
 
     const listItemNode = $from.node(listItemDepth)
 
+    // 只处理调用方指定的项类型：回车链里 list_item 与 task_item 各跑一次，
+    // 不校验类型会让前者「空项」分支误吞回车（liftListItem 失败也 return true）。
+    if (listItemNode.type !== itemType) return false
+
     // 检查列表项是否为空（只有段落且内容为空）
     const isEmpty = listItemNode.childCount === 1 &&
       listItemNode.firstChild?.type.name === 'paragraph' &&
@@ -197,10 +201,11 @@ function customSplitListItem(itemType: NodeType): Command {
           tr.replaceWith(listStart, listEnd, paragraph)
           tr.setSelection(TextSelection.create(tr.doc, listStart + 1))
           dispatch(tr)
-        } else {
-          // 多个列表项：将当前项提升为段落
-          liftListItem(itemType)(state, dispatch)
+          return true
         }
+
+        // 多个列表项：将当前项提升为段落
+        return liftListItem(itemType)(state, dispatch)
       }
       return true
     }

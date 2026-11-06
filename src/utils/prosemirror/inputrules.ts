@@ -80,8 +80,13 @@ function bulletListRule(nodeType: NodeType): InputRule {
  * 因为输入 `- ` 时 `bulletListRule` 会先把它转成普通无序列表，无法再匹配 `- [ ] `，
  * 所以这里改为匹配「列表项段落开头输入的 `[ ] ` / `[x] `」，并把所在的整个无序列表
  * 转换为任务列表（任务列表要求所有项都是 task_item）。
+ *
+ * 注意目标节点类型必须是 schema 的 `task_list`：直接把 task_item 塞进 `bullet_list`
+ * 会产生非法内容（bullet_list 的 content 是 list_item+），回车分割时 `canSplit` 会抛
+ * 「Called contentMatchAt on a node with invalid content」，浏览器默认行为接管，
+ * 表现为下一行变成无序列表、任务项也冒出圆点。
  */
-function taskListRule(listType: NodeType, itemType: NodeType): InputRule {
+function taskListRule(listType: NodeType, targetListType: NodeType, itemType: NodeType): InputRule {
   return new InputRule(
     /^\[( |x|X)\]\s$/,
     (state: EditorState, match: RegExpMatchArray, start: number, end: number) => {
@@ -112,7 +117,7 @@ function taskListRule(listType: NodeType, itemType: NodeType): InputRule {
       list.forEach((child, _offset, index) => {
         items.push(itemType.create({ checked: index === currentIndex ? checked : false }, child.content))
       })
-      const newList = listType.create(null, items)
+      const newList = targetListType.create(null, items)
       tr.replaceWith(listStart, listStart + list.nodeSize, newList)
 
       let pos = listStart + 1
@@ -250,8 +255,8 @@ export function buildInputRules(schema: Schema) {
     // 有序列表 1.
     orderedListRule(schema.nodes.ordered_list),
 
-    // 任务列表：在无序列表项开头输入 [ ] / [x]
-    taskListRule(schema.nodes.bullet_list, schema.nodes.task_item),
+    // 任务列表：在无序列表项开头输入 [ ] / [x]，整表转换为 task_list
+    taskListRule(schema.nodes.bullet_list, schema.nodes.task_list, schema.nodes.task_item),
 
     // 无序列表 - / * / +
     bulletListRule(schema.nodes.bullet_list),

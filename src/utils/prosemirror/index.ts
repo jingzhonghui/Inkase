@@ -38,7 +38,6 @@ export {
   createPastePlugin,
   createPlaceholderPlugin,
   selectionPlugin,
-  taskListClickPlugin,
   pluginsKey,
   history,
   keymap,
