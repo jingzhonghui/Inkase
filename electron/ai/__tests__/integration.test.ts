@@ -13,7 +13,8 @@ import type {
   AiRunInput,
   AiRuntimeConfig,
   SearchWorkspaceResult,
-  ToolExecutionResult
+  ToolExecutionResult,
+  WorkspaceFileSlice
 } from '../../../shared/ai/types'
 
 const DOCUMENT_BODY = '# Release notes\n\nPrivate roadmap details'
@@ -73,8 +74,34 @@ function makeFakeSearchService(): WorkspaceSearchService {
     })),
     listRoot: vi.fn(),
     readDirectory: vi.fn(),
-    readFile: vi.fn(async () => DOCUMENT_BODY)
+    readFile: vi.fn(async () => DOCUMENT_BODY),
+    readFileSlice: vi.fn(async () => makeFileSlice(DOCUMENT_BODY)),
+    statFile: vi.fn(async () => ({
+      path: 'docs/release-notes.md',
+      format: 'markdown',
+      fileSize: Buffer.byteLength(DOCUMENT_BODY, 'utf8'),
+      totalSize: Buffer.byteLength(DOCUMENT_BODY, 'utf8'),
+      readable: true
+    }))
   } as unknown as WorkspaceSearchService
+}
+
+/** 构造一次全文读取的结果，供 mock 的 readFileSlice 复用。 */
+function makeFileSlice(content: string): WorkspaceFileSlice {
+  const bytes = Buffer.byteLength(content, 'utf8')
+  return {
+    path: 'docs/release-notes.md',
+    format: 'markdown',
+    fileSize: bytes,
+    totalSize: bytes,
+    offset: 0,
+    length: bytes,
+    content,
+    eof: true,
+    truncated: false,
+    nextOffset: null,
+    encoding: 'utf-8'
+  }
 }
 
 class ScriptedProvider implements LlmProvider {
@@ -137,10 +164,10 @@ describe('AI main-process integration', () => {
       truncated: false,
       elapsedMs: 1
     }))
-    const readFile = vi.fn(async () => DOCUMENT_BODY)
+    const readFileSlice = vi.fn(async () => makeFileSlice(DOCUMENT_BODY))
     const searchService = makeFakeSearchService()
     searchService.search = search
-    searchService.readFile = readFile
+    searchService.readFileSlice = readFileSlice
     const provider = new ScriptedProvider(async function* (input) {
       yield { type: 'tool-call-started', toolCallId: 'search-1', toolName: 'search_workspace' }
       searchResult = await input.tools.search_workspace.execute({ query: 'release-notes', mode: 'filename' })

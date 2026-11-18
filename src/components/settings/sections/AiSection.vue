@@ -3,7 +3,12 @@ import { onMounted, reactive, ref, watch } from 'vue'
 import { IconEye, IconEyeOff } from '@tabler/icons-vue'
 import Tooltip from '../../common/Tooltip.vue'
 import SettingsRow from '../SettingsRow.vue'
-import type { AiConfigInput, AiConnectionTestResult } from '../../../../shared/ai/types'
+import { requestDialog } from '../../../utils/dialog'
+import type {
+  AiConfigInput,
+  AiConfigView,
+  AiConnectionTestResult
+} from '../../../../shared/ai/types'
 
 /**
  * AI 助手：Provider 连接参数。
@@ -31,7 +36,15 @@ const form = reactive({
   temperature: 0.3,
   maxOutputTokens: undefined as number | undefined,
   contextWindow: undefined as number | undefined,
-  maxSteps: undefined as number | undefined
+  maxSteps: undefined as number | undefined,
+  /**
+   * 表单用「人类单位」，配置里存字节 / 毫秒：
+   * 读取上限按 KB 填、空闲超时按分钟填，避免让用户写 262144 这种数字。
+   */
+  maxReadKb: undefined as number | undefined,
+  idleTimeoutMinutes: undefined as number | undefined,
+  /** 完全控制：开启后不再逐次请求批准 */
+  autoApprove: false
 })
 const hasApiKey = ref(false)
 /** API Key 是否明文显示（小眼睛切换） */
@@ -42,7 +55,15 @@ const messageTone = ref<'ok' | 'error'>('ok')
 const capabilities = ref<AiConnectionTestResult | null>(null)
 const capabilityFingerprint = ref<string | null>(null)
 const persistedFingerprint = ref<string | null>(null)
+/** 能力探测是否通过（探针结果与当前表单一致时才算） */
 const capabilityReady = ref(false)
+/**
+ * 保存的配置是否可用（地址 + 模型 + API Key 齐备）。
+ *
+ * 与 capabilityReady 分开：发送按钮只看「配置是否可用」，能力探测只是额外的验证信息，
+ * 没点过「测试连接」不影响使用。
+ */
+const configReady = ref(false)
 
 function input(includeEmptyKey = false): AiConfigInput {
   const value: AiConfigInput = {
@@ -51,10 +72,70 @@ function input(includeEmptyKey = false): AiConfigInput {
     temperature: Number(form.temperature),
     maxOutputTokens: form.maxOutputTokens,
     contextWindow: form.contextWindow,
-    maxSteps: form.maxSteps
+    maxSteps: form.maxSteps,
+    maxReadBytes: toBytes(form.maxReadKb, 1024),
+    idleTimeoutMs: toBytes(form.idleTimeoutMinutes, 60_000),
+    approvalMode: form.autoApprove ? 'auto' : 'ask'
   }
   if (form.apiKey || includeEmptyKey) value.apiKey = form.apiKey
   return value
+}
+
+function toBytes(value: number | undefined, unit: number): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return undefined
+  return Math.round(value * unit)
+}
+
+function fromBytes(value: number | undefined, unit: number): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return undefined
+  return Math.round(value / unit)
+}
+
+/** 把服务端视图搬进表单，顺便把字节/毫秒换算成 KB/分钟，并广播审批模式。 */
+function fillForm(data: AiConfigView): void {
+  form.baseUrl = data.baseUrl
+  form.model = data.model
+  form.temperature = data.temperature
+  form.maxOutputTokens = data.maxOutputTokens
+  form.contextWindow = data.contextWindow
+  form.maxSteps = data.maxSteps
+  form.maxReadKb = fromBytes(data.maxReadBytes, 1024)
+  form.idleTimeoutMinutes = fromBytes(data.idleTimeoutMs, 60_000)
+  form.autoApprove = data.approvalMode === 'auto'
+  form.apiKey = ''
+  broadcastApprovalMode()
+}
+
+/** 顶条徽标要看这个状态，但设置面板不归 App 管，所以走窗口事件广播。 */
+function broadcastApprovalMode(): void {
+  window.dispatchEvent(
+    new CustomEvent('ai:approval-mode', { detail: form.autoApprove ? 'auto' : 'ask' })
+  )
+}
+
+/**
+ * 切换「完全控制」。
+ *
+ * 这是把「每次都要我点允许」换成「不再问」，代价是不可逆操作也会被自动放行，
+ * 所以只在开启方向要一次明确确认；关闭随时可以。
+ */
+async function toggleAutoApprove(next: boolean): Promise<void> {
+  if (!next) {
+    form.autoApprove = false
+    broadcastApprovalMode()
+    return
+  }
+  const choice = await requestDialog({
+    title: '开启完全控制',
+    message: '开启后 AI 将自动执行所有操作，不再逐次请求批准。',
+    detail: '包括写入文档、移动/删除文件等不可恢复的操作。会话里仍会留下「自动执行」记录，但不会再给你拦截的机会。',
+    buttons: [
+      { label: '取消', value: 1 },
+      { label: '开启', value: 0, primary: true }
+    ]
+  })
+  form.autoApprove = choice === 0
+  broadcastApprovalMode()
 }
 
 function configFingerprint(value: AiConfigInput): string {
@@ -73,13 +154,12 @@ async function load(): Promise<void> {
   try {
     const result = await window.electronAPI.getAiConfig()
     if (result.success && result.data) {
-      Object.assign(form, result.data, { apiKey: '' })
+      fillForm(result.data)
       hasApiKey.value = result.data.hasApiKey
       persistedFingerprint.value = configFingerprint(input())
       capabilities.value = result.data.capabilities ?? null
       capabilityFingerprint.value = capabilities.value ? configFingerprint(input()) : null
-      capabilityReady.value = result.data.ready === true
-      emit('readiness', result.data.ready === true)
+      applyReadiness(result.data)
     } else setMessage(result.error || '加载配置失败', 'error')
   } catch (error) {
     setMessage(error instanceof Error ? error.message : '加载配置失败', 'error')
@@ -104,9 +184,8 @@ async function save(): Promise<boolean> {
       persistedFingerprint.value = configFingerprint(input())
       capabilities.value = result.data.capabilities ?? null
       capabilityFingerprint.value = capabilities.value ? configFingerprint(input()) : null
-      capabilityReady.value = result.data.ready === true
+      applyReadiness(result.data)
       setMessage('设置已保存', 'ok')
-      emit('readiness', result.data.ready === true)
       return true
     }
     setMessage(result.error || '保存失败', 'error')
@@ -117,6 +196,18 @@ async function save(): Promise<boolean> {
   } finally {
     loading.value = false
   }
+}
+
+/**
+ * 就绪状态：配置齐备即可用，能力探测只是附加信息。
+ *
+ * 先把「保存的配置是否完整」记为 configReady，再单独记录探测是否通过；
+ * 发给外部的 readiness 用前者，避免没点过「测试连接」就发不出消息。
+ */
+function applyReadiness(data: AiConfigView): void {
+  configReady.value = data.ready === true
+  capabilityReady.value = !!(data.capabilities?.textGeneration && data.capabilities.toolCalling)
+  emit('readiness', configReady.value)
 }
 
 async function test(): Promise<void> {
@@ -137,14 +228,15 @@ async function test(): Promise<void> {
         result.data.textGeneration &&
         result.data.toolCalling
       )
-      emit('readiness', capabilityReady.value)
+      // 探测通过可以证明配置可用；探测失败或表单未保存则回落到已保存配置的判定
+      emit('readiness', capabilityReady.value || configReady.value)
     } else {
       setMessage(result.error || '连接测试失败', 'error')
-      emit('readiness', false)
+      emit('readiness', configReady.value)
     }
   } catch (error) {
     setMessage(error instanceof Error ? error.message : '连接测试失败', 'error')
-    emit('readiness', false)
+    emit('readiness', configReady.value)
   } finally {
     loading.value = false
   }
@@ -169,14 +261,18 @@ watch(
     form.temperature,
     form.maxOutputTokens,
     form.contextWindow,
-    form.maxSteps
+    form.maxSteps,
+    form.maxReadKb,
+    form.idleTimeoutMinutes,
+    form.autoApprove
   ],
   () => {
     if (capabilityFingerprint.value === configFingerprint(input())) return
     capabilities.value = null
     capabilityFingerprint.value = null
     capabilityReady.value = false
-    emit('readiness', false)
+    // 保存的配置没变，发送按钮不该因为表单里改了字而失效
+    emit('readiness', configReady.value)
   }
 )
 
@@ -300,17 +396,66 @@ defineExpose({ save })
 
     <SettingsRow
       title="最大工具步骤"
-      desc="一次提问里最多连续调用工具的次数"
+      desc="一次提问里最多连续调用工具的次数，整理目录这类任务建议调高"
     >
       <input
         v-model.number="form.maxSteps"
         class="settings-number"
         type="number"
         min="1"
-        max="100"
-        placeholder="默认 20"
+        max="200"
+        placeholder="默认 50"
       >
       <span class="settings-unit">次</span>
+    </SettingsRow>
+
+    <SettingsRow
+      title="单次读取上限"
+      desc="一次 read_workspace_file 最多返回的正文大小，超出部分模型会用 offset 续读"
+    >
+      <input
+        v-model.number="form.maxReadKb"
+        class="settings-number"
+        data-testid="ai-max-read-kb"
+        type="number"
+        min="4"
+        max="4096"
+        step="1"
+        placeholder="默认 256"
+      >
+      <span class="settings-unit">KB</span>
+    </SettingsRow>
+
+    <SettingsRow
+      title="空闲超时"
+      desc="模型既没输出、也没有工具在跑的时间上限；工具执行与审批等待不计入"
+    >
+      <input
+        v-model.number="form.idleTimeoutMinutes"
+        class="settings-number"
+        data-testid="ai-idle-timeout"
+        type="number"
+        min="1"
+        max="60"
+        step="1"
+        placeholder="默认 10"
+      >
+      <span class="settings-unit">分钟</span>
+    </SettingsRow>
+
+    <SettingsRow
+      title="完全控制"
+      desc="开启后 AI 自动执行写入、移动、删除等操作，不再逐次请求批准；会话里仍会留档"
+    >
+      <label class="ai-toggle">
+        <input
+          data-testid="ai-auto-approve"
+          type="checkbox"
+          :checked="form.autoApprove"
+          @change="toggleAutoApprove(($event.target as HTMLInputElement).checked)"
+        >
+        <span>{{ form.autoApprove ? '已开启' : '关闭' }}</span>
+      </label>
     </SettingsRow>
 
     <p class="ai-privacy">
@@ -338,7 +483,7 @@ defineExpose({ save })
     >
       <span data-testid="text-capability">文本生成：{{ capabilities.textGeneration ? '通过' : '不支持' }}</span>
       <span data-testid="tools-capability">工具调用：{{ capabilities.toolCalling ? '通过' : '不支持' }}</span>
-      <strong data-testid="config-readiness">{{ capabilityReady ? '配置已就绪' : '尚未就绪' }}</strong>
+      <strong data-testid="config-readiness">{{ capabilityReady ? '配置可用 · 能力验证通过' : configReady ? '配置可用 · 能力未验证' : '尚未就绪' }}</strong>
     </div>
 
     <p
@@ -473,5 +618,14 @@ defineExpose({ save })
 
 .ai-message.ok {
   color: var(--color-primary);
+}
+
+.ai-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--color-text);
+  font-size: var(--ui-font-size);
+  cursor: pointer;
 }
 </style>

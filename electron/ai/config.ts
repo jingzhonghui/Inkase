@@ -70,7 +70,10 @@ export class AiConfigService {
       temperature: input.temperature,
       maxOutputTokens: input.maxOutputTokens,
       contextWindow: input.contextWindow,
-      maxSteps: input.maxSteps
+      maxSteps: input.maxSteps,
+      maxReadBytes: input.maxReadBytes,
+      idleTimeoutMs: input.idleTimeoutMs,
+      approvalMode: input.approvalMode
     }
 
     const existingKeyOrigin = existing.apiKeyOrigin ?? this.originOf(existing.baseUrl)
@@ -125,7 +128,10 @@ export class AiConfigService {
       temperature: stored.temperature,
       maxOutputTokens: stored.maxOutputTokens,
       contextWindow: stored.contextWindow,
-      maxSteps: stored.maxSteps
+      maxSteps: stored.maxSteps,
+      maxReadBytes: stored.maxReadBytes,
+      idleTimeoutMs: stored.idleTimeoutMs,
+      approvalMode: stored.approvalMode
     }
   }
 
@@ -166,6 +172,10 @@ export class AiConfigService {
     delete rest.systemPrompt
     const origin = this.originOf(stored.baseUrl)
     const apiKey = this.resolveApiKey(stored)
+    const hasApiKey = !!(
+      (this.memoryKey && this.memoryKeyOrigin === origin) ||
+      (apiKeyEncrypted && (apiKeyOrigin ?? origin) === origin)
+    )
     const evidenceMatches = !!(
       capabilityTest &&
       apiKey &&
@@ -173,15 +183,15 @@ export class AiConfigService {
     )
     return {
       ...rest,
-      hasApiKey: !!(
-        (this.memoryKey && this.memoryKeyOrigin === origin) ||
-        (apiKeyEncrypted && (apiKeyOrigin ?? origin) === origin)
-      ),
-      ready: !!(
-        evidenceMatches &&
-        capabilityTest.result.textGeneration &&
-        capabilityTest.result.toolCalling
-      ),
+      hasApiKey,
+      /**
+       * 只要地址、模型与 API Key 齐备就算就绪，不再要求先跑通能力探测。
+       *
+       * 探测是把已有配置「验证一遍」，不是使用的前置条件：模型能力因服务商而异，
+       * 硬性要求探测会把「配置已经正确」的用户挡在发送按钮外面。探测结果仍然
+       * 通过 capabilities 展示，供用户判断工具调用是否被支持。
+       */
+      ready: !!(hasApiKey && stored.baseUrl?.trim() && stored.model?.trim()),
       capabilities: evidenceMatches ? capabilityTest.result : undefined
     }
   }
@@ -196,7 +206,10 @@ export class AiConfigService {
         temperature: config.temperature,
         maxOutputTokens: config.maxOutputTokens,
         contextWindow: config.contextWindow,
-        maxSteps: config.maxSteps
+        maxSteps: config.maxSteps,
+        maxReadBytes: config.maxReadBytes,
+        idleTimeoutMs: config.idleTimeoutMs,
+        approvalMode: config.approvalMode
       }))
       .digest('hex')
   }

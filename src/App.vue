@@ -23,6 +23,8 @@ const { init: initFileDrop, dispose: disposeFileDrop } = useFileDrop()
 const aiStore = useAiStore()
 const syncStore = useSyncStore()
 const aiReady = ref(false)
+/** 完全控制开关：面板顶条要一直显示这个状态 */
+const aiAutoApprove = ref(false)
 
 /**
  * AI 配置在设置中心里（「AI 助手」节），不在 AI 面板里。
@@ -41,9 +43,16 @@ async function loadAiReadiness(): Promise<void> {
   try {
     const result = await window.electronAPI.getAiConfig()
     aiReady.value = result.success && result.data?.ready === true
+    aiAutoApprove.value = result.success && result.data?.approvalMode === 'auto'
   } catch {
     aiReady.value = false
+    aiAutoApprove.value = false
   }
+}
+
+/** 完全控制开关变化时由设置中心广播，顶条徽标据此更新 */
+function handleAiApprovalMode(event: Event): void {
+  aiAutoApprove.value = (event as CustomEvent<string>).detail === 'auto'
 }
 
 async function openLaunchTargets(targets: Array<{ path: string; kind: 'file' | 'directory' }>): Promise<void> {
@@ -90,6 +99,7 @@ onMounted(async () => {
   syncStore.init()
   void loadAiReadiness()
   window.addEventListener('ai:readiness', handleAiReadiness)
+  window.addEventListener('ai:approval-mode', handleAiApprovalMode)
 
   if (window.electronAPI?.onOpenTargets) {
     removeOpenTargetsListener = window.electronAPI.onOpenTargets((targets) => {
@@ -115,6 +125,7 @@ onUnmounted(() => {
     removeOpenTargetsListener()
   }
   window.removeEventListener('ai:readiness', handleAiReadiness)
+  window.removeEventListener('ai:approval-mode', handleAiApprovalMode)
   disposeFileDrop()
   updateStore.dispose()
   fileStore.cleanupTimers()
@@ -141,6 +152,7 @@ onUnmounted(() => {
       <!-- 编辑区域 -->
       <EditorPanel
         :ai-ready="aiReady"
+        :ai-auto-approve="aiAutoApprove"
         @open-ai-settings="openAiSettings"
       />
     </div>

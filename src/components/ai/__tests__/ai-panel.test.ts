@@ -140,6 +140,20 @@ describe('AI panel', () => {
     expect(wrapper.get('.message-body').text()).not.toContain('<!--')
   })
 
+  it('shows a 完全控制 badge when auto approval is on', async () => {
+    const wrapper = mount(AiPanel, { props: { ready: true, autoApprove: true }, attachTo: document.body })
+    await nextTick()
+
+    expect(wrapper.get('[data-testid="ai-auto-approve-badge"]').text()).toContain('完全控制')
+  })
+
+  it('hides the 完全控制 badge in the default ask mode', async () => {
+    const wrapper = mountPanel()
+    await nextTick()
+
+    expect(wrapper.find('[data-testid="ai-auto-approve-badge"]').exists()).toBe(false)
+  })
+
   it('escapes raw HTML and renders every URL as non-navigating text', async () => {
     const store = useAiStore()
     store.messages.push({
@@ -325,6 +339,37 @@ describe('AI panel', () => {
 
     const card = wrapper.get('[data-testid="ai-approval-card"]')
     expect(wrapper.get('[data-testid="ai-message"]').element.contains(card.element)).toBe(true)
+  })
+
+  it('auto-approves an auto-marked request without waiting for a click', async () => {
+    const store = useAiStore()
+    let handler: ((event: never) => void) | null = null
+    electronAPI.onAiRunEvent.mockImplementation((cb: (event: never) => void) => {
+      handler = cb
+      return () => undefined
+    })
+    const claimAiApproval = vi.fn(async () => ({ success: true }))
+    const resolveAiApproval = vi.fn(async () => ({ success: true }))
+    Object.assign(electronAPI, { claimAiApproval, resolveAiApproval })
+    store.init()
+    const emit = (event: unknown): void => (handler as unknown as (e: unknown) => void)(event)
+
+    emit({ type: 'run-started', runId: 'r1' })
+    emit({
+      type: 'approval-required',
+      runId: 'r1',
+      approval: approvalRecord({
+        auto: true,
+        effect: 'write',
+        execution: { location: 'main' }
+      })
+    })
+
+    // 完全控制：不点任何按钮也应该走完认领 → 回传结果
+    await vi.waitFor(() => expect(resolveAiApproval).toHaveBeenCalled())
+    expect(claimAiApproval).not.toHaveBeenCalled()
+    expect(store.pendingApprovals).toHaveLength(0)
+    expect(store.approvalHistory[0]?.auto).toBe(true)
   })
 
   it('marks each speaker with its own avatar and bubble', async () => {

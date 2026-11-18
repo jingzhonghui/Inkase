@@ -35,7 +35,13 @@ const aiConfigInputSchema = z.object({
   temperature: z.number().min(0).max(2),
   maxOutputTokens: z.number().int().positive().optional(),
   contextWindow: z.number().int().positive().optional(),
-  maxSteps: z.number().int().positive().max(100).optional()
+  maxSteps: z.number().int().positive().max(200).optional(),
+  // 4 KiB ~ 4 MiB：与 workspace-search-service 的 MIN/MAX_READ_BYTES 对齐
+  maxReadBytes: z.number().int().min(4 * 1024).max(4 * 1024 * 1024).optional(),
+  // 30 秒 ~ 60 分钟
+  idleTimeoutMs: z.number().int().min(30_000).max(60 * 60_000).optional(),
+  /** ask：逐次审批；auto：完全控制，不再逐次询问 */
+  approvalMode: z.enum(['ask', 'auto']).optional()
 }).strict()
 
 let configService: AiConfigService | null = null
@@ -94,14 +100,19 @@ function configsEqual(a: AiRuntimeConfig, b: AiRuntimeConfig): boolean {
     a.apiKey === b.apiKey &&
     a.temperature === b.temperature &&
     a.maxOutputTokens === b.maxOutputTokens &&
-    a.contextWindow === b.contextWindow
+    a.contextWindow === b.contextWindow &&
+    a.maxSteps === b.maxSteps &&
+    a.maxReadBytes === b.maxReadBytes &&
+    a.idleTimeoutMs === b.idleTimeoutMs &&
+    (a.approvalMode ?? 'ask') === (b.approvalMode ?? 'ask')
   )
 }
 
 function createRuntime(config: AiRuntimeConfig): AiRuntime {
   const registry = new ToolRegistry()
   const approvalManager = new ApprovalManager()
-  const provider = new VercelAiSdkProvider()
+  // 空闲超时属于运行语义（工具/审批期间不计时），由配置带进来
+  const provider = new VercelAiSdkProvider({ idleTimeoutMs: config.idleTimeoutMs })
   return new AiRuntime({
     provider,
     registry,

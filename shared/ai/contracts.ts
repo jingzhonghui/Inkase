@@ -18,7 +18,7 @@ const documentSnapshotSchema = z
     id: nonEmptyString,
     title: z.string(),
     path: z.string().nullable(),
-    format: z.enum(['markdown', 'mdx']),
+    format: z.enum(['markdown', 'mdx', 'mindmap', 'diagram', 'image', 'pdf']),
     content: z.string(),
     revision: z.number().int().nonnegative(),
     contentHash: z.string(),

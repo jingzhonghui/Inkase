@@ -147,7 +147,8 @@ describe('AiConfigService', () => {
   it.each([
     ['model', { model: 'other' }],
     ['temperature', { temperature: 0.2 }],
-    ['API key', { apiKey: 'different-secret' }]
+    ['API key', { apiKey: 'different-secret' }],
+    ['读取上限', { maxReadBytes: 64 * 1024 }]
   ])('invalidates capability evidence when the saved %s changes', (_label, change) => {
     const service = new AiConfigService(configPath)
     const original = {
@@ -161,11 +162,13 @@ describe('AiConfigService', () => {
 
     service.save({ ...original, ...change })
 
-    expect(service.getView()).toMatchObject({ ready: false })
-    expect(service.getView().capabilities).toBeUndefined()
+    const view = service.getView()
+    // 配置齐备就仍然可用；过期的是「能力探测证据」，不是发送按钮
+    expect(view.ready).toBe(true)
+    expect(view.capabilities).toBeUndefined()
   })
 
-  it('does not mark an exact config ready when either capability failed', () => {
+  it('stays ready when a capability probe reports no tool support', () => {
     const service = new AiConfigService(configPath)
     service.save({
       baseUrl: 'https://api.example.com/v1', model: 'demo', apiKey: 'secret', temperature: 0.7
@@ -175,10 +178,78 @@ describe('AiConfigService', () => {
       toolCalling: false
     })
 
+    // 探测结果只作为提示，不阻断使用：模型不支持工具调用由运行期报错说明
     expect(service.getView()).toMatchObject({
-      ready: false,
+      ready: true,
       capabilities: { textGeneration: true, toolCalling: false }
     })
+  })
+
+  it('is not ready until the API key, address and model are all present', () => {
+    const service = new AiConfigService(configPath)
+
+    expect(service.getView().ready).toBe(false)
+
+    // 有地址和模型但没有 Key
+    service.save({ baseUrl: 'https://api.example.com/v1', model: 'demo', temperature: 0.7 })
+    expect(service.getView()).toMatchObject({ hasApiKey: false, ready: false })
+
+    // 保存 Key 之后无需先跑能力探测就应当可用
+    service.save({
+      baseUrl: 'https://api.example.com/v1', model: 'demo', apiKey: 'secret', temperature: 0.7
+    })
+    expect(service.getView()).toMatchObject({ hasApiKey: true, ready: true })
+    expect(service.getView().capabilities).toBeUndefined()
+  })
+
+  it('persists and returns the read limit and idle timeout', () => {
+    const service = new AiConfigService(configPath)
+    service.save({
+      baseUrl: 'https://api.example.com/v1',
+      model: 'demo',
+      apiKey: 'secret',
+      temperature: 0.7,
+      maxReadBytes: 512 * 1024,
+      idleTimeoutMs: 15 * 60_000
+    })
+
+    expect(service.getRuntimeConfig()).toMatchObject({
+      maxReadBytes: 512 * 1024,
+      idleTimeoutMs: 15 * 60_000
+    })
+    expect(new AiConfigService(configPath).getView()).toMatchObject({
+      maxReadBytes: 512 * 1024,
+      idleTimeoutMs: 15 * 60_000
+    })
+  })
+
+  it('leaves untouched runtime limits undefined so defaults apply', () => {
+    const service = new AiConfigService(configPath)
+    service.save({
+      baseUrl: 'https://api.example.com/v1', model: 'demo', apiKey: 'secret', temperature: 0.7
+    })
+
+    const runtime = service.getRuntimeConfig()
+    expect(runtime.maxReadBytes).toBeUndefined()
+    expect(runtime.idleTimeoutMs).toBeUndefined()
+  })
+
+  it('persists the approval mode and defaults to ask', () => {
+    const service = new AiConfigService(configPath)
+    service.save({
+      baseUrl: 'https://api.example.com/v1', model: 'demo', apiKey: 'secret', temperature: 0.7
+    })
+    // 未设置时保持 undefined，运行期按 ask 处理
+    expect(service.getRuntimeConfig().approvalMode).toBeUndefined()
+
+    service.save({
+      baseUrl: 'https://api.example.com/v1',
+      model: 'demo',
+      temperature: 0.7,
+      approvalMode: 'auto'
+    })
+    expect(service.getRuntimeConfig().approvalMode).toBe('auto')
+    expect(new AiConfigService(configPath).getView().approvalMode).toBe('auto')
   })
 
   it('getRuntimeConfig decrypts the stored key', () => {

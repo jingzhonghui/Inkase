@@ -29,6 +29,19 @@ export function validApprovalPreview(preview: unknown): ApprovalPreview | null {
     && (value.fileType === 'pdf' || value.fileType === 'markdown' || value.fileType === 'mdx' || value.fileType === 'text')
     && (value.size === undefined || (typeof value.size === 'number' && Number.isFinite(value.size) && value.size >= 0))
     && typeof value.reason === 'string') return preview as ApprovalPreview
+  if (value.type === 'file-delete'
+    && typeof value.title === 'string'
+    && typeof value.relativePath === 'string'
+    && typeof value.fileSize === 'number'
+    && Number.isFinite(value.fileSize)
+    && value.fileSize >= 0
+    && typeof value.format === 'string') return preview as ApprovalPreview
+  if (value.type === 'file-operation'
+    && (value.operation === 'move' || value.operation === 'create-directory')
+    && typeof value.title === 'string'
+    && typeof value.to === 'string'
+    && (value.from === undefined || typeof value.from === 'string')
+    && (value.reason === undefined || typeof value.reason === 'string')) return preview as ApprovalPreview
   return null
 }
 
@@ -39,6 +52,8 @@ export function approvalPreviewType(preview: ApprovalPreview | null): ApprovalPr
     case 'document': return 'document'
     case 'network-request': return 'network-request'
     case 'local-file-read': return 'local-file-read'
+    case 'file-delete': return 'file-delete'
+    case 'file-operation': return 'file-operation'
     default: {
       const exhaustive: never = preview
       void exhaustive

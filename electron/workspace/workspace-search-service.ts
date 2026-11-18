@@ -9,7 +9,10 @@ import type {
   SearchTruncationReason,
   SearchWorkspaceInput,
   SearchWorkspaceResult,
-  WorkspaceDirectoryResult
+  WorkspaceDirectoryResult,
+  WorkspaceFileFormat,
+  WorkspaceFileSlice,
+  WorkspaceFileStat
 } from '../../shared/ai/types'
 import { resolveRgPath } from './rg-resolver'
 import { isPathWithinRoot } from './workspace-authorization'
@@ -42,6 +45,8 @@ export interface WorkspaceSearchLimits {
   mdx: MdxSearchLimits
   maxMdxTotalBytes: number
   mdxConcurrency: number
+  /** 单次 readFileSlice 返回的正文字节上限；超出时截断并给出 nextOffset */
+  maxReadBytes: number
 }
 
 export const DEFAULT_SEARCH_LIMITS: WorkspaceSearchLimits = {
@@ -52,7 +57,10 @@ export const DEFAULT_SEARCH_LIMITS: WorkspaceSearchLimits = {
   maxPreviewLength: 500,
   mdx: DEFAULT_MDX_SEARCH_LIMITS,
   maxMdxTotalBytes: 200 * 1024 * 1024,
-  mdxConcurrency: 4
+  mdxConcurrency: 4,
+  // 256 KiB：约 6 万汉字，够一次读完普通文档，又不至于把上下文撑爆。
+  // 更大的文件由模型按 nextOffset 分多次读取。
+  maxReadBytes: 256 * 1024
 }
 
 export interface WorkspaceSearchDeps {
@@ -85,6 +93,66 @@ export class WorkspaceSearchError extends Error {
     super(message)
     this.name = 'WorkspaceSearchError'
   }
+}
+
+/** 判断二进制时只看文件头这么多字节，避免为了「是不是文本」整文件读一遍。 */
+const BINARY_PROBE_BYTES = 8192
+
+/** 单次读取上限的合法区间：太小读不动正文，太大又会撑爆模型上下文。 */
+export const MIN_READ_BYTES = 4 * 1024
+export const MAX_READ_BYTES = 4 * 1024 * 1024
+
+/**
+ * 校验调用方传入的单次读取上限。
+ *
+ * 设置里的值来自用户，工具调用里的值来自模型，两边都不能直接信；
+ * 越界时夹到合法区间，缺省时用服务配置。
+ */
+export function resolveMaxReadBytes(requested: number | undefined, fallback: number): number {
+  if (typeof requested !== 'number' || !Number.isFinite(requested) || requested <= 0) {
+    return fallback
+  }
+  return Math.min(Math.max(Math.floor(requested), MIN_READ_BYTES), MAX_READ_BYTES)
+}
+
+/**
+ * 按扩展名判定可读格式。
+ *
+ * `.mdx` / `.inkmind` 是 ZIP 容器，直接按文本读会拿到压缩字节；
+ * `.drawio` 相反，它本来就是一整份 XML 文本，按文本读即可。
+ */
+export function detectWorkspaceFileFormat(relativePath: string): WorkspaceFileFormat {
+  const lower = relativePath.toLowerCase()
+  if (lower.endsWith('.mdx')) return 'mdx'
+  if (lower.endsWith('.inkmind')) return 'mindmap'
+  if (lower.endsWith('.drawio')) return 'diagram'
+  if (lower.endsWith('.md') || lower.endsWith('.markdown')) return 'markdown'
+  return 'text'
+}
+
+/** 跳过开头的不完整 UTF-8 续字节（0b10xxxxxx），返回第一个可解码位置。 */
+function utf8AlignedStart(bytes: Buffer): number {
+  let index = 0
+  while (index < bytes.length && (bytes[index] & 0xc0) === 0x80) index++
+  return index
+}
+
+/**
+ * 解码一段 UTF-8 窗口，必要时丢掉末尾半个字符。
+ *
+ * 窗口边界由字节数决定，最后几个字节可能只是一个多字节字符的前半截；
+ * 用 fatal 解码 + 最多回退 3 字节，既能保证不出乱码，也不会掩盖真正的非 UTF-8 文件。
+ */
+function decodeUtf8Window(bytes: Buffer): { text: string; length: number } {
+  const decoder = new TextDecoder('utf-8', { fatal: true })
+  for (let trim = 0; trim <= 3 && trim <= bytes.length; trim++) {
+    try {
+      return { text: decoder.decode(bytes.subarray(0, bytes.length - trim)), length: bytes.length - trim }
+    } catch {
+      // 末字节是被截断的多字节字符，再退一个字节试试
+    }
+  }
+  throw new WorkspaceSearchError('NOT_UTF8', '文件不是有效的 UTF-8 文本')
 }
 
 interface RgRunResult {
@@ -536,9 +604,242 @@ export class WorkspaceSearchService {
     }
   }
 
-  /** 读取工作区内文本文件（md/mdx/txt/代码等），有界、拒绝二进制与目录。 */
+  /**
+   * 读取工作区内文本文件全文。
+   *
+   * 保留给内部使用；AI 工具走 `readFileSlice`，以便拿到 offset/length/eof 等
+   * 分块元信息。返回值同样受单次读取上限约束。
+   */
   async readFile(root: string, relativePath: string, signal: AbortSignal): Promise<string> {
+    const slice = await this.readFileSlice(root, relativePath, {}, signal)
+    return slice.content
+  }
+  /**
+   * 查询文件大小与可读性，供模型决定「一次读完还是分多次读」。
+   *
+   * 容器格式必须解包才能知道正文长度，这里直接给出 totalSize；
+   * 二进制文件不抛错，而是 readable=false，让模型换别的办法。
+   */
+  async statFile(
+    root: string,
+    relativePath: string,
+    signal: AbortSignal
+  ): Promise<WorkspaceFileStat> {
     this.throwIfAborted(signal)
+    const { absolute, stat, relative } = this.resolveExistingFile(root, relativePath)
+    const format = detectWorkspaceFileFormat(relative)
+    const base: WorkspaceFileStat = {
+      path: relative,
+      format,
+      fileSize: stat.size,
+      totalSize: stat.size,
+      readable: true,
+      modifiedAt: Math.floor(stat.mtimeMs)
+    }
+
+    if (format === 'mdx' || format === 'mindmap') {
+      try {
+        const text = await this.loadReadableBytes(absolute, format)
+        return { ...base, totalSize: text.length, readable: true }
+      } catch (error) {
+        return {
+          ...base,
+          totalSize: 0,
+          readable: false,
+          reason: error instanceof Error ? error.message : '无法解包文件'
+        }
+      }
+    }
+
+    try {
+      this.rejectBinary(this.readRange(absolute, 0, Math.min(stat.size, BINARY_PROBE_BYTES)))
+    } catch {
+      return { ...base, totalSize: 0, readable: false, reason: '文件是二进制内容或非 UTF-8 文本，无法按文本读取' }
+    }
+    return base
+  }
+
+  /**
+   * 范围读取工作区文件的正文。
+   *
+   * - `offset` 起始字节，默认 0；落在多字节字符中间时自动对齐到下一个字符。
+   * - `length` 读取字节数，默认 -1 表示读到末尾；超过单次上限时截断并给出 nextOffset。
+   * - 容器格式（`.mdx` / `.inkmind`）先解包，再对解包后的正文做同样的切片，
+   *   因此 offset / length 与 `statFile` 的 totalSize 是同一把尺子。
+   */
+  async readFileSlice(
+    root: string,
+    relativePath: string,
+    range: { offset?: number; length?: number; maxBytes?: number },
+    signal: AbortSignal
+  ): Promise<WorkspaceFileSlice> {
+    this.throwIfAborted(signal)
+    const offsetInput = range.offset ?? 0
+    const lengthInput = range.length ?? -1
+    if (!Number.isInteger(offsetInput) || offsetInput < 0) {
+      throw new WorkspaceSearchError('RANGE_INVALID', 'offset 必须是非负整数')
+    }
+    if (!Number.isInteger(lengthInput) || (lengthInput !== -1 && lengthInput < 1)) {
+      throw new WorkspaceSearchError('RANGE_INVALID', 'length 必须是 -1 或正整数')
+    }
+    const maxReadBytes = resolveMaxReadBytes(range.maxBytes, this.deps.limits.maxReadBytes)
+
+    const { absolute, stat, relative } = this.resolveExistingFile(root, relativePath)
+    const format = detectWorkspaceFileFormat(relative)
+
+    if (format === 'mdx' || format === 'mindmap') {
+      if (stat.size > this.deps.limits.mdx.maxFileBytes) {
+        throw new WorkspaceSearchError('FILE_TOO_LARGE', '文件超过大小上限')
+      }
+      const text = await this.loadReadableBytes(absolute, format)
+      const start = Math.min(offsetInput, text.length)
+      const available = text.length - start
+      const wanted = lengthInput === -1 ? available : Math.min(lengthInput, available)
+      const windowBytes = text.subarray(start, start + Math.min(wanted, maxReadBytes))
+      return this.buildSlice(relative, format, stat.size, text.length, windowBytes, start)
+    }
+
+    // 普通文本：只探测文件头判断二进制，再按窗口读取，不整文件载入
+    this.rejectBinary(this.readRange(absolute, 0, Math.min(stat.size, BINARY_PROBE_BYTES)))
+    const start = Math.min(offsetInput, stat.size)
+    const available = stat.size - start
+    const wanted = lengthInput === -1 ? available : Math.min(lengthInput, available)
+    const windowBytes = this.readRange(absolute, start, Math.min(wanted, maxReadBytes))
+    return this.buildSlice(relative, format, stat.size, stat.size, windowBytes, start)
+  }
+
+  /**
+   * 把一段窗口字节包装成带分块信息的读取结果。
+   *
+   * 窗口起点可能落在多字节字符中间（模型传入的 offset 不受字节对齐约束），
+   * 先丢掉半个字符；窗口末尾同理，宁可少给一个字符也不返回乱码，
+   * 这样 nextOffset 落到的永远是可解码的位置。
+   */
+  private buildSlice(
+    relative: string,
+    format: WorkspaceFileFormat,
+    fileSize: number,
+    totalSize: number,
+    windowBytes: Buffer,
+    start: number
+  ): WorkspaceFileSlice {
+    const leading = utf8AlignedStart(windowBytes)
+    const { text, length } = decodeUtf8Window(windowBytes.subarray(leading))
+    const offset = start + leading
+    const eof = offset + length >= totalSize
+    return {
+      path: relative,
+      format,
+      fileSize,
+      totalSize,
+      offset,
+      length,
+      content: text,
+      eof,
+      truncated: !eof,
+      nextOffset: eof ? null : offset + length,
+      encoding: 'utf-8'
+    }
+  }
+
+  /** 只读元信息：目录是否存在、是不是目录。 */
+  inspectDirectory(root: string, relativePath: string): { relative: string; absolute: string } {
+    const { absolute, relative } = this.resolveExistingEntry(root, relativePath)
+    if (!fs.statSync(absolute).isDirectory()) {
+      throw new WorkspaceSearchError('PATH_NOT_DIR', '目标不是目录')
+    }
+    return { relative, absolute }
+  }
+
+  /** 只读元信息：条目是否存在、是文件还是目录。 */
+  inspectEntry(
+    root: string,
+    relativePath: string
+  ): { relative: string; absolute: string; isDirectory: boolean; fileSize: number } {
+    const { absolute, relative } = this.resolveExistingEntry(root, relativePath)
+    const stat = fs.statSync(absolute)
+    return {
+      relative,
+      absolute,
+      isDirectory: stat.isDirectory(),
+      fileSize: stat.isDirectory() ? 0 : stat.size
+    }
+  }
+
+  /**
+   * 解析一个「尚不存在」的路径，用于新建目录/文件。
+   *
+   * 与 resolveExistingFile 相反：这里不要求目标存在，但要求父目录在
+   * 工作区内且真实存在，避免模型用 `a/../../x` 这类写法造出越界目标。
+   */
+  resolveNewPath(
+    root: string,
+    relativePath: string
+  ): { relative: string; absolute: string; parentRelative: string; parentAbsolute: string } {
+    if (path.isAbsolute(relativePath)) {
+      throw new WorkspaceSearchError('PATH_INVALID', '必须使用工作区内的相对路径')
+    }
+    const realRoot = this.deps.realpathSync(root)
+    const normalized = relativePath.replace(/\\/g, '/')
+    if (!normalized || normalized.split('/').some((part) => part === '..' || part === '')) {
+      throw new WorkspaceSearchError('PATH_INVALID', '路径不合法')
+    }
+    const absolute = path.resolve(realRoot, normalized)
+    if (!isPathWithinRoot(realRoot, absolute)) {
+      throw new WorkspaceSearchError('PATH_ESCAPE', '路径逃逸了工作区边界')
+    }
+    const parentAbsoluteRaw = path.dirname(absolute)
+    let parentAbsolute: string
+    try {
+      parentAbsolute = this.deps.realpathSync(parentAbsoluteRaw)
+    } catch {
+      throw new WorkspaceSearchError('PATH_NOT_FOUND', '父目录不存在')
+    }
+    if (!isPathWithinRoot(realRoot, parentAbsolute)) {
+      throw new WorkspaceSearchError('PATH_ESCAPE', '路径逃逸了工作区边界')
+    }
+    if (!fs.statSync(parentAbsolute).isDirectory()) {
+      throw new WorkspaceSearchError('PATH_NOT_DIR', '父路径不是目录')
+    }
+    const parentRelative = path
+      .relative(realRoot, parentAbsolute)
+      .replace(/\\/g, '/')
+    return {
+      relative: path.posix.join(parentRelative, path.basename(absolute)),
+      absolute: path.join(parentAbsolute, path.basename(absolute)),
+      parentRelative,
+      parentAbsolute
+    }
+  }
+
+  private resolveExistingEntry(
+    root: string,
+    relativePath: string
+  ): { absolute: string; relative: string } {
+    if (path.isAbsolute(relativePath)) {
+      throw new WorkspaceSearchError('PATH_INVALID', '必须使用工作区内的相对路径')
+    }
+    const realRoot = this.deps.realpathSync(root)
+    const candidate = path.resolve(realRoot, relativePath)
+    if (!isPathWithinRoot(realRoot, candidate)) {
+      throw new WorkspaceSearchError('PATH_ESCAPE', '路径逃逸了工作区边界')
+    }
+    let absolute: string
+    try {
+      absolute = this.deps.realpathSync(candidate)
+    } catch {
+      throw new WorkspaceSearchError('PATH_NOT_FOUND', '路径不存在或不可访问')
+    }
+    if (!isPathWithinRoot(realRoot, absolute)) {
+      throw new WorkspaceSearchError('PATH_ESCAPE', '路径逃逸了工作区边界')
+    }
+    return { absolute, relative: relativePath.replace(/\\/g, '/') }
+  }
+
+  private resolveExistingFile(
+    root: string,
+    relativePath: string
+  ): { realRoot: string; absolute: string; stat: fs.Stats; relative: string } {
     if (path.isAbsolute(relativePath)) {
       throw new WorkspaceSearchError('PATH_INVALID', '必须使用工作区内的相对路径')
     }
@@ -558,30 +859,40 @@ export class WorkspaceSearchService {
     }
     const stat = fs.statSync(absolute)
     if (stat.isDirectory()) throw new WorkspaceSearchError('PATH_IS_DIR', '目标是一个目录')
-    if (stat.size > this.deps.limits.mdx.maxFileBytes) {
-      throw new WorkspaceSearchError('FILE_TOO_LARGE', '文件超过大小上限')
+    return {
+      realRoot,
+      absolute,
+      stat,
+      relative: relativePath.replace(/\\/g, '/')
     }
+  }
 
+  /** 取出可读正文的原始 UTF-8 字节（容器先解包）。 */
+  private async loadReadableBytes(absolute: string, format: WorkspaceFileFormat): Promise<Buffer> {
     const bytes = fs.readFileSync(absolute)
-    if (relativePath.toLowerCase().endsWith('.mdx')) {
+    if (format === 'mdx') {
       const { extractMdxContentText } = await import('./mdx-content-search')
-      return extractMdxContentText(bytes, this.deps.limits.mdx)
+      return Buffer.from(extractMdxContentText(bytes, this.deps.limits.mdx), 'utf8')
     }
-    // 思维导图是 ZIP 容器：先取出 map.json，再摊平成可读大纲
-    if (relativePath.toLowerCase().endsWith('.inkmind')) {
+    if (format === 'mindmap') {
       const outline = readMindMapOutline(bytes)
-      if (outline) return outline
-      throw new WorkspaceSearchError('PATH_INVALID', '思维导图没有可读取的主题文本')
+      if (!outline) throw new WorkspaceSearchError('PATH_INVALID', '思维导图没有可读取的主题文本')
+      return Buffer.from(outline, 'utf8')
     }
+    return bytes
+  }
 
-    this.rejectBinary(bytes)
-    let text: string
+  /** 从绝对路径读取一段字节，长度不足时按实际读到的返回。 */
+  private readRange(absolute: string, start: number, length: number): Buffer {
+    if (length <= 0) return Buffer.alloc(0)
+    const fd = fs.openSync(absolute, 'r')
     try {
-      text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
-    } catch {
-      throw new WorkspaceSearchError('NOT_UTF8', '文件不是有效的 UTF-8 文本')
+      const buffer = Buffer.allocUnsafe(length)
+      const read = fs.readSync(fd, buffer, 0, length, start)
+      return read === length ? buffer : buffer.subarray(0, read)
+    } finally {
+      fs.closeSync(fd)
     }
-    return text
   }
 
   private isExcluded(name: string): boolean {

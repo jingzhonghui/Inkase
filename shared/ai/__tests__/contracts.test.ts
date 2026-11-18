@@ -1,4 +1,4 @@
-﻿import { describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { aiRunInputSchema, approvalResolutionSchema } from '../contracts'
 import { useFileStore } from '../../../src/stores/file'
@@ -246,6 +246,65 @@ describe('AI IPC contracts', () => {
         id: 'approval-1',
         decision: { status: 'approved', scope: 'once', unexpected: true },
         result: { status: 'applied' }
+      })
+    ).toThrow()
+  })
+
+  /*
+   * 回归：格式枚举曾只允许 markdown/mdx，而渲染层会对 .inkmind 发送 mindmap。
+   * 结果是打开思维导图后连消息都发不出去（RUN.START 直接被契约挡下）。
+   */
+  it.each(['markdown', 'mdx', 'mindmap', 'diagram', 'image', 'pdf'] as const)(
+    'accepts a %s active document format',
+    (format) => {
+      const result = aiRunInputSchema.safeParse({
+        conversationId: 'conv-1',
+        message: 'hello',
+        history: [],
+        snapshot: {
+          conversationId: 'conv-1',
+          activeDocument: {
+            id: 'tab-1',
+            title: '文档',
+            path: null,
+            format,
+            content: '',
+            revision: 0,
+            contentHash: 'hash',
+            modified: false
+          },
+          selection: null,
+          cursor: null,
+          workspaceRoot: null
+        }
+      })
+
+      expect(result.success).toBe(true)
+    }
+  )
+
+  it('rejects an unknown active document format', () => {
+    expect(() =>
+      aiRunInputSchema.parse({
+        conversationId: 'conv-1',
+        message: 'hello',
+        history: [],
+        snapshot: {
+          conversationId: 'conv-1',
+          activeDocument: {
+            id: 'tab-1',
+            title: '文档',
+            path: null,
+            format: 'html',
+            content: '',
+            revision: 0,
+            contentHash: 'hash',
+            modified: false
+          },
+          selection: null,
+          cursor: null,
+          workspaceRoot: null
+        }
       })
     ).toThrow()
   })

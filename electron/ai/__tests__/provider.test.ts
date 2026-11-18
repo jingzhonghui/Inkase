@@ -225,6 +225,62 @@ describe('VercelAiSdkProvider', () => {
         code: 'REQUEST_TIMEOUT'
       })
     })
+
+    /*
+     * 复杂任务的关键语义：超时按「模型空闲」算，不按墙钟算。
+     * 工具执行（含等用户审批）期间模型确实没有输出，但那是任务在推进，不是卡死。
+     */
+    it('does not abort while a tool is still running', async () => {
+      server = new MockOpenAiServer()
+      const baseUrl = await server.start({
+        handler: (_req, res) => {
+          res.writeHead(200, { 'Content-Type': 'text/event-stream' })
+          if (server.requestCount === 1) {
+            res.write(
+              'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_slow","function":{"name":"slow_tool","arguments":"{}"}}]}}]}\n\n'
+            )
+            res.write('data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n\n')
+          } else {
+            res.write('data: {"choices":[{"delta":{"content":"完成"},"finish_reason":"stop"}]}\n\n')
+          }
+          res.write('data: [DONE]\n\n')
+          res.end()
+        }
+      })
+      const slowTool: ProviderTool = {
+        description: '耗时工具',
+        inputSchema: z.object({}),
+        execute: async () => {
+          // 比空闲超时长得多：若按墙钟计时，这里就会被判超时
+          await new Promise((resolve) => setTimeout(resolve, 300))
+          return { status: 'completed', data: { ok: true } }
+        }
+      }
+      const provider = new VercelAiSdkProvider({ maxRetries: 0, idleTimeoutMs: 80 })
+
+      const events = await collect(
+        provider.run(runInput(baseUrl, { tools: { slow_tool: slowTool }, maxSteps: 2 }))
+      )
+
+      expect(events.at(-1)).toEqual({ type: 'completed' })
+      expect(events.some((event) => event.type === 'tool-call-completed')).toBe(true)
+    })
+
+    it('aborts when the stream goes idle after activity', async () => {
+      server = new MockOpenAiServer()
+      const baseUrl = await server.start({
+        handler: (_req, res) => {
+          res.writeHead(200, { 'Content-Type': 'text/event-stream' })
+          // 先给一段正文证明「模型活着」，然后挂住不再发送
+          res.write('data: {"choices":[{"delta":{"content":"开头"}}]}\n\n')
+        }
+      })
+      const provider = new VercelAiSdkProvider({ maxRetries: 0, idleTimeoutMs: 80 })
+
+      await expect(collect(provider.run(runInput(baseUrl)))).rejects.toMatchObject({
+        code: 'REQUEST_TIMEOUT'
+      })
+    })
   })
 
   describe('testConnection', () => {

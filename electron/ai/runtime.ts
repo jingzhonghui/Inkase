@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto'
 import type {
+  AiApprovalMode,
   AiConversationMessage,
   AiRunEvent,
   AiRunInput,
@@ -58,6 +59,7 @@ export class AiRuntime {
   private readonly maxSteps: number
   private readonly toolTimeoutMs: number
   private readonly approvalTimeoutMs: number
+  private readonly approvalMode: AiApprovalMode
 
   private readonly activeRuns = new Map<string, ActiveRun>()
   private readonly pendingResults = new Map<string, (result: ToolExecutionResult) => void>()
@@ -68,9 +70,14 @@ export class AiRuntime {
     this.approvalManager = deps.approvalManager
     this.config = deps.config
     this.systemPrompt = SYSTEM_PROMPT
-    this.maxSteps = deps.maxSteps ?? 20
-    this.toolTimeoutMs = deps.toolTimeoutMs ?? 60_000
-    this.approvalTimeoutMs = deps.approvalTimeoutMs ?? 300_000
+    // 20 步只够「搜一次、读两篇、改一处」；整理目录这类任务动辄几十步，
+    // 默认放宽到 50 步，仍由用户在设置里调整上限。
+    this.maxSteps = deps.maxSteps ?? 50
+    // 工具超时管的是单次工具执行（搜索、读文件、解包），给足 3 分钟；
+    // 审批等待不走这个计时，避免用户思考时间被算成工具超时。
+    this.toolTimeoutMs = deps.toolTimeoutMs ?? 180_000
+    this.approvalTimeoutMs = deps.approvalTimeoutMs ?? 600_000
+    this.approvalMode = deps.config.approvalMode ?? 'ask'
 
     this.registerTools(deps.sourceAccessService, deps.searchService)
   }
@@ -79,7 +86,9 @@ export class AiRuntime {
     sourceAccessService: SourceAccessService,
     searchService: WorkspaceSearchService
   ): void {
-    const docTools = createDocumentTools(searchService)
+    const docTools = createDocumentTools(searchService, {
+      maxReadBytes: this.config.maxReadBytes
+    })
     const sourceTools = createSourceAccessTools(sourceAccessService)
     const timeTools = createTimeTools()
     const all: AnyToolDefinition[] = [
@@ -87,6 +96,10 @@ export class AiRuntime {
       docTools.listWorkspaceRoot,
       docTools.readWorkspaceDirectory,
       docTools.readWorkspaceFile,
+      docTools.getWorkspaceFileSize,
+      docTools.createWorkspaceDirectory,
+      docTools.moveWorkspaceEntry,
+      docTools.writeWorkspaceFile,
       docTools.readSelectedText,
       timeTools.getCurrentDatetime,
       sourceTools.readWebUrl,
@@ -95,7 +108,8 @@ export class AiRuntime {
       docTools.insertIntoCurrentDocument,
       docTools.createDocument,
       docTools.createMindmap,
-      docTools.updateMindmap
+      docTools.updateMindmap,
+      docTools.deleteWorkspaceFile
     ]
     for (const def of all) {
       this.registry.register(def)
@@ -273,19 +287,20 @@ export class AiRuntime {
     emit: (event: AiRunEvent) => void,
     callAbort: AbortController
   ): Promise<ToolExecutionResult> {
-    const needsApproval = evaluateToolPolicy(def.policy)
+    const requiresApproval = evaluateToolPolicy(def.policy, this.approvalMode)
+    const auto = this.approvalMode === 'auto'
 
-    if (!needsApproval) {
-      if (def.execution === 'main') {
-        const data = await this.withTimeout(def.execute(input, context), this.toolTimeoutMs, () =>
-          callAbort.abort(new Error(TOOL_TIMEOUT_MESSAGE))
-        )
-        return { status: 'completed', data }
-      }
-      const operation = await def.createRendererOperation(input, context)
-      return { status: 'completed', data: operation }
+    // 主进程工具在不需要批准时直接执行
+    if (def.execution === 'main' && !requiresApproval) {
+      const data = await this.withTimeout(def.execute(input, context), this.toolTimeoutMs, () =>
+        callAbort.abort(new Error(TOOL_TIMEOUT_MESSAGE))
+      )
+      return { status: 'completed', data }
     }
 
+    // 渲染进程类操作没有旁路：改动必须由渲染层应用（冲突检测、标签、图谱都在那边）。
+    // 完全控制模式省掉的是「等用户点一下」，不是执行本身——所以照样发请求，
+    // 只是带上 auto 标记，渲染层收到后立即认领并应用。
     const approvalId = randomUUID()
     const preview: ApprovalPreview = def.createApprovalPreview
       ? await def.createApprovalPreview(input, context)
@@ -317,7 +332,8 @@ export class AiRuntime {
       preview,
       execution,
       createdAt: Date.now(),
-      expiresAt: Date.now() + this.approvalTimeoutMs
+      expiresAt: Date.now() + this.approvalTimeoutMs,
+      ...(auto ? { auto: true } : {})
     }
 
     const decisionPromise = this.approvalManager.request(request, (req) => {

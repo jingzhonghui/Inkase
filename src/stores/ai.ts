@@ -162,6 +162,7 @@ export const useAiStore = defineStore('ai', () => {
       riskLevel: request.riskLevel,
       preview: JSON.parse(JSON.stringify(request.preview)),
       createdAt: request.createdAt,
+      ...(request.auto ? { auto: true } : {}),
       messageId
     }
   }
@@ -536,6 +537,11 @@ export const useAiStore = defineStore('ai', () => {
         // 立刻写进会话记录，卡片从「等待批准」就地变成「已允许/已拒绝」
         approvalHistory.value.push(toApprovalRecord(event.approval, message.id))
         persistConversation()
+        // 完全控制模式：不等人点，直接按「允许本次」走同一条认领 → 应用 → 回传链路。
+        // 这样执行结果、冲突检测与审计记录都不变，省掉的只是那次点击。
+        if (event.approval.auto) {
+          void resolveApproval(event.approval.id, { status: 'approved', scope: 'once' })
+        }
         break
       }
       case 'run-completed':

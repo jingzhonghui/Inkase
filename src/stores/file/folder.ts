@@ -628,6 +628,9 @@ export function useFolder(deps: FolderDeps) {
         } else {
           await readFolder(openedFolderPath.value!)
         }
+        // 增量移除不会走 readFolder，这里得自己推一格：磁盘上少了一个文件，
+        // 图谱索引（以及链接关系）已经过期
+        deps.touchLibrary()
         pruneSelection()
         return true
       }

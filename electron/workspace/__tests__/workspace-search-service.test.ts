@@ -57,6 +57,15 @@ function makeService(output: string | ((args: string[]) => string)): ServiceFact
   return { service, spawnSpy }
 }
 
+function makeServiceWithLimits(limits: Partial<typeof DEFAULT_SEARCH_LIMITS>): WorkspaceSearchService {
+  return new WorkspaceSearchService({
+    rgPath: 'fake-rg',
+    spawn: vi.fn() as unknown as typeof import('node:child_process').spawn,
+    realpathSync: fs.realpathSync,
+    limits: { ...DEFAULT_SEARCH_LIMITS, ...limits }
+  })
+}
+
 function makeTempWorkspace(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mdp-search-'))
   fs.mkdirSync(path.join(dir, 'docs'), { recursive: true })
@@ -329,6 +338,210 @@ describe('WorkspaceSearchService', () => {
       const { service } = makeService('')
       await expect(
         service.readFile(root, '../../../etc/passwd', new AbortController().signal)
+      ).rejects.toThrow(WorkspaceSearchError)
+    })
+  })
+
+  describe('readFileSlice', () => {
+    it('reads a byte range and reports eof/nextOffset', async () => {
+      const root = makeTempWorkspace()
+      fs.writeFileSync(path.join(root, 'docs', 'digits.txt'), '0123456789', 'utf8')
+      const { service } = makeService('')
+
+      const slice = await service.readFileSlice(
+        root,
+        'docs/digits.txt',
+        { offset: 2, length: 3 },
+        new AbortController().signal
+      )
+
+      expect(slice).toMatchObject({
+        path: 'docs/digits.txt',
+        format: 'text',
+        fileSize: 10,
+        totalSize: 10,
+        offset: 2,
+        length: 3,
+        content: '234',
+        eof: false,
+        truncated: true,
+        nextOffset: 5,
+        encoding: 'utf-8'
+      })
+    })
+
+    it('reads to the end by default', async () => {
+      const root = makeTempWorkspace()
+      fs.writeFileSync(path.join(root, 'docs', 'digits.txt'), '0123456789', 'utf8')
+      const { service } = makeService('')
+
+      const slice = await service.readFileSlice(
+        root,
+        'docs/digits.txt',
+        {},
+        new AbortController().signal
+      )
+
+      expect(slice.content).toBe('0123456789')
+      expect(slice).toMatchObject({ eof: true, truncated: false, nextOffset: null, offset: 0 })
+    })
+
+    it('caps a single read at maxReadBytes and exposes nextOffset', async () => {
+      const root = makeTempWorkspace()
+      fs.writeFileSync(path.join(root, 'docs', 'digits.txt'), '0123456789', 'utf8')
+      const service = makeServiceWithLimits({ maxReadBytes: 4 })
+
+      const slice = await service.readFileSlice(
+        root,
+        'docs/digits.txt',
+        {},
+        new AbortController().signal
+      )
+
+      expect(slice).toMatchObject({
+        content: '0123',
+        length: 4,
+        eof: false,
+        truncated: true,
+        nextOffset: 4
+      })
+    })
+
+    it('aligns an offset that lands inside a multi-byte character', async () => {
+      const root = makeTempWorkspace()
+      // 你(0-2) 好(3-5) 世(6-8) 界(9-11)
+      fs.writeFileSync(path.join(root, 'docs', 'zh.txt'), '你好世界', 'utf8')
+      const { service } = makeService('')
+
+      const slice = await service.readFileSlice(
+        root,
+        'docs/zh.txt',
+        { offset: 1, length: 8 },
+        new AbortController().signal
+      )
+
+      expect(slice).toMatchObject({
+        offset: 3,
+        length: 6,
+        content: '好世',
+        nextOffset: 9
+      })
+    })
+
+    it('honours a per-call read limit and clamps it to the allowed range', async () => {
+      const root = makeTempWorkspace()
+      fs.writeFileSync(path.join(root, 'docs', 'digits.txt'), '0123456789', 'utf8')
+      const { service } = makeService('')
+
+      const sliced = await service.readFileSlice(
+        root,
+        'docs/digits.txt',
+        { maxBytes: 4 * 1024 },
+        new AbortController().signal
+      )
+      // 4 KiB 已大于文件，仍是一次读完
+      expect(sliced.eof).toBe(true)
+
+      // 小于下限的值被抬到 4 KiB，不会读到 0 字节
+      const tiny = await service.readFileSlice(
+        root,
+        'docs/digits.txt',
+        { maxBytes: 1 },
+        new AbortController().signal
+      )
+      expect(tiny.content).toBe('0123456789')
+      expect(tiny.eof).toBe(true)
+    })
+
+    it('slices the extracted text of an mdx container', async () => {
+      const root = makeTempWorkspace()
+      makeMdxFile(path.join(root, 'docs', 'doc.mdx'), 'Hello from mdx')
+      const { service } = makeService('')
+
+      const slice = await service.readFileSlice(
+        root,
+        'docs/doc.mdx',
+        { offset: 0, length: 5 },
+        new AbortController().signal
+      )
+
+      expect(slice).toMatchObject({
+        format: 'mdx',
+        content: 'Hello',
+        totalSize: 'Hello from mdx'.length,
+        eof: false,
+        nextOffset: 5
+      })
+      // 磁盘上是压缩包，正文长度按解包后计算
+      expect(slice.fileSize).toBeGreaterThan(slice.totalSize)
+    })
+
+    it('rejects invalid ranges and escaping paths', async () => {
+      const root = makeTempWorkspace()
+      const { service } = makeService('')
+      const signal = new AbortController().signal
+
+      await expect(service.readFileSlice(root, 'docs/notes.md', { offset: -1 }, signal)).rejects.toThrow(
+        WorkspaceSearchError
+      )
+      await expect(service.readFileSlice(root, 'docs/notes.md', { length: 0 }, signal)).rejects.toThrow(
+        WorkspaceSearchError
+      )
+      await expect(
+        service.readFileSlice(root, '../../../etc/passwd', {}, signal)
+      ).rejects.toThrow(WorkspaceSearchError)
+    })
+  })
+
+  describe('statFile', () => {
+    it('reports size and readability for a text file', async () => {
+      const root = makeTempWorkspace()
+      fs.writeFileSync(path.join(root, 'docs', 'digits.txt'), '0123456789', 'utf8')
+      const { service } = makeService('')
+
+      const stat = await service.statFile(root, 'docs/digits.txt', new AbortController().signal)
+
+      expect(stat).toMatchObject({
+        path: 'docs/digits.txt',
+        format: 'text',
+        fileSize: 10,
+        totalSize: 10,
+        readable: true
+      })
+    })
+
+    it('reports the extracted text size for an mdx container', async () => {
+      const root = makeTempWorkspace()
+      makeMdxFile(path.join(root, 'docs', 'doc.mdx'), '# Hello from mdx')
+      const { service } = makeService('')
+
+      const stat = await service.statFile(root, 'docs/doc.mdx', new AbortController().signal)
+
+      expect(stat).toMatchObject({ format: 'mdx', totalSize: '# Hello from mdx'.length, readable: true })
+      expect(stat.fileSize).toBeGreaterThan(stat.totalSize)
+    })
+
+    it('marks a binary file as unreadable instead of throwing', async () => {
+      const root = makeTempWorkspace()
+      fs.writeFileSync(
+        path.join(root, 'docs', 'pic.png'),
+        Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x00, 0x00, 0x01])
+      )
+      const { service } = makeService('')
+
+      const stat = await service.statFile(root, 'docs/pic.png', new AbortController().signal)
+
+      expect(stat.readable).toBe(false)
+      expect(stat.totalSize).toBe(0)
+      expect(stat.reason).toBeTruthy()
+    })
+
+    it('rejects a path outside the workspace', async () => {
+      const root = makeTempWorkspace()
+      const { service } = makeService('')
+
+      await expect(
+        service.statFile(root, '../../../etc/passwd', new AbortController().signal)
       ).rejects.toThrow(WorkspaceSearchError)
     })
   })

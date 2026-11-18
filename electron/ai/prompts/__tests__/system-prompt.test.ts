@@ -16,6 +16,12 @@ describe('SYSTEM_PROMPT source rules', () => {
     expect(SYSTEM_PROMPT).toContain('read_web_url')
     expect(SYSTEM_PROMPT).toContain('read_local_file')
     expect(SYSTEM_PROMPT).toContain('get_current_datetime')
+    // 分段读取与体积查询：大文件不能一次全塞进上下文，模型得知道 offset/length 怎么用
+    expect(SYSTEM_PROMPT).toContain('get_workspace_file_size')
+    expect(SYSTEM_PROMPT).toContain('totalSize')
+    expect(SYSTEM_PROMPT).toContain('nextOffset')
+    expect(SYSTEM_PROMPT).toContain('truncated')
+    expect(SYSTEM_PROMPT).toContain('delete_workspace_file')
     expect(SYSTEM_PROMPT).toContain('优先调用 search_workspace')
     expect(SYSTEM_PROMPT).toContain('scope')
     expect(SYSTEM_PROMPT).toContain('literal')

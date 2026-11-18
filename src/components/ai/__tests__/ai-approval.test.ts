@@ -41,8 +41,35 @@ describe('AI approval card', () => {
     expect(wrapper.get('[data-testid="diff-deleted"]').text()).toContain('删除')
   })
 
-  it('shows a full generated Markdown document', () => {
+  it('shows a move preview with both paths', () => {
     const wrapper = mount(AiApprovalCard, {
+      props: { record: approval({
+        effect: 'write',
+        preview: {
+          type: 'file-operation', operation: 'move',
+          title: 'docs/归档/notes.md', from: 'docs/notes.md', to: 'docs/归档/notes.md'
+        }
+      }) }
+    })
+
+    expect(wrapper.text()).toContain('docs/notes.md')
+    expect(wrapper.text()).toContain('docs/归档/notes.md')
+  })
+
+  it('marks an auto-approved record as 完全控制 instead of 等待批准', () => {
+    const wrapper = mount(AiApprovalCard, {
+      props: { record: approval({
+        auto: true,
+        decision: { status: 'approved', scope: 'once' },
+        outcome: 'applied'
+      }) }
+    })
+
+    expect(wrapper.get('[data-testid="approval-state"]').text()).toContain('完全控制')
+    expect(wrapper.text()).toContain('已应用')
+  })
+
+  it('shows a full generated Markdown document', () => {    const wrapper = mount(AiApprovalCard, {
       props: { record: approval({ preview: { type: 'document', title: '新文档', content: '# 标题\n\n**正文**' } }) }
     })
 

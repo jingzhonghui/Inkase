@@ -1,5 +1,10 @@
 import { z } from 'zod'
-import type { AiDocumentSnapshot, LocalFileReadResult } from '../../../shared/ai/types'
+import { join as joinPath, posix as posixPath } from 'node:path'
+import type {
+  AiDocumentSnapshot,
+  WorkspaceFileSlice,
+  WorkspaceFileStat
+} from '../../../shared/ai/types'
 import { markdownToMindMapJson } from '../../../shared/mindmap/markdown'
 import type { WorkspaceSearchService } from '../../workspace/workspace-search-service'
 import { defineTool, type ToolDefinition } from '../tool-registry'
@@ -10,6 +15,94 @@ function requireWorkspaceRoot(context: { snapshot: { workspaceRoot: string | nul
     throw new Error('当前没有打开工作区，无法访问工作区文件')
   }
   return context.snapshot.workspaceRoot
+}
+
+/** 相对路径 → 绝对路径，仅用于把操作目标交给渲染进程执行。 */
+function resolveAbsolutePath(root: string, relativePath: string): string {
+  return joinPath(root, ...relativePath.split('/'))
+}
+
+/** 两个绝对路径是否指向同一个文件（分隔符与大小写都可能不同）。 */
+function isSamePath(left: string | null, right: string): boolean {
+  if (!left) return false
+  const normalize = (value: string): string => value.replace(/\\/g, '/').toLowerCase()
+  return normalize(left) === normalize(right)
+}
+
+/** 能把整个路径（含文件名）拼成绝对路径的统一出口。 */
+function absoluteFromRelative(root: string, relative: string): string {
+  return resolveAbsolutePath(root, relative)
+}
+
+/**
+ * 解析「移动 / 改名」的目标。
+ *
+ * 三个参数组合出四种行为，全部在这里收敛，避免工具实现里再分叉：
+ * - 只给 path：原地不动（由调用方判定为无效，这里仍返回原路径）
+ * - targetDirectory：挪进该目录，保留文件名
+ * - newName：只改名，留在原目录
+ * - 两者都给：挪目录 + 改名
+ */
+function resolveMoveDestination(
+  root: string,
+  searchService: WorkspaceSearchService,
+  source: string,
+  targetDirectory: string | undefined,
+  newName: string | undefined
+): { fromRelative: string; fromAbsolute: string; toRelative: string; toAbsolute: string } {
+  const entry = searchService.inspectEntry(root, source)
+  if (!targetDirectory && !newName) {
+    throw new Error('需要提供 targetDirectory 或 newName 之一')
+  }
+
+  const name = newName ?? entry.relative.split('/').pop()!
+  if (/[\\/]/.test(name)) {
+    throw new Error('newName 只能是文件名，不能包含路径分隔符')
+  }
+
+  let toRelative: string
+  if (targetDirectory) {
+    const target = searchService.inspectDirectory(root, targetDirectory)
+    toRelative = target.relative === '.' ? name : posixPath.join(target.relative, name)
+  } else {
+    const parent = entry.relative.includes('/')
+      ? entry.relative.slice(0, entry.relative.lastIndexOf('/'))
+      : '.'
+    toRelative = parent === '.' ? name : posixPath.join(parent, name)
+  }
+
+  if (toRelative === entry.relative) {
+    throw new Error('目标路径与源路径相同，无需移动')
+  }
+  return {
+    fromRelative: entry.relative,
+    fromAbsolute: entry.absolute,
+    toRelative,
+    toAbsolute: absoluteFromRelative(root, toRelative)
+  }
+}
+
+/**
+ * 校验「可写文本」目标。
+ *
+ * 容器格式与图表在这里就挡掉：`.mdx` / `.inkmind` 直接写会丢资源，
+ * `.drawio` 有画布实例在跑，写盘会让两边打架。
+ */
+function requireWritableTextPath(
+  root: string,
+  searchService: WorkspaceSearchService,
+  target: string
+): { relative: string; absolute: string; format: 'markdown' | 'text' } {
+  const resolved = searchService.resolveNewPath(root, target)
+  const lower = resolved.relative.toLowerCase()
+  if (lower.endsWith('.mdx') || lower.endsWith('.inkmind')) {
+    throw new Error('该格式是容器文档，请用文档编辑工具修改，不能直接写正文')
+  }
+  if (lower.endsWith('.drawio')) {
+    throw new Error('图表请用图表工具修改，不能直接写正文')
+  }
+  const format = lower.endsWith('.md') || lower.endsWith('.markdown') ? 'markdown' : 'text'
+  return { relative: resolved.relative, absolute: resolved.absolute, format }
 }
 
 function requireSignal(context: { abortSignal?: AbortSignal }): AbortSignal {
@@ -32,7 +125,12 @@ export interface DocumentToolRegistry {
   searchWorkspace: ToolDefinition<unknown, unknown>
   listWorkspaceRoot: ToolDefinition<Record<string, never>, unknown>
   readWorkspaceDirectory: ToolDefinition<{ path: string }, unknown>
-  readWorkspaceFile: ToolDefinition<{ path: string }, LocalFileReadResult>
+  readWorkspaceFile: ToolDefinition<{ path: string; offset?: number; length?: number }, WorkspaceFileSlice>
+  getWorkspaceFileSize: ToolDefinition<{ path: string }, WorkspaceFileStat>
+  createWorkspaceDirectory: ToolDefinition<unknown, unknown>
+  moveWorkspaceEntry: ToolDefinition<unknown, unknown>
+  writeWorkspaceFile: ToolDefinition<unknown, unknown>
+  deleteWorkspaceFile: ToolDefinition<unknown, unknown>
   readSelectedText: ToolDefinition<Record<string, never>, unknown>
   replaceCurrentDocument: ToolDefinition<unknown, unknown>
   insertIntoCurrentDocument: ToolDefinition<unknown, unknown>
@@ -41,7 +139,15 @@ export interface DocumentToolRegistry {
   updateMindmap: ToolDefinition<unknown, unknown>
 }
 
-export function createDocumentTools(searchService: WorkspaceSearchService): DocumentToolRegistry {
+export interface DocumentToolOptions {
+  /** 单次 read_workspace_file 的正文字节上限；缺省走服务内置默认值 */
+  maxReadBytes?: number
+}
+
+export function createDocumentTools(
+  searchService: WorkspaceSearchService,
+  options: DocumentToolOptions = {}
+): DocumentToolRegistry {
   const searchWorkspace = defineTool({
     name: 'search_workspace',
     description:
@@ -115,11 +221,20 @@ export function createDocumentTools(searchService: WorkspaceSearchService): Docu
     }
   })
 
-  const readWorkspaceFile = defineTool<{ path: string }, LocalFileReadResult>({
+  const readWorkspaceFile = defineTool<
+    { path: string; offset?: number; length?: number },
+    WorkspaceFileSlice
+  >({
     name: 'read_workspace_file',
     description:
-      '读取工作区中指定相对路径的文件内容（支持 Markdown、MDX、TXT 及 UTF-8 文本文件），路径需来自 search_workspace、list_workspace_root 或 read_workspace_directory 的结果。',
-    inputSchema: z.object({ path: z.string().trim().min(1) }),
+      '读取工作区中指定相对路径的文件正文（Markdown、MDX、思维导图、图表与 UTF-8 文本）。路径需来自 search_workspace、list_workspace_root 或 read_workspace_directory 的结果。支持分段读取：offset 为起始字节（默认 0），length 为读取字节数（默认 -1 表示读到末尾）。返回 totalSize / eof / nextOffset；被单次上限截断时 truncated 为 true，用 nextOffset 继续读。大文件建议先调用 get_workspace_file_size 判断要读几次。',
+    inputSchema: z
+      .object({
+        path: z.string().trim().min(1),
+        offset: z.number().int().min(0).optional(),
+        length: z.number().int().min(-1).optional()
+      })
+      .strict(),
     policy: {
       effect: 'read',
       approval: 'never',
@@ -131,22 +246,261 @@ export function createDocumentTools(searchService: WorkspaceSearchService): Docu
       const root = requireWorkspaceRoot(context)
       const signal = requireSignal(context)
       try {
-        const content = await searchService.readFile(root, input.path, signal)
-        const type: LocalFileReadResult['fileType'] = input.path.toLowerCase().endsWith('.mdx')
-          ? 'mdx'
-          : input.path.toLowerCase().endsWith('.md')
-            ? 'markdown'
-            : 'text'
-        return {
-          requestedPath: input.path,
-          normalizedPath: input.path,
-          fileType: type,
-          content,
-          chunks: [],
-          truncated: false
-        } as LocalFileReadResult
+        return await searchService.readFileSlice(
+          root,
+          input.path,
+          { offset: input.offset, length: input.length, maxBytes: options.maxReadBytes },
+          signal
+        )
       } catch (error) {
         wrapSearchError(error)
+      }
+    }
+  })
+
+  const getWorkspaceFileSize = defineTool<{ path: string }, WorkspaceFileStat>({
+    name: 'get_workspace_file_size',
+    description:
+      '获取工作区内文件的字节大小与可读性，用于判断一次读完还是分多次读。返回 fileSize（磁盘字节）、totalSize（可读正文字节，容器格式为解包后的长度）、readable（二进制文件为 false）与 format。配合 read_workspace_file 的 offset/length 使用。',
+    inputSchema: z.object({ path: z.string().trim().min(1) }).strict(),
+    policy: {
+      effect: 'read',
+      approval: 'never',
+      riskLevel: 'low',
+      supportsRememberDecision: false
+    },
+    execution: 'main',
+    execute: async (input, context) => {
+      const root = requireWorkspaceRoot(context)
+      const signal = requireSignal(context)
+      try {
+        return await searchService.statFile(root, input.path, signal)
+      } catch (error) {
+        wrapSearchError(error)
+      }
+    }
+  })
+
+  /**
+   * 新建目录。
+   *
+   * 一次只建一层（父目录必须已存在）：递归建目录等于允许模型一次命令
+   * 造出整棵目录树，审批预览里还看不清楚，收益不值得这个风险。
+   */
+  const createWorkspaceDirectory = defineTool({
+    name: 'create_workspace_directory',
+    description:
+      '在工作区内新建一个目录。path 为工作区内相对路径，父目录必须已存在（一次只建一层，需要多层就连续调用）。执行前需要用户批准。',
+    inputSchema: z.object({ path: z.string().trim().min(1), reason: z.string().trim().min(1) }).strict(),
+    policy: {
+      effect: 'write',
+      approval: 'always',
+      riskLevel: 'medium',
+      supportsRememberDecision: false
+    },
+    execution: 'renderer',
+    createRendererOperation: async (input, context) => {
+      const { path: target, reason } = input as { path: string; reason: string }
+      const root = requireWorkspaceRoot(context)
+      const resolved = searchService.resolveNewPath(root, target)
+      return {
+        type: 'create-workspace-directory' as const,
+        relativePath: resolved.relative,
+        absolutePath: resolved.absolute,
+        reason
+      }
+    },
+    createApprovalPreview: async (input, context) => {
+      const { path: target } = input as { path: string }
+      const root = requireWorkspaceRoot(context)
+      const resolved = searchService.resolveNewPath(root, target)
+      return {
+        type: 'file-operation' as const,
+        operation: 'create-directory' as const,
+        title: resolved.relative,
+        to: resolved.relative
+      }
+    }
+  })
+
+  /**
+   * 移动 / 改名。
+   *
+   * 目标是「目录 + 文件名」而不是单一字符串：模型常常只知道要挪到哪个分类目录，
+   * 由工具补上文件名，比让它拼完整路径稳。
+   */
+  const moveWorkspaceEntry = defineTool({
+    name: 'move_workspace_entry',
+    description:
+      '移动或重命名工作区内的文件/目录。path 为源相对路径；targetDirectory 为目标目录（工作区内相对路径，必须已存在，缺省表示原地改名）；newName 为新文件名（可选）。执行前需要用户批准。',
+    inputSchema: z
+      .object({
+        path: z.string().trim().min(1),
+        targetDirectory: z.string().trim().min(1).optional(),
+        newName: z.string().trim().min(1).optional(),
+        reason: z.string().trim().min(1)
+      })
+      .strict(),
+    policy: {
+      effect: 'write',
+      approval: 'always',
+      riskLevel: 'high',
+      supportsRememberDecision: false
+    },
+    execution: 'renderer',
+    createRendererOperation: async (input, context) => {
+      const { path: source, targetDirectory, newName, reason } = input as {
+        path: string
+        targetDirectory?: string
+        newName?: string
+        reason: string
+      }
+      const root = requireWorkspaceRoot(context)
+      const destination = resolveMoveDestination(root, searchService, source, targetDirectory, newName)
+      return {
+        type: 'move-workspace-entry' as const,
+        fromRelative: destination.fromRelative,
+        fromAbsolute: destination.fromAbsolute,
+        toRelative: destination.toRelative,
+        toAbsolute: destination.toAbsolute,
+        reason
+      }
+    },
+    createApprovalPreview: async (input, context) => {
+      const { path: source, targetDirectory, newName } = input as {
+        path: string
+        targetDirectory?: string
+        newName?: string
+      }
+      const root = requireWorkspaceRoot(context)
+      const destination = resolveMoveDestination(root, searchService, source, targetDirectory, newName)
+      return {
+        type: 'file-operation' as const,
+        operation: 'move' as const,
+        title: destination.toRelative,
+        from: destination.fromRelative,
+        to: destination.toRelative
+      }
+    }
+  })
+
+  /**
+   * 按路径写文本。
+   *
+   * 容器格式（.mdx / .inkmind）与图表（.drawio）在这里就拒掉：直接写会让
+   * `.mdx` 丢资源、`.drawio` 与画布实例打架。这类文档仍由「打开后改」的
+   * 文档工具负责。
+   */
+  const writeWorkspaceFile = defineTool({
+    name: 'write_workspace_file',
+    description:
+      '把文本内容写入工作区内的指定文件（Markdown 与纯文本；不支持 .mdx / .inkmind / .drawio，这些请用文档编辑工具）。文件不存在则新建，存在则整体覆盖。执行前需要用户批准；目标在编辑器中有未保存修改时会被拒绝。',
+    inputSchema: z
+      .object({
+        path: z.string().trim().min(1),
+        content: z.string(),
+        reason: z.string().trim().min(1)
+      })
+      .strict(),
+    policy: {
+      effect: 'write',
+      approval: 'always',
+      riskLevel: 'high',
+      supportsRememberDecision: false
+    },
+    execution: 'renderer',
+    createRendererOperation: async (input, context) => {
+      const { path: target, content, reason } = input as {
+        path: string
+        content: string
+        reason: string
+      }
+      const root = requireWorkspaceRoot(context)
+      const resolved = requireWritableTextPath(root, searchService, target)
+      // 目标恰好是当前活动文档时带上冲突基线（revision + 内容哈希），
+      // 渲染层据此判断「批准期间用户是否改过它」；写别的文件不需要活动文档
+      const active = context.snapshot.activeDocument
+      return {
+        type: 'write-workspace-file' as const,
+        relativePath: resolved.relative,
+        absolutePath: resolved.absolute,
+        content,
+        format: resolved.format,
+        target: active && isSamePath(active.path, resolved.absolute) ? active : null,
+        reason
+      }
+    },
+    createApprovalPreview: async (input, context) => {
+      const { path: target, content } = input as { path: string; content: string }
+      const root = requireWorkspaceRoot(context)
+      const resolved = requireWritableTextPath(root, searchService, target)
+      let before = ''
+      try {
+        const slice = await searchService.readFileSlice(
+          root,
+          resolved.relative,
+          { offset: 0, length: -1 },
+          requireSignal(context)
+        )
+        before = slice.content
+      } catch {
+        // 文件还不存在：按「新建文档」预览
+        return { type: 'document' as const, title: resolved.relative, content }
+      }
+      return {
+        type: 'markdown-diff' as const,
+        title: resolved.relative,
+        before,
+        after: content
+      }
+    }
+  })
+
+  /**
+   * 删除文件。
+   *
+   * 只删文件、不删目录：递归删除的破坏面太大，用户要清理目录可以自己在文件树里做。
+   * 执行放在渲染进程，因为删完之后文件树、已打开的标签与图谱索引都要一起更新。
+   */
+  const deleteWorkspaceFile = defineTool({
+    name: 'delete_workspace_file',
+    description:
+      '删除工作区内的一个文件（不可恢复，不能删除目录）。执行前需要用户批准。若该文件还在编辑器中且有未保存的修改，删除会被拒绝。',
+    inputSchema: z
+      .object({
+        path: z.string().trim().min(1),
+        reason: z.string().trim().min(1)
+      })
+      .strict(),
+    policy: {
+      effect: 'dangerous',
+      approval: 'always',
+      riskLevel: 'critical',
+      supportsRememberDecision: false
+    },
+    execution: 'renderer',
+    createRendererOperation: async (input, context) => {
+      const { path: target, reason } = input as { path: string; reason: string }
+      const root = requireWorkspaceRoot(context)
+      const targetStat = await searchService.statFile(root, target, requireSignal(context))
+      return {
+        type: 'delete-workspace-file' as const,
+        relativePath: targetStat.path,
+        absolutePath: resolveAbsolutePath(root, targetStat.path),
+        fileSize: targetStat.fileSize,
+        reason
+      }
+    },
+    createApprovalPreview: async (input, context) => {
+      const { path: target } = input as { path: string }
+      const root = requireWorkspaceRoot(context)
+      const targetStat = await searchService.statFile(root, target, requireSignal(context))
+      return {
+        type: 'file-delete' as const,
+        title: targetStat.path,
+        relativePath: targetStat.path,
+        fileSize: targetStat.fileSize,
+        format: targetStat.format
       }
     }
   })
@@ -216,14 +570,14 @@ export function createDocumentTools(searchService: WorkspaceSearchService): Docu
       const { content, reason } = input as { content: string; reason: string }
       return {
         type: 'replace-document' as const,
-        target: describeTarget(context.snapshot.activeDocument),
+        target: describeEditableTarget(context.snapshot.activeDocument),
         content,
         reason
       }
     },
     createApprovalPreview: async (input, context) => {
       const { content } = input as { content: string }
-      const doc = describeTarget(context.snapshot.activeDocument)
+      const doc = describeEditableTarget(context.snapshot.activeDocument)
       return {
         type: 'markdown-diff' as const,
         title: doc.title,
@@ -256,7 +610,7 @@ export function createDocumentTools(searchService: WorkspaceSearchService): Docu
       }
       return {
         type: 'insert-document' as const,
-        target: describeTarget(context.snapshot.activeDocument),
+        target: describeEditableTarget(context.snapshot.activeDocument),
         content,
         position,
         selection: context.snapshot.selection,
@@ -269,7 +623,7 @@ export function createDocumentTools(searchService: WorkspaceSearchService): Docu
         content: string
         position: 'selection' | 'cursor' | 'start' | 'end'
       }
-      const doc = describeTarget(context.snapshot.activeDocument)
+      const doc = describeEditableTarget(context.snapshot.activeDocument)
       const after = applyInsert(
         doc.content,
         content,
@@ -431,6 +785,11 @@ export function createDocumentTools(searchService: WorkspaceSearchService): Docu
     listWorkspaceRoot,
     readWorkspaceDirectory,
     readWorkspaceFile,
+    getWorkspaceFileSize,
+    createWorkspaceDirectory,
+    moveWorkspaceEntry,
+    writeWorkspaceFile,
+    deleteWorkspaceFile,
     readSelectedText,
     replaceCurrentDocument,
     insertIntoCurrentDocument,
@@ -486,4 +845,16 @@ function describeTarget(doc: AiDocumentSnapshot | null): AiDocumentSnapshot {
     throw new Error('当前没有活动文档')
   }
   return doc
+}
+
+/**
+ * 写工具的目标校验：图片与 PDF 在编辑器里是只读二进制，正文是 Data URL / base64，
+ * 让模型去「替换正文」只会产出一个打不开的文件，这里直接拒绝。
+ */
+function describeEditableTarget(doc: AiDocumentSnapshot | null): AiDocumentSnapshot {
+  const target = describeTarget(doc)
+  if (target.format === 'image' || target.format === 'pdf') {
+    throw new Error('当前文档是只读的图片或 PDF，无法修改正文')
+  }
+  return target
 }

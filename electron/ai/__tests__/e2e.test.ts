@@ -13,7 +13,8 @@ import type {
   AiRunEvent,
   AiRunInput,
   AiRuntimeConfig,
-  SearchWorkspaceResult
+  SearchWorkspaceResult,
+  WorkspaceFileSlice
 } from '../../../shared/ai/types'
 
 const DOCUMENT_BODY = '# Release notes\n\nPrivate roadmap details'
@@ -71,8 +72,33 @@ function makeFakeSearchService(): WorkspaceSearchService {
     })),
     listRoot: vi.fn(),
     readDirectory: vi.fn(),
-    readFile: vi.fn(async () => DOCUMENT_BODY)
+    readFile: vi.fn(async () => DOCUMENT_BODY),
+    readFileSlice: vi.fn(async () => makeFileSlice(DOCUMENT_BODY)),
+    statFile: vi.fn(async () => ({
+      path: 'docs/release-notes.md',
+      format: 'markdown',
+      fileSize: DOCUMENT_BODY.length,
+      totalSize: DOCUMENT_BODY.length,
+      readable: true
+    }))
   } as unknown as WorkspaceSearchService
+}
+
+/** 构造一次全文读取的结果，供 mock 的 readFileSlice 复用。 */
+function makeFileSlice(content: string): WorkspaceFileSlice {
+  return {
+    path: 'docs/release-notes.md',
+    format: 'markdown',
+    fileSize: Buffer.byteLength(content, 'utf8'),
+    totalSize: Buffer.byteLength(content, 'utf8'),
+    offset: 0,
+    length: Buffer.byteLength(content, 'utf8'),
+    content,
+    eof: true,
+    truncated: false,
+    nextOffset: null,
+    encoding: 'utf-8'
+  }
 }
 
 function makeRuntime(baseUrl: string, searchService: WorkspaceSearchService = makeFakeSearchService()): AiRuntime {
@@ -192,10 +218,10 @@ describe('AI 主进程端到端链路（真实 HTTP + 真实 Provider + Runtime 
       }
     })
     const events: AiRunEvent[] = []
-    // 文件不在真实磁盘，mock 搜索服务的读取
-    const readFile = vi.fn(async () => DOCUMENT_BODY)
+    // 文件不在真实磁盘，mock 搜索服务的范围读取
+    const readFileSlice = vi.fn(async () => makeFileSlice(DOCUMENT_BODY))
     const searchService = makeFakeSearchService()
-    searchService.readFile = readFile
+    searchService.readFileSlice = readFileSlice
     const runtime = makeRuntime(baseUrl, searchService)
 
     const { runId } = await runtime.start(makeRunInput(), (event) => events.push(event))

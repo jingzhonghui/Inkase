@@ -7,6 +7,8 @@ import MarkdownDiffPreview from './approval/MarkdownDiffPreview.vue'
 import DocumentPreview from './approval/DocumentPreview.vue'
 import NetworkRequestPreview from './approval/NetworkRequestPreview.vue'
 import LocalFileReadPreview from './approval/LocalFileReadPreview.vue'
+import DeleteFilePreview from './approval/DeleteFilePreview.vue'
+import FileOperationPreview from './approval/FileOperationPreview.vue'
 
 const props = defineProps<{ record: ConversationApprovalRecord }>()
 const store = useAiStore()
@@ -47,8 +49,10 @@ const pending = computed(() => props.record.decision === undefined)
 /** 判定结果：允许时补上执行结果，冲突/失败要说清楚，否则用户会以为已经写入 */
 const verdict = computed(() => {
   const decision = props.record.decision
-  if (!decision) return '等待批准'
-  if (decision.status === 'approved') return outcomeText(props.record.outcome)
+  if (!decision) return props.record.auto ? '自动执行中' : '等待批准'
+  if (decision.status === 'approved') {
+    return props.record.auto ? `完全控制 · ${outcomeText(props.record.outcome)}` : outcomeText(props.record.outcome)
+  }
   if (decision.status === 'rejected') return decision.reason ? `已拒绝 · ${decision.reason}` : '已拒绝'
   if (decision.status === 'expired') return '已过期'
   return '已取消'
@@ -135,6 +139,14 @@ async function submit(allow: boolean): Promise<void> {
         />
         <LocalFileReadPreview
           v-else-if="preview?.type === 'local-file-read'"
+          v-bind="preview"
+        />
+        <DeleteFilePreview
+          v-else-if="preview?.type === 'file-delete'"
+          v-bind="preview"
+        />
+        <FileOperationPreview
+          v-else-if="preview?.type === 'file-operation'"
           v-bind="preview"
         />
         <p

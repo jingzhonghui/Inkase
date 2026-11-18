@@ -106,6 +106,29 @@ function makeFakeSearchService(
         }) as WorkspaceDirectoryResult
     ),
     readFile: vi.fn(async () => ''),
+    readFileSlice: vi.fn(async (_root: string, path: string) => {
+      const content = ''
+      return {
+        path,
+        format: 'text' as const,
+        fileSize: Buffer.byteLength(content, 'utf8'),
+        totalSize: Buffer.byteLength(content, 'utf8'),
+        offset: 0,
+        length: 0,
+        content,
+        eof: true,
+        truncated: false,
+        nextOffset: null,
+        encoding: 'utf-8' as const
+      }
+    }),
+    statFile: vi.fn(async (_root: string, path: string) => ({
+      path,
+      format: 'text' as const,
+      fileSize: 0,
+      totalSize: 0,
+      readable: true
+    })),
     ...overrides
   } as unknown as WorkspaceSearchService
   return base
@@ -261,8 +284,21 @@ describe('document tools', () => {
   })
 
   it('read_workspace_file 委托给搜索服务读取文件', async () => {
-    const readFileFn = vi.fn(async () => '# 内容')
-    const localSearch = makeFakeSearchService({ readFile: readFileFn })
+    const slice = {
+      path: 'docs/notes.md',
+      format: 'markdown' as const,
+      fileSize: 8,
+      totalSize: 8,
+      offset: 0,
+      length: 8,
+      content: '# 内容',
+      eof: true,
+      truncated: false,
+      nextOffset: null,
+      encoding: 'utf-8' as const
+    }
+    const readFileSliceFn = vi.fn(async () => slice)
+    const localSearch = makeFakeSearchService({ readFileSlice: readFileSliceFn })
     const localTools = createDocumentTools(localSearch)
     const snapshot = makeSnapshot(null, null, null, 'C:\\ws')
     const result = await (
@@ -270,8 +306,13 @@ describe('document tools', () => {
         execute: (input: unknown, context: ToolExecutionContext) => Promise<unknown>
       }
     ).execute({ path: 'docs/notes.md' }, contextWith(snapshot, new AbortController().signal))
-    expect(readFileFn).toHaveBeenCalledWith('C:\\ws', 'docs/notes.md', expect.any(AbortSignal))
-    expect(result).toMatchObject({ content: '# 内容' })
+    expect(readFileSliceFn).toHaveBeenCalledWith(
+      'C:\\ws',
+      'docs/notes.md',
+      { offset: undefined, length: undefined },
+      expect.any(AbortSignal)
+    )
+    expect(result).toMatchObject({ content: '# 内容', eof: true })
   })
 
   it('read_workspace_file 在未打开工作区时拒绝', async () => {
@@ -342,7 +383,7 @@ describe('time tools', () => {
 })
 
 describe('runtime approval flow', () => {
-  it('registers exactly eight tools and pops approval for any valid URL', async () => {
+  it('registers the workspace tool set and pops approval for any valid URL', async () => {
     const provider = new FakeProvider()
     const runtime = makeRuntime(provider)
     const input = makeRunInput(makeSnapshot())
@@ -360,6 +401,10 @@ describe('runtime approval flow', () => {
       'list_workspace_root',
       'read_workspace_directory',
       'read_workspace_file',
+      'get_workspace_file_size',
+      'create_workspace_directory',
+      'move_workspace_entry',
+      'write_workspace_file',
       'read_selected_text',
       'get_current_datetime',
       'read_web_url',
@@ -368,7 +413,8 @@ describe('runtime approval flow', () => {
       'insert_into_current_document',
       'create_document',
       'create_mindmap',
-      'update_mindmap'
+      'update_mindmap',
+      'delete_workspace_file'
     ])
     const web = provider.captured!.tools.read_web_url!
     const execution = web.execute(
@@ -865,13 +911,13 @@ describe('runtime lifecycle', () => {
     await waitRunEnd(events, 'run-completed')
   })
 
-  it('默认 maxSteps 为 20', async () => {
+  it('默认 maxSteps 为 50（够跑完多文件整理这类任务）', async () => {
     const provider = new FakeProvider()
     const runtime = makeRuntime(provider)
     const events: AiRunEvent[] = []
     void runtime.start(makeRunInput(makeSnapshot(makeDoc())), (e) => events.push(e))
     await vi.waitFor(() => expect(provider.captured).not.toBeNull())
-    expect(provider.captured!.maxSteps).toBe(20)
+    expect(provider.captured!.maxSteps).toBe(50)
     provider.finish()
     await waitRunEnd(events, 'run-completed')
   })

@@ -6,7 +6,7 @@ import AiMessageList from './AiMessageList.vue'
 import AiConversationSidebar from './AiConversationSidebar.vue'
 
 const store = useAiStore()
-const props = defineProps<{ ready: boolean }>()
+const props = defineProps<{ ready: boolean; autoApprove?: boolean }>()
 const emit = defineEmits<{ openSettings: [] }>()
 
 const composerRef = ref<InstanceType<typeof AiComposer> | null>(null)
@@ -25,7 +25,16 @@ function handleRecall(messageId: string): void {
     <AiConversationSidebar />
     <div class="workbench">
       <header class="panel-header">
-        <div><strong>AI 助手</strong><span :class="{ ready: props.ready }">{{ props.ready ? '配置可用' : '需要配置' }}</span></div>
+        <div>
+          <strong>AI 助手</strong>
+          <span :class="{ ready: props.ready }">{{ props.ready ? '配置可用' : '需要配置' }}</span>
+          <!-- 完全控制是「不再拦你」的状态，必须一直看得见，否则很容易忘记 -->
+          <span
+            v-if="props.autoApprove"
+            class="auto-approve"
+            data-testid="ai-auto-approve-badge"
+          >完全控制</span>
+        </div>
         <div>
           <button
             type="button"
@@ -64,6 +73,6 @@ function handleRecall(messageId: string): void {
 </template>
 
 <style scoped>
-.ai-panel { display: flex; flex: 1; min-width: 0; min-height: 0; background: var(--color-bg-primary); color: var(--color-text); }.workbench { display: flex; width: 100%; flex: 1; min-width: 0; min-height: 0; flex-direction: column; }.panel-header { display: flex; align-items: center; justify-content: space-between; min-height: 46px; padding: 0 16px; border-bottom: 1px solid var(--color-border); }.panel-header div { display: flex; align-items: center; gap: 9px; }.panel-header strong { font-size: var(--ui-font-size); }.panel-header span { color: var(--color-text-tertiary); font-size: calc(var(--ui-font-size) - 3px); }.panel-header span.ready { color: var(--color-primary); }.panel-header button { padding: 5px 8px; border: 0; border-radius: 4px; background: transparent; color: var(--color-text-secondary); cursor: pointer; }.panel-header button:hover:not(:disabled) { background: var(--color-bg-secondary); }.panel-header button:disabled { cursor: not-allowed; opacity: .45; }.composer-wrap { padding: 8px clamp(18px, 5vw, 64px) 18px; }.error { max-width: 780px; margin: 0 auto 5px; padding: 0 clamp(18px, 5vw, 64px); color: var(--color-error, #ef4444); font-size: calc(var(--ui-font-size) - 1px); }
+.ai-panel { display: flex; flex: 1; min-width: 0; min-height: 0; background: var(--color-bg-primary); color: var(--color-text); }.workbench { display: flex; width: 100%; flex: 1; min-width: 0; min-height: 0; flex-direction: column; }.panel-header { display: flex; align-items: center; justify-content: space-between; min-height: 46px; padding: 0 16px; border-bottom: 1px solid var(--color-border); }.panel-header div { display: flex; align-items: center; gap: 9px; }.panel-header strong { font-size: var(--ui-font-size); }.panel-header span { color: var(--color-text-tertiary); font-size: calc(var(--ui-font-size) - 3px); }.panel-header span.ready { color: var(--color-primary); }.panel-header span.auto-approve { padding: 1px 6px; border-radius: 4px; background: rgb(217 119 6 / 14%); color: #b45309; font-weight: 600; }.panel-header button { padding: 5px 8px; border: 0; border-radius: 4px; background: transparent; color: var(--color-text-secondary); cursor: pointer; }.panel-header button:hover:not(:disabled) { background: var(--color-bg-secondary); }.panel-header button:disabled { cursor: not-allowed; opacity: .45; }.composer-wrap { padding: 8px clamp(18px, 5vw, 64px) 18px; }.error { max-width: 780px; margin: 0 auto 5px; padding: 0 clamp(18px, 5vw, 64px); color: var(--color-error, #ef4444); font-size: calc(var(--ui-font-size) - 1px); }
 @media (max-width: 760px) { .composer-wrap { padding: 8px 12px 12px; } }
 </style>

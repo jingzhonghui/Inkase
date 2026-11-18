@@ -12,10 +12,22 @@ export interface AiConfigInput {
   maxOutputTokens?: number
   contextWindow?: number
   maxSteps?: number
+  /** 单次 read_workspace_file 返回的正文字节上限，默认 256 KiB */
+  maxReadBytes?: number
+  /**
+   * 单次运行的空闲超时（毫秒）。
+   *
+   * 只在「模型没有输出、也没有工具在执行」时计时：工具执行与审批等待不计入，
+   * 否则用户看一份 diff 的时间就能把整轮运行拖超时。
+   */
+  idleTimeoutMs?: number
+  /** 审批模式，缺省为 ask（逐次请求批准） */
+  approvalMode?: AiApprovalMode
 }
 
 export interface AiConfigView extends Omit<AiConfigInput, 'apiKey'> {
   hasApiKey: boolean
+  /** 地址、模型与 API Key 齐备即为 true；能力探测只作为额外信息，不是前置条件 */
   ready: boolean
   capabilities?: AiConnectionTestResult
 }
@@ -103,16 +115,77 @@ export interface ToolPolicy {
   supportsRememberDecision: boolean
 }
 
+/**
+ * 审批模式。
+ *
+ * - `ask`：按工具策略逐次请求批准（默认）
+ * - `auto`：完全控制——不再逐次询问，写操作与危险操作直接执行
+ *
+ * auto 下渲染进程类操作仍然会生成一条 `auto: true` 的审批记录：
+ * 执行路径不变（认领 → 应用 → 回传结果），只是不需要人点，
+ * 会话里也能翻到「AI 自己做了什么」。
+ */
+export type AiApprovalMode = 'ask' | 'auto'
+
 export interface AiDocumentSnapshot {
   id: string
   title: string
   path: string | null
-  /** 思维导图也参与 AI 上下文，因此和普通文档一样带格式标记 */
-  format: 'markdown' | 'mdx' | 'mindmap'
+  /**
+   * 文档真实格式。
+   *
+   * 早先只区分 markdown / mdx / mindmap，图表与图片、PDF 都被兜底成 mdx，
+   * 模型会因此把 XML 或二进制当 Markdown 正文看待。这里如实标注，
+   * 写工具再按格式判断能不能改。
+   */
+  format: 'markdown' | 'mdx' | 'mindmap' | 'diagram' | 'image' | 'pdf'
   content: string
   revision: number
   contentHash: string
   modified: boolean
+}
+
+/** 工作区文件按扩展名判定的可读格式，决定正文如何提取。 */
+export type WorkspaceFileFormat = 'text' | 'markdown' | 'mdx' | 'mindmap' | 'diagram'
+
+/**
+ * 一次范围读取的结果。
+ *
+ * offset / length 都以**可读正文的字节**为基准：普通文本文件等于磁盘字节，
+ * `.mdx` / `.inkmind` 这类容器等于解包后正文的字节。模型据此拼接多次读取。
+ */
+export interface WorkspaceFileSlice {
+  /** 工作区内相对路径，统一 `/` 分隔 */
+  path: string
+  format: WorkspaceFileFormat
+  /** 磁盘上原始文件字节数 */
+  fileSize: number
+  /** 可读正文总字节数 */
+  totalSize: number
+  /** 本次返回正文的起始字节（已对齐 UTF-8 字符边界） */
+  offset: number
+  /** 本次返回的字节数 */
+  length: number
+  content: string
+  /** 是否已读到正文末尾 */
+  eof: boolean
+  /** 是否被单次读取上限截断 */
+  truncated: boolean
+  /** 继续读取时应传入的 offset；已到末尾为 null */
+  nextOffset: number | null
+  encoding: 'utf-8'
+}
+
+/** 只读元信息：让模型先判断「一次读还是分多次读」。 */
+export interface WorkspaceFileStat {
+  path: string
+  format: WorkspaceFileFormat
+  fileSize: number
+  totalSize: number
+  readable: boolean
+  /** readable 为 false 时的原因，例如二进制内容或容器解包失败 */
+  reason?: string
+  modifiedAt?: number
 }
 
 export interface DirectoryEntry {
@@ -161,10 +234,70 @@ export type ApprovedDocumentOperation =
       format: 'markdown' | 'mdx' | 'mindmap'
       reason: string
     }
+  | {
+      /**
+       * 删除工作区文件。
+       *
+       * 走渲染进程执行（而不是主进程直接 rm）：删除后文件树、已打开的标签和
+       * 图谱索引都要一起更新，那三件事都活在渲染层。
+       */
+      type: 'delete-workspace-file'
+      relativePath: string
+      absolutePath: string
+      fileSize: number
+      reason: string
+    }
+  | {
+      /** 移动/改名工作区条目（文件或目录）。目标目录必须已存在。 */
+      type: 'move-workspace-entry'
+      fromRelative: string
+      fromAbsolute: string
+      toRelative: string
+      toAbsolute: string
+      reason: string
+    }
+  | {
+      /** 新建目录。父目录必须已存在（一次只建一层，模型可连续调用）。 */
+      type: 'create-workspace-directory'
+      relativePath: string
+      absolutePath: string
+      reason: string
+    }
+  | {
+      /**
+       * 按路径写入文本正文。
+       *
+       * 只覆盖纯文本类格式（Markdown / 文本）；`.mdx`、`.inkmind` 是容器、
+       * `.drawio` 有画布实例，直接写会丢资源或让画布与磁盘打架，一律拒绝。
+       */
+      type: 'write-workspace-file'
+      relativePath: string
+      absolutePath: string
+      content: string
+      format: 'markdown' | 'text'
+      /** 目标文件已在编辑器中打开时的冲突基线 */
+      target: AiDocumentSnapshot | null
+      reason: string
+    }
 
 export type ApprovalPreview =
   | { type: 'markdown-diff'; title: string; before: string; after: string }
   | { type: 'document'; title: string; content: string }
+  | {
+      type: 'file-operation'
+      operation: 'move' | 'create-directory'
+      title: string
+      from?: string
+      to: string
+      reason?: string
+    }
+  | {
+      type: 'file-delete'
+      title: string
+      relativePath: string
+      fileSize: number
+      format: WorkspaceFileFormat
+    }
   | {
       type: 'network-request'
       method: string
@@ -205,6 +338,8 @@ export interface ToolApprovalRequest {
   execution: { location: 'main' } | { location: 'renderer'; operation: ApprovedDocumentOperation }
   createdAt: number
   expiresAt: number
+  /** 完全控制模式下自动放行，无需用户点击；会话里仍留档 */
+  auto?: boolean
 }
 
 export interface AiRunInput {
@@ -258,6 +393,8 @@ export interface ConversationApprovalRecord {
   /** 未判定时缺省，表示仍在等待用户操作 */
   decision?: ApprovalDecision
   decidedAt?: number
+  /** 完全控制模式下由程序自动放行 */
+  auto?: boolean
   /** 渲染进程执行结果的状态（applied / conflict / failed），仅写入类操作有 */
   outcome?: ToolExecutionResult['status']
   /** 承载该工具调用的助手消息 id，用于在会话流中定位卡片 */

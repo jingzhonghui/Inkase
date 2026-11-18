@@ -41,8 +41,9 @@ describe('设置中心与 AI 节', () => {
     const ai = mount(SettingsDialog, { props: { initialSection: 'ai' } })
     expect(ai.get('.settings-main__head h2').text()).toBe('AI 助手')
     expect(ai.find('[data-testid="ai-settings-form"]').exists()).toBe(true)
-    // 7 行：API 地址 / 模型 / API Key / 温度 / 最大输出 / 上下文窗口 / 最大工具步骤
-    expect(ai.findAll('.settings-row')).toHaveLength(7)
+    // 10 行：API 地址 / 模型 / API Key / 温度 / 最大输出 / 上下文窗口 /
+    // 最大工具步骤 / 单次读取上限 / 空闲超时 / 完全控制
+    expect(ai.findAll('.settings-row')).toHaveLength(10)
     ai.unmount()
   })
 

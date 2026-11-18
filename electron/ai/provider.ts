@@ -54,6 +54,14 @@ export interface LlmProvider {
 
 export interface ProviderOptions {
   firstEventTimeoutMs?: number
+  /**
+   * 空闲超时：模型既没有输出、也没有工具在跑的时间超过它就中止。
+   *
+   * 用空闲时长而不是墙钟总时长来判定，是因为一轮「整理目录」的任务里大量时间
+   * 花在工具执行和用户审批上——按墙钟计时会把正常的复杂任务判成超时。
+   */
+  idleTimeoutMs?: number
+  /** 非流式调用（能力探测 / 标题 / 摘要）的墙钟总超时 */
   totalTimeoutMs?: number
   maxRetries?: number
 }
@@ -73,6 +81,14 @@ class ProviderTimeoutError extends Error {
     super(message)
     this.name = 'ProviderTimeoutError'
   }
+}
+
+/** 配置里的空闲超时（毫秒）优先；非法值退回内置默认。 */
+function resolveIdleTimeout(configured: number | undefined, fallback: number): number {
+  if (typeof configured !== 'number' || !Number.isFinite(configured) || configured < 30_000) {
+    return fallback
+  }
+  return Math.min(configured, 60 * 60_000)
 }
 
 const CAPABILITY_PROBE_TOOL = 'markdown_plus_capability_probe'
@@ -140,13 +156,24 @@ function toSdkMessages(messages: AiConversationMessage[]): ModelMessage[] {
   })
 }
 
-function toSdkTools(tools: Record<string, ProviderTool>): ToolSet {
+function toSdkTools(
+  tools: Record<string, ProviderTool>,
+  onToolStart?: () => void,
+  onToolEnd?: () => void
+): ToolSet {
   const result: Record<string, unknown> = {}
   for (const [name, providerTool] of Object.entries(tools)) {
     result[name] = tool({
       description: providerTool.description,
       inputSchema: providerTool.inputSchema as unknown as FlexibleSchema<unknown>,
-      execute: async (input: unknown, options) => providerTool.execute(input, options)
+      execute: async (input: unknown, options) => {
+        onToolStart?.()
+        try {
+          return await providerTool.execute(input, options)
+        } finally {
+          onToolEnd?.()
+        }
+      }
     })
   }
   return result as unknown as ToolSet
@@ -154,11 +181,13 @@ function toSdkTools(tools: Record<string, ProviderTool>): ToolSet {
 
 export class VercelAiSdkProvider implements LlmProvider {
   private readonly firstEventTimeoutMs: number
+  private readonly idleTimeoutMs: number
   private readonly totalTimeoutMs: number
   private readonly maxRetries: number
 
   constructor(options: ProviderOptions = {}) {
     this.firstEventTimeoutMs = options.firstEventTimeoutMs ?? 30_000
+    this.idleTimeoutMs = options.idleTimeoutMs ?? 10 * 60_000
     this.totalTimeoutMs = options.totalTimeoutMs ?? 5 * 60_000
     this.maxRetries = options.maxRetries ?? 2
   }
@@ -172,20 +201,48 @@ export class VercelAiSdkProvider implements LlmProvider {
       input.abortSignal.addEventListener('abort', onAbort, { once: true })
     }
 
-    const totalTimer = setTimeout(
-      () => controller.abort(new ProviderTimeoutError('总运行超时')),
-      this.totalTimeoutMs
-    )
+    // 空闲看门狗：只在「模型没输出、也没有工具在跑」时累计。
+    // 工具执行包含等待用户审批的时间，那部分不该算进模型超时。
+    const idleTimeoutMs = resolveIdleTimeout(input.config.idleTimeoutMs, this.idleTimeoutMs)
+    const tickMs = Math.max(250, Math.min(2000, Math.floor(idleTimeoutMs / 10)))
+    let lastActivity = Date.now()
+    let toolsInFlight = 0
+    const touch = (): void => {
+      lastActivity = Date.now()
+    }
+    const idleTimer = setInterval(() => {
+      if (toolsInFlight > 0) {
+        // 工具在跑（可能在等审批）：这不算模型空闲
+        lastActivity = Date.now()
+        return
+      }
+      if (Date.now() - lastActivity >= idleTimeoutMs) {
+        controller.abort(new ProviderTimeoutError('运行空闲超时'))
+      }
+    }, tickMs)
+    // 看门狗不该把进程留在事件循环里
+    idleTimer.unref?.()
+
     let firstEventTimer: ReturnType<typeof setTimeout> | undefined
 
     const clearTimers = (): void => {
-      clearTimeout(totalTimer)
+      clearInterval(idleTimer)
       if (firstEventTimer) clearTimeout(firstEventTimer)
       input.abortSignal.removeEventListener('abort', onAbort)
     }
 
     const model = this.createModel(input.config)
-    const sdkTools = toSdkTools(input.tools)
+    const sdkTools = toSdkTools(
+      input.tools,
+      () => {
+        toolsInFlight += 1
+        touch()
+      },
+      () => {
+        toolsInFlight = Math.max(0, toolsInFlight - 1)
+        touch()
+      }
+    )
     const sdkMessages = toSdkMessages(input.messages)
 
     try {
@@ -212,6 +269,8 @@ export class VercelAiSdkProvider implements LlmProvider {
           })
 
           for await (const part of result.fullStream) {
+            // 任何一路事件都算「有活动」，看门狗据此重新计时
+            touch()
             if (part.type === 'error') {
               throw part.error
             }

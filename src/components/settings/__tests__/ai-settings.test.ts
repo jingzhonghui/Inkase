@@ -172,6 +172,48 @@ describe('AI settings', () => {
     expect(wrapper.emitted('readiness')?.at(-1)).toEqual([true])
   })
 
+  /*
+   * 这两个值在配置里是字节/毫秒，界面上按 KB/分钟展示：
+   * 让用户填 262144 这种数字属于设计事故。
+   */
+  it('round-trips the read limit and idle timeout in human units', async () => {
+    electronAPI.getAiConfig.mockResolvedValue({
+      success: true,
+      data: {
+        baseUrl: 'https://provider.example/v1', model: 'writer-pro', temperature: 0.3,
+        hasApiKey: true, maxReadBytes: 512 * 1024, idleTimeoutMs: 10 * 60_000
+      }
+    })
+    electronAPI.setAiConfig.mockResolvedValue({ success: true, data: { hasApiKey: true } })
+    const wrapper = mountSection()
+    await vi.waitFor(() =>
+      expect((wrapper.get('[data-testid="ai-max-read-kb"]').element as HTMLInputElement).value).toBe('512')
+    )
+    expect((wrapper.get('[data-testid="ai-idle-timeout"]').element as HTMLInputElement).value).toBe('10')
+
+    await saveSection(wrapper)
+
+    expect(electronAPI.setAiConfig).toHaveBeenCalledWith(expect.objectContaining({
+      maxReadBytes: 512 * 1024,
+      idleTimeoutMs: 10 * 60_000
+    }))
+  })
+
+  it('keeps the composer ready from the saved config without a capability probe', async () => {
+    // 配置齐备就算就绪：探测只是验证，不是使用的前置条件
+    electronAPI.getAiConfig.mockResolvedValue({
+      success: true,
+      data: {
+        baseUrl: 'https://provider.example/v1', model: 'writer-pro', temperature: 0.3,
+        hasApiKey: true, ready: true
+      }
+    })
+    const wrapper = mountSection()
+    await vi.waitFor(() => expect(electronAPI.getAiConfig).toHaveBeenCalledOnce())
+
+    expect(wrapper.emitted('readiness')?.at(-1)).toEqual([true])
+  })
+
   it('toggles the API key visibility with an eye button', async () => {
     const wrapper = mountSection()
     await vi.waitFor(() => expect(electronAPI.getAiConfig).toHaveBeenCalledOnce())
