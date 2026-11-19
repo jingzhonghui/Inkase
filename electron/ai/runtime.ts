@@ -1,6 +1,5 @@
 import { randomUUID } from 'crypto'
 import type {
-  AiApprovalMode,
   AiConversationMessage,
   AiRunEvent,
   AiRunInput,
@@ -10,6 +9,7 @@ import type {
   ToolApprovalRequest,
   ToolExecutionResult
 } from '../../shared/ai/types'
+import { normalizeAiPermissionMode, type AiPermissionMode } from '../../shared/ai/permission'
 import {
   mapProviderError,
   type AiProviderEvent,
@@ -25,7 +25,7 @@ import { createSourceAuthorizationContext } from './source-authorization'
 import { createDocumentTools } from './tools/document-tools'
 import { createSourceAccessTools } from './tools/source-access-tools'
 import { createTimeTools } from './tools/time-tools'
-import { SYSTEM_PROMPT } from './prompts'
+import { SYSTEM_PROMPT, buildPermissionInstruction } from './prompts'
 
 type AnyToolDefinition = ToolDefinition<any, unknown>
 
@@ -50,6 +50,11 @@ interface ActiveRun {
 
 const TOOL_TIMEOUT_MESSAGE = '工具执行超时'
 
+/** 只读模式下拦下修改类工具时回给模型的话，顺带告诉它怎么继续。 */
+const READONLY_MODE_MESSAGE =
+  '当前为「只读」权限模式：AI 不能修改、新建、移动或删除工作区文件。' +
+  '请让用户把输入框左下角的权限切换为「标准」或「完全控制」后再试。'
+
 export class AiRuntime {
   private readonly provider: LlmProvider
   private readonly registry: ToolRegistry
@@ -59,7 +64,11 @@ export class AiRuntime {
   private readonly maxSteps: number
   private readonly toolTimeoutMs: number
   private readonly approvalTimeoutMs: number
-  private readonly approvalMode: AiApprovalMode
+  /**
+   * 权限模式可以运行中切换（面板里的下拉），所以不是 readonly：
+   * 构造时从配置取初值，之后由 `setPermissionMode` 更新。
+   */
+  private permissionMode: AiPermissionMode
 
   private readonly activeRuns = new Map<string, ActiveRun>()
   private readonly pendingResults = new Map<string, (result: ToolExecutionResult) => void>()
@@ -77,9 +86,23 @@ export class AiRuntime {
     // 审批等待不走这个计时，避免用户思考时间被算成工具超时。
     this.toolTimeoutMs = deps.toolTimeoutMs ?? 180_000
     this.approvalTimeoutMs = deps.approvalTimeoutMs ?? 600_000
-    this.approvalMode = deps.config.approvalMode ?? 'ask'
+    this.permissionMode = normalizeAiPermissionMode(deps.config.permissionMode)
 
     this.registerTools(deps.sourceAccessService, deps.searchService)
+  }
+
+  /**
+   * 切换权限模式，运行中立即生效。
+   *
+   * 不重建 runtime：重建会把正在跑的会话一起拆掉。已经发出的审批请求保持原样
+   * （用户已经看到的那一次仍由用户决定），只有「下一次工具调用」按新模式判定。
+   */
+  setPermissionMode(mode: AiPermissionMode): void {
+    this.permissionMode = normalizeAiPermissionMode(mode)
+  }
+
+  getPermissionMode(): AiPermissionMode {
+    return this.permissionMode
   }
 
   private registerTools(
@@ -136,10 +159,12 @@ export class AiRuntime {
       { id: randomUUID(), role: 'user', content: input.message }
     ]
     const tools = this.buildProviderTools(context, run, emit)
+    // 权限模式写进系统提示：工具列表已经按模式筛过，但模型仍可能凭记忆调用被剔掉的工具
+    const system = this.systemPrompt + buildPermissionInstruction(this.permissionMode)
 
     emit({ type: 'run-started', runId })
 
-    void this.runLoop(run, messages, tools, emit).catch(() => {})
+    void this.runLoop(run, messages, tools, emit, system).catch(() => {})
     return Promise.resolve({ runId })
   }
 
@@ -147,13 +172,14 @@ export class AiRuntime {
     run: ActiveRun,
     messages: AiConversationMessage[],
     tools: Record<string, ProviderTool>,
-    emit: (event: AiRunEvent) => void
+    emit: (event: AiRunEvent) => void,
+    system: string
   ): Promise<{ runId: string }> {
     const { runId, abort } = run
     try {
       const stream = this.provider.run({
         config: this.config,
-        system: this.systemPrompt,
+        system,
         messages,
         tools,
         maxSteps: this.maxSteps,
@@ -228,6 +254,9 @@ export class AiRuntime {
   ): Record<string, ProviderTool> {
     const tools: Record<string, ProviderTool> = {}
     for (const def of this.registry.all()) {
+      // 只读模式下不把修改类工具递给模型：它不必看到注定会被拒绝的工具，
+      // 少一次「试了才知道不行」的往返。真正执行前还有一道 deny 兜底。
+      if (evaluateToolPolicy(def.policy, this.permissionMode) === 'deny') continue
       tools[def.name] = {
         description: def.description,
         inputSchema: def.inputSchema,
@@ -287,8 +316,16 @@ export class AiRuntime {
     emit: (event: AiRunEvent) => void,
     callAbort: AbortController
   ): Promise<ToolExecutionResult> {
-    const requiresApproval = evaluateToolPolicy(def.policy, this.approvalMode)
-    const auto = this.approvalMode === 'auto'
+    const policyDecision = evaluateToolPolicy(def.policy, this.permissionMode)
+
+    // 只读模式：修改类工具在进审批通道之前就拒掉。不能先弹窗再拒绝——
+    // 那会让用户以为「点了允许就能改」，而权限模式的边界不该由一次点击突破。
+    if (policyDecision === 'deny') {
+      return { status: 'rejected', message: READONLY_MODE_MESSAGE }
+    }
+
+    const requiresApproval = policyDecision === 'ask'
+    const auto = this.permissionMode === 'auto'
 
     // 主进程工具在不需要批准时直接执行
     if (def.execution === 'main' && !requiresApproval) {
@@ -319,6 +356,23 @@ export class AiRuntime {
         ? String((input as { reason?: unknown }).reason ?? '')
         : undefined
 
+    // 先登记结果槽、再发审批请求：`request()` 在队列空时会同步发布该审批
+    // （onPublish → emit）。顺序反过来时，一旦发布路径同步触发了响应，
+    // 取结果时就找不到 resolver，execute 会返回一个永不落定的 Promise，
+    // 整个 SDK 流于是永远不关闭——表现就是「AI 假死 + 卡片停在运行中」。
+    let rendererResult: ToolExecutionResult | undefined
+    let resolveRenderer: ((result: ToolExecutionResult) => void) | undefined
+    if (def.execution === 'renderer') {
+      const resultPromise = new Promise<ToolExecutionResult>((resolve) => {
+        resolveRenderer = (value) => {
+          rendererResult = value
+          resolve(value)
+        }
+        this.pendingResults.set(approvalId, resolveRenderer)
+      })
+      void resultPromise
+    }
+
     const request: ToolApprovalRequest = {
       id: approvalId,
       runId: run.runId,
@@ -339,13 +393,6 @@ export class AiRuntime {
     const decisionPromise = this.approvalManager.request(request, (req) => {
       emit({ type: 'approval-required', runId: run.runId, approval: req })
     })
-
-    let resultPromise: Promise<ToolExecutionResult> | undefined
-    if (def.execution === 'renderer') {
-      resultPromise = new Promise<ToolExecutionResult>((resolve) => {
-        this.pendingResults.set(approvalId, resolve)
-      })
-    }
 
     const decision = await decisionPromise
 
@@ -368,7 +415,9 @@ export class AiRuntime {
     }
 
     this.pendingResults.delete(approvalId)
-    return resultPromise ?? { status: 'failed', message: '渲染进程执行结果缺失' }
+    // 结果槽没被填写（渲染层回传丢失）时绝不能返回那个悬挂的 Promise：
+    // 它会让 SDK 认为这个工具永不结束，整轮运行既不失败也不继续。
+    return rendererResult ?? { status: 'failed', message: '渲染进程执行结果缺失' }
   }
 
   private withTimeout<T>(promise: Promise<T>, ms: number, onTimeout: () => void): Promise<T> {

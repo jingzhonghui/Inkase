@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import { mount } from '@vue/test-utils'
+import { mount, type VueWrapper } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import AiPanel from '../AiPanel.vue'
 import { useAiStore } from '../../../stores/ai'
@@ -10,6 +10,8 @@ import type { ConversationApprovalRecord } from '../../../../shared/ai/types'
 
 const electronAPI = {
   getAiConfig: vi.fn(),
+  setAiPermissionMode: vi.fn(),
+  setAiModel: vi.fn(),
   startAiRun: vi.fn(),
   cancelAiRun: vi.fn(),
   onAiRunEvent: vi.fn(() => () => undefined)
@@ -34,17 +36,33 @@ function approvalRecord(
   }
 }
 
+// 权限菜单与 tooltip 都 teleport 到 body，不卸载会让上一个用例的浮层留在文档里
+const mountedPanels: VueWrapper[] = []
+
 function mountPanel(ready = true) {
-  return mount(AiPanel, { props: { ready }, attachTo: document.body })
+  const wrapper = mount(AiPanel, { props: { ready }, attachTo: document.body })
+  mountedPanels.push(wrapper)
+  return wrapper
 }
 
 describe('AI panel', () => {
+  afterEach(() => {
+    while (mountedPanels.length) mountedPanels.pop()!.unmount()
+    document.body.innerHTML = ''
+  })
+
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.clearAllMocks()
     electronAPI.getAiConfig.mockResolvedValue({
       success: true,
-      data: { baseUrl: 'https://example.test/v1', model: 'writer', temperature: 0.4, hasApiKey: true }
+      data: {
+        baseUrl: 'https://example.test/v1',
+        model: 'writer',
+        models: ['writer', 'writer-mini'],
+        temperature: 0.4,
+        hasApiKey: true
+      }
     })
     // clearAllMocks 不还原实现，每个用例都从干净的订阅函数开始
     electronAPI.onAiRunEvent.mockImplementation(() => () => undefined)
@@ -140,18 +158,278 @@ describe('AI panel', () => {
     expect(wrapper.get('.message-body').text()).not.toContain('<!--')
   })
 
-  it('shows a 完全控制 badge when auto approval is on', async () => {
-    const wrapper = mount(AiPanel, { props: { ready: true, autoApprove: true }, attachTo: document.body })
+  /*
+   * 权限模式是输入框自身的一部分（住在输入框左下角），不是输入框下方另起的一条控件栏；
+   * 外面不写「权限」标签、也不常驻解释文字，完整解释在 tooltip 里。
+   * 选项列表是自绘的 listbox（原生 select 的系统下拉没法跟深色面板统一）。
+   */
+  async function openPermissionMenu(wrapper: ReturnType<typeof mountPanel>) {
+    await wrapper.get('[data-testid="ai-permission-mode"]').trigger('click')
     await nextTick()
+    return Array.from(document.body.querySelectorAll<HTMLElement>('[data-testid="ai-permission-option"]'))
+  }
 
-    expect(wrapper.get('[data-testid="ai-auto-approve-badge"]').text()).toContain('完全控制')
+  it('renders the permission control inside the composer and defaults to 标准', async () => {
+    const wrapper = mountPanel()
+    const trigger = wrapper.get('[data-testid="ai-permission-mode"]')
+
+    expect(trigger.text()).toContain('标准')
+    expect(trigger.attributes('aria-expanded')).toBe('false')
+
+    // 控件与输入框同在输入框那张卡里，而不是卡片外面的一条独立控件栏
+    const composer = wrapper.get('.composer')
+    expect(composer.find('[data-testid="ai-input"]').exists()).toBe(true)
+    expect(composer.find('[data-testid="ai-permission-mode"]').exists()).toBe(true)
+    expect(wrapper.find('.permission-bar').exists()).toBe(false)
+    // 不写字：既没有「权限」标签，也没有常驻的说明句
+    expect(wrapper.text()).not.toContain('权限')
+    expect(wrapper.text()).not.toContain('修改前逐次请求你的批准')
   })
 
-  it('hides the 完全控制 badge in the default ask mode', async () => {
+  it('opens a custom listbox with the three modes instead of a native select', async () => {
+    const wrapper = mountPanel()
+    expect(wrapper.find('select').exists()).toBe(false)
+
+    const options = await openPermissionMenu(wrapper)
+
+    expect(options.map((option) => option.textContent?.trim())).toEqual(['只读', '标准', '完全控制'])
+    expect(wrapper.get('[data-testid="ai-permission-mode"]').attributes('aria-expanded')).toBe('true')
+    // 选中项带勾，菜单是 listbox 语义
+    const listbox = document.body.querySelector('[role="listbox"]')
+    expect(listbox?.querySelectorAll('[role="option"]')).toHaveLength(3)
+    expect(listbox?.querySelector('[aria-selected="true"]')?.textContent).toContain('标准')
+  })
+
+  it('explains the current mode through a tooltip instead of permanent copy', async () => {
+    vi.useFakeTimers()
+    try {
+      const wrapper = mountPanel()
+      const trigger = wrapper.get('.permission-trigger').element
+      expect(trigger.closest('.tooltip-trigger')).not.toBeNull()
+
+      await wrapper.get('.permission-trigger').trigger('mouseover')
+      vi.advanceTimersByTime(400)
+      await nextTick()
+
+      expect(document.body.querySelector('[role="tooltip"]')?.textContent)
+        .toContain('修改前逐次请求你的批准')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('reflects the permission mode persisted in the config', async () => {
+    electronAPI.getAiConfig.mockResolvedValue({
+      success: true,
+      data: {
+        baseUrl: 'https://example.test/v1',
+        model: 'writer',
+        temperature: 0.4,
+        hasApiKey: true,
+        permissionMode: 'readonly'
+      }
+    })
+    const wrapper = mountPanel()
+
+    await vi.waitFor(() =>
+      expect(wrapper.get('[data-testid="ai-permission-mode"]').text()).toContain('只读')
+    )
+    expect(wrapper.get('.permission-slot').attributes('data-mode')).toBe('readonly')
+  })
+
+  it('switches the permission mode through the main process', async () => {
+    electronAPI.setAiPermissionMode.mockResolvedValue({
+      success: true,
+      data: { permissionMode: 'auto' }
+    })
     const wrapper = mountPanel()
     await nextTick()
 
-    expect(wrapper.find('[data-testid="ai-auto-approve-badge"]').exists()).toBe(false)
+    const options = await openPermissionMenu(wrapper)
+    options[2].click()
+    await nextTick()
+
+    expect(electronAPI.setAiPermissionMode).toHaveBeenCalledWith('auto')
+    await vi.waitFor(() =>
+      expect(wrapper.get('.permission-slot').attributes('data-mode')).toBe('auto')
+    )
+    // 完全控制要有可见的警示，不能只靠菜单里选中的那一项（这里靠配色与图标）
+    expect(wrapper.get('[data-testid="ai-permission-mode"]').text()).toContain('完全控制')
+    // 选完就收菜单，不用再点一次
+    expect(document.body.querySelector('[role="listbox"]')).toBeNull()
+  })
+
+  it('supports keyboard selection and Escape in the permission listbox', async () => {
+    const wrapper = mountPanel()
+    const trigger = wrapper.get('[data-testid="ai-permission-mode"]')
+
+    await trigger.trigger('keydown', { key: 'ArrowDown' })
+    await nextTick()
+    expect(document.body.querySelector('[role="listbox"]')).not.toBeNull()
+
+    // 当前是「标准」，按一下 ↓ 走到「完全控制」，回车选中
+    await trigger.trigger('keydown', { key: 'ArrowDown' })
+    await trigger.trigger('keydown', { key: 'Enter' })
+    await nextTick()
+    expect(electronAPI.setAiPermissionMode).toHaveBeenCalledWith('auto')
+
+    await trigger.trigger('keydown', { key: 'ArrowUp' })
+    await nextTick()
+    await trigger.trigger('keydown', { key: 'Escape' })
+    await nextTick()
+    expect(document.body.querySelector('[role="listbox"]')).toBeNull()
+  })
+
+  it('rolls the dropdown back and explains when switching fails', async () => {
+    electronAPI.setAiPermissionMode.mockResolvedValue({ success: false, error: '配置写入失败' })
+    const wrapper = mountPanel()
+    await nextTick()
+
+    const options = await openPermissionMenu(wrapper)
+    options[0].click()
+    await vi.waitFor(() => expect(wrapper.text()).toContain('配置写入失败'))
+    expect(wrapper.get('.permission-slot').attributes('data-mode')).toBe('standard')
+    expect(wrapper.get('[data-testid="ai-permission-mode"]').text()).toContain('标准')
+  })
+
+  /*
+   * 模型下拉与权限胶囊并排住在输入框底栏：它是「这一条消息用哪个模型」，
+   * 与 Provider 参数（设置中心）不同。列表来自设置页「获取模型」勾出来的目录。
+   */
+  async function openModelMenu(wrapper: ReturnType<typeof mountPanel>) {
+    // 模型与目录来自 getAiConfig（异步），点之前先等它落到胶囊上
+    await vi.waitFor(() =>
+      expect(wrapper.get('[data-testid="ai-model-select"]').text()).not.toContain('未选择模型')
+    )
+    await wrapper.get('[data-testid="ai-model-select"]').trigger('click')
+    await nextTick()
+    return Array.from(document.body.querySelectorAll<HTMLElement>('[data-testid="ai-model-option"]'))
+  }
+
+  it('shows the configured model next to the permission pill', async () => {
+    const wrapper = mountPanel()
+    await vi.waitFor(() =>
+      expect(wrapper.get('[data-testid="ai-model-select"]').text()).toContain('writer')
+    )
+
+    const composer = wrapper.get('.composer')
+    expect(composer.find('[data-testid="ai-permission-mode"]').exists()).toBe(true)
+    // 模型在权限胶囊右侧
+    const actions = composer.get('.composer-actions')
+    const html = actions.html()
+    expect(html.indexOf('ai-permission-mode')).toBeLessThan(html.indexOf('ai-model-select'))
+    expect(wrapper.get('[data-testid="ai-model-select"]').attributes('aria-expanded')).toBe('false')
+  })
+
+  it('lists the configured models and switches through the main process', async () => {
+    electronAPI.setAiModel.mockResolvedValue({
+      success: true,
+      data: { model: 'writer-mini', models: ['writer', 'writer-mini'] }
+    })
+    const wrapper = mountPanel()
+
+    const options = await openModelMenu(wrapper)
+    expect(options.map((option) => option.textContent?.trim())).toEqual(['writer', 'writer-mini'])
+    // 选中项带勾，菜单是 listbox 语义
+    const listbox = document.body.querySelector('[role="listbox"]')
+    expect(listbox?.querySelectorAll('[role="option"]')).toHaveLength(2)
+    expect(listbox?.querySelector('[aria-selected="true"]')?.textContent).toContain('writer')
+
+    options[1].click()
+    await nextTick()
+
+    expect(electronAPI.setAiModel).toHaveBeenCalledWith('writer-mini')
+    await vi.waitFor(() =>
+      expect(wrapper.get('[data-testid="ai-model-select"]').text()).toContain('writer-mini')
+    )
+    // 选完就收菜单
+    expect(document.body.querySelector('[role="listbox"]')).toBeNull()
+  })
+
+  it('rolls the model back and explains when switching fails', async () => {
+    electronAPI.setAiModel.mockResolvedValue({ success: false, error: '该模型已不在可选列表中，请重新选择' })
+    const wrapper = mountPanel()
+
+    const options = await openModelMenu(wrapper)
+    options[1].click()
+    await vi.waitFor(() =>
+      expect(wrapper.text()).toContain('该模型已不在可选列表中，请重新选择')
+    )
+    expect(wrapper.get('[data-testid="ai-model-select"]').text()).toContain('writer')
+  })
+
+  it('still opens the model list when there is only one model', async () => {
+    electronAPI.getAiConfig.mockResolvedValue({
+      success: true,
+      data: {
+        baseUrl: 'https://example.test/v1',
+        model: 'writer',
+        models: ['writer'],
+        temperature: 0.4,
+        hasApiKey: true
+      }
+    })
+    const wrapper = mountPanel()
+    await nextTick()
+
+    /*
+     * 只有一项也要能展开：点下去什么都不发生，用户只会认为这个按钮坏了。
+     * 弹出一项、勾在它自己身上，才是「有反馈」的正确答案。
+     */
+    const options = await openModelMenu(wrapper)
+    expect(options.map((option) => option.dataset.option)).toEqual(['writer'])
+    expect(options[0].getAttribute('aria-selected')).toBe('true')
+
+    // 再点一次收起
+    await wrapper.get('[data-testid="ai-model-select"]').trigger('click')
+    await nextTick()
+    expect(document.body.querySelector('[role="listbox"]')).toBeNull()
+  })
+
+  it('opens the model list even when no catalog was ever saved', async () => {
+    // 老配置（或只改过温度的保存）里没有 models 字段：主进程会补上当前模型，
+    // 面板这边再兜一层——点了必须弹出列表，哪怕里面只有一项
+    electronAPI.getAiConfig.mockResolvedValue({
+      success: true,
+      data: {
+        baseUrl: 'https://example.test/v1',
+        model: 'writer',
+        models: [],
+        temperature: 0.4,
+        hasApiKey: true
+      }
+    })
+    const wrapper = mountPanel()
+    await nextTick()
+
+    const options = await openModelMenu(wrapper)
+    expect(options.map((option) => option.dataset.option)).toEqual(['writer'])
+    expect(options[0].getAttribute('aria-selected')).toBe('true')
+  })
+
+  it('refreshes the model list when the settings dialog saves', async () => {
+    const wrapper = mountPanel()
+    await vi.waitFor(() =>
+      expect(wrapper.get('[data-testid="ai-model-select"]').text()).toContain('writer')
+    )
+
+    electronAPI.getAiConfig.mockResolvedValue({
+      success: true,
+      data: {
+        baseUrl: 'https://example.test/v1',
+        model: 'writer-pro',
+        models: ['writer', 'writer-pro'],
+        temperature: 0.4,
+        hasApiKey: true
+      }
+    })
+    window.dispatchEvent(new CustomEvent('ai:config-changed'))
+    await vi.waitFor(() =>
+      expect(wrapper.get('[data-testid="ai-model-select"]').text()).toContain('writer-pro')
+    )
+
+    const options = await openModelMenu(wrapper)
+    expect(options.map((option) => option.textContent?.trim())).toEqual(['writer', 'writer-pro'])
   })
 
   it('escapes raw HTML and renders every URL as non-navigating text', async () => {
@@ -456,5 +734,78 @@ describe('AI panel', () => {
     await wrapper.get('[data-testid="ai-recall"]').trigger('click')
 
     expect(store.messages).toHaveLength(0)
+  })
+
+  it('settles in-flight tool cards when the run is cancelled', async () => {
+    const store = useAiStore()
+    let handler: ((event: never) => void) | null = null
+    electronAPI.onAiRunEvent.mockImplementation((cb: (event: never) => void) => {
+      handler = cb
+      return () => undefined
+    })
+    electronAPI.cancelAiRun.mockResolvedValue({ success: true })
+    store.init()
+    const emit = (event: unknown): void => (handler as unknown as (e: unknown) => void)(event)
+
+    const wrapper = mountPanel()
+
+    emit({ type: 'run-started', runId: 'r1' })
+    emit({ type: 'tool-call-started', runId: 'r1', toolCallId: 'tool-1', toolName: 'replace_current_document' })
+    emit({ type: 'tool-call-started', runId: 'r1', toolCallId: 'tool-2', toolName: 'write_workspace_file' })
+    await nextTick()
+
+    // 用户点「停止」：取消后主进程的 run-cancelled 会被 runId 判等挡掉，
+    // 所以收尾必须发生在 cancelRun 自己身上
+    await store.cancelRun()
+    await nextTick()
+
+    expect(store.toolCalls.every((call) => call.status === 'failed')).toBe(true)
+    expect(wrapper.findAll('.tool-badge').map((el) => el.text())).toEqual(['已取消', '已取消'])
+  })
+
+  it('settles a tool call that never reported a result when the run completes', async () => {
+    const store = useAiStore()
+    let handler: ((event: never) => void) | null = null
+    electronAPI.onAiRunEvent.mockImplementation((cb: (event: never) => void) => {
+      handler = cb
+      return () => undefined
+    })
+    store.init()
+    const emit = (event: unknown): void => (handler as unknown as (e: unknown) => void)(event)
+
+    const wrapper = mountPanel()
+
+    emit({ type: 'run-started', runId: 'r1' })
+    // 模型调用了不存在的工具：SDK 既不给 tool-result 也不给 tool-error
+    emit({ type: 'tool-call-started', runId: 'r1', toolCallId: 'ghost', toolName: 'edit_workspace_file' })
+    emit({ type: 'tool-call-started', runId: 'r1', toolCallId: 'real', toolName: 'search_workspace' })
+    emit({ type: 'tool-call-completed', runId: 'r1', toolCallId: 'real', result: { status: 'completed', data: {} } })
+    emit({ type: 'run-completed', runId: 'r1' })
+    await nextTick()
+
+    // 已经正常结束的那张保持原样，缺结果的那张补成失败，不能留「运行中」
+    expect(store.toolCalls.map((call) => call.result?.status)).toEqual(['failed', 'completed'])
+    expect(wrapper.findAll('.tool-badge').map((el) => el.text())).toEqual(['失败', '已完成'])
+  })
+
+  it('keeps tool cards finished when the run ends with an error', async () => {
+    const store = useAiStore()
+    let handler: ((event: never) => void) | null = null
+    electronAPI.onAiRunEvent.mockImplementation((cb: (event: never) => void) => {
+      handler = cb
+      return () => undefined
+    })
+    store.init()
+    const emit = (event: unknown): void => (handler as unknown as (e: unknown) => void)(event)
+
+    mountPanel()
+
+    emit({ type: 'run-started', runId: 'r1' })
+    emit({ type: 'tool-call-started', runId: 'r1', toolCallId: 'tool-1', toolName: 'replace_current_document' })
+    emit({ type: 'run-failed', runId: 'r1', error: { code: 'PROVIDER_UNAVAILABLE', message: '服务不可用' } })
+    await nextTick()
+
+    expect(store.toolCalls[0]?.status).toBe('failed')
+    expect(store.toolCalls[0]?.result?.status).toBe('failed')
   })
 })

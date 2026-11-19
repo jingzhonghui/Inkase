@@ -80,9 +80,15 @@ function onToggleReplace(): void {
 </script>
 
 <template>
-  <div v-if="open" class="find-replace-panel">
+  <div
+    v-if="open"
+    class="find-replace-panel"
+  >
     <div class="find-replace-row">
-      <span v-if="showReplace" class="find-replace-toggle-wrap">
+      <span
+        v-if="showReplace"
+        class="find-replace-toggle-wrap"
+      >
         <Tooltip :content="replaceMode ? '隐藏替换' : '显示替换'">
           <button
             class="find-replace-toggle"
@@ -90,8 +96,14 @@ function onToggleReplace(): void {
             :aria-expanded="replaceMode"
             @click="onToggleReplace"
           >
-            <IconChevronDown v-if="replaceMode" :size="14" />
-            <IconChevronRight v-else :size="14" />
+            <IconChevronDown
+              v-if="replaceMode"
+              :size="14"
+            />
+            <IconChevronRight
+              v-else
+              :size="14"
+            />
           </button>
         </Tooltip>
       </span>
@@ -105,27 +117,40 @@ function onToggleReplace(): void {
         @keydown.enter.exact.prevent="emit('next')"
         @keydown.shift.enter.exact.prevent="emit('prev')"
         @keydown.escape.stop.prevent="emit('close')"
-      />
+      >
       <Tooltip content="上一个">
-        <button class="find-replace-btn" aria-label="上一个" @click="emit('prev')">
+        <button
+          class="find-replace-btn"
+          aria-label="上一个"
+          @click="emit('prev')"
+        >
           <IconArrowUp :size="14" />
         </button>
       </Tooltip>
       <Tooltip content="下一个">
-        <button class="find-replace-btn" aria-label="下一个" @click="emit('next')">
+        <button
+          class="find-replace-btn"
+          aria-label="下一个"
+          @click="emit('next')"
+        >
           <IconArrowDown :size="14" />
         </button>
       </Tooltip>
-      <span class="find-replace-count"
-        >{{ matchCount > 0 ? currentIndex + 1 : 0 }}/{{ matchCount }}</span
-      >
+      <span class="find-replace-count">{{ matchCount > 0 ? currentIndex + 1 : 0 }}/{{ matchCount }}</span>
       <Tooltip content="关闭">
-        <button class="find-replace-btn" aria-label="关闭" @click="emit('close')">
+        <button
+          class="find-replace-btn"
+          aria-label="关闭"
+          @click="emit('close')"
+        >
           <IconX :size="14" />
         </button>
       </Tooltip>
     </div>
-    <div v-if="showReplace && replaceMode" class="find-replace-row">
+    <div
+      v-if="showReplace && replaceMode"
+      class="find-replace-row"
+    >
       <span class="find-replace-toggle-spacer" />
       <input
         ref="replaceInputRef"
@@ -135,18 +160,32 @@ function onToggleReplace(): void {
         placeholder="替换为"
         @keydown.enter.exact.prevent="emitReplace"
         @keydown.escape.stop.prevent="emit('close')"
-      />
+      >
       <Tooltip content="替换">
-        <button class="find-replace-btn" aria-label="替换" @click="emitReplace">替换</button>
+        <button
+          class="find-replace-btn"
+          aria-label="替换"
+          @click="emitReplace"
+        >
+          替换
+        </button>
       </Tooltip>
       <Tooltip content="全部替换">
-        <button class="find-replace-btn" aria-label="全部替换" @click="emitReplaceAll">
+        <button
+          class="find-replace-btn"
+          aria-label="全部替换"
+          @click="emitReplaceAll"
+        >
           全部替换
         </button>
       </Tooltip>
     </div>
     <label class="find-replace-options">
-      <input v-model="caseSensitive" type="checkbox" @change="emitSearch" />
+      <input
+        v-model="caseSensitive"
+        type="checkbox"
+        @change="emitSearch"
+      >
       <span>区分大小写</span>
     </label>
   </div>

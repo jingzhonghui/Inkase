@@ -166,11 +166,23 @@ export const IPC_CHANNELS = {
     CONFIG: {
       GET: 'ai:config:get',
       SET: 'ai:config:set',
-      TEST: 'ai:config:test'
+      TEST: 'ai:config:test',
+      /** 按地址与 Key 拉取服务端模型目录：invoke({ baseUrl, apiKey? }) → { models } */
+      MODELS: 'ai:config:models',
+      /** 按需返回明文 Key（设置页「小眼睛」专用，永不进 get 的返回值） */
+      REVEAL_KEY: 'ai:config:revealKey'
+    },
+    MODEL: {
+      /** 切换当前模型：只改配置里的 model，不重建 runtime */
+      SET: 'ai:model:set'
     },
     RUN: {
       START: 'ai:run:start',
       CANCEL: 'ai:run:cancel'
+    },
+    PERMISSION: {
+      /** 切换权限模式（只读 / 标准 / 完全控制）：写配置并热更新运行中的 runtime */
+      SET: 'ai:permission:set'
     },
     APPROVAL: {
       CLAIM: 'ai:approval:claim',

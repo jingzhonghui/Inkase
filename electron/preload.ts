@@ -7,6 +7,7 @@ import type {
   AiConfigInput,
   AiConfigView,
   AiConnectionTestResult,
+  AiPermissionMode,
   AiRunEvent,
   AiRunInput,
   ApprovalDecision,
@@ -493,6 +494,19 @@ export interface ElectronAPI {
   setAiConfig: (
     config: AiConfigInput
   ) => Promise<{ success: boolean; data?: AiConfigView; error?: string }>
+  /** 切换权限模式（只读 / 标准 / 完全控制）；运行中的会话立即生效，并写回配置 */
+  setAiPermissionMode: (
+    mode: AiPermissionMode
+  ) => Promise<{ success: boolean; data?: AiConfigView; error?: string }>
+  /** 切换当前模型；只改配置里的 model，运行期在下一次发送时重建 */
+  setAiModel: (model: string) => Promise<{ success: boolean; data?: AiConfigView; error?: string }>
+  /** 按地址与 Key 拉取服务端模型列表；Key 留空则沿用已存 Key（同源时） */
+  fetchAiModels: (input: {
+    baseUrl: string
+    apiKey?: string
+  }) => Promise<{ success: boolean; data?: { models: string[] }; error?: string }>
+  /** 取回明文 API Key（仅设置页「小眼睛」使用，永不进 getAiConfig 的返回值） */
+  revealAiApiKey: () => Promise<{ success: boolean; data?: { apiKey?: string }; error?: string }>
   testAiConfig: (
     config: AiConfigInput
   ) => Promise<{ success: boolean; data?: AiConnectionTestResult; error?: string }>
@@ -750,6 +764,10 @@ const api: ElectronAPI = {
   getAiConfig: () => ipcRenderer.invoke(IPC_CHANNELS.AI.CONFIG.GET),
   setAiConfig: (config) => ipcRenderer.invoke(IPC_CHANNELS.AI.CONFIG.SET, config),
   testAiConfig: (config) => ipcRenderer.invoke(IPC_CHANNELS.AI.CONFIG.TEST, config),
+  setAiPermissionMode: (mode) => ipcRenderer.invoke(IPC_CHANNELS.AI.PERMISSION.SET, mode),
+  setAiModel: (model) => ipcRenderer.invoke(IPC_CHANNELS.AI.MODEL.SET, model),
+  fetchAiModels: (input) => ipcRenderer.invoke(IPC_CHANNELS.AI.CONFIG.MODELS, input),
+  revealAiApiKey: () => ipcRenderer.invoke(IPC_CHANNELS.AI.CONFIG.REVEAL_KEY),
   startAiRun: (input) => ipcRenderer.invoke(IPC_CHANNELS.AI.RUN.START, input),
   cancelAiRun: (runId) => ipcRenderer.invoke(IPC_CHANNELS.AI.RUN.CANCEL, runId),
   claimAiApproval: (approvalId) => ipcRenderer.invoke(IPC_CHANNELS.AI.APPROVAL.CLAIM, approvalId),

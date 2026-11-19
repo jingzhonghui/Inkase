@@ -39,7 +39,7 @@ const fileStore = useFileStore()
 const aiStore = useAiStore()
 const graphStore = useGraphStore()
 const workspaceStore = useWorkspaceStore()
-defineProps<{ aiReady?: boolean; aiAutoApprove?: boolean }>()
+defineProps<{ aiReady?: boolean }>()
 const emit = defineEmits<{ openAiSettings: [] }>()
 
 // ===== 工作台与文档视图的切换规则 =====
@@ -226,7 +226,6 @@ function onPreviewScroll(ratio: number): void {
       v-if="aiStore.panelOpen"
       v-show="workspaceStore.isAi"
       :ready="aiReady ?? false"
-      :auto-approve="aiAutoApprove ?? false"
       @open-settings="emit('openAiSettings')"
     />
 

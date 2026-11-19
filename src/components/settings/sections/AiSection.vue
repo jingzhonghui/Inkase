@@ -1,9 +1,17 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref, watch } from 'vue'
-import { IconEye, IconEyeOff } from '@tabler/icons-vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { IconEye, IconEyeOff, IconRefresh } from '@tabler/icons-vue'
 import Tooltip from '../../common/Tooltip.vue'
 import SettingsRow from '../SettingsRow.vue'
-import { requestDialog } from '../../../utils/dialog'
+import SettingsSelect from '../SettingsSelect.vue'
+import AiModelPicker from '../AiModelPicker.vue'
+import {
+  AI_API_FORMAT_OPTIONS,
+  DEFAULT_AI_API_FORMAT,
+  apiFormatOption,
+  normalizeAiApiFormat,
+  type AiApiFormat
+} from '../../../../shared/ai/api-format'
 import type {
   AiConfigInput,
   AiConfigView,
@@ -31,7 +39,11 @@ const emit = defineEmits<{ readiness: [ready: boolean]; submit: [] }>()
 
 const form = reactive({
   baseUrl: '',
+  /** 接口格式（协议）：决定请求走 /chat/completions 还是 /responses */
+  apiFormat: DEFAULT_AI_API_FORMAT as AiApiFormat,
   model: '',
+  /** 「获取模型」勾选出来的目录，只决定 AI 面板下拉的内容 */
+  models: [] as string[],
   apiKey: '',
   temperature: 0.3,
   maxOutputTokens: undefined as number | undefined,
@@ -42,13 +54,42 @@ const form = reactive({
    * 读取上限按 KB 填、空闲超时按分钟填，避免让用户写 262144 这种数字。
    */
   maxReadKb: undefined as number | undefined,
-  idleTimeoutMinutes: undefined as number | undefined,
-  /** 完全控制：开启后不再逐次请求批准 */
-  autoApprove: false
+  idleTimeoutMinutes: undefined as number | undefined
 })
 const hasApiKey = ref(false)
 /** API Key 是否明文显示（小眼睛切换） */
 const showApiKey = ref(false)
+/**
+ * 已保存 Key 的掩码。
+ *
+ * 固定十个点、不随真实长度变化：长度本身就是一条可以拿去猜的信息。用真值
+ * （而不是 placeholder）是因为 placeholder 一聚焦就消失，用户看到的仍是「空的」。
+ */
+const KEY_MASK = '••••••••••'
+/**
+ * 用户正在掩码上输入。
+ *
+ * 掩码态一聚焦就把显示清空，否则接着敲出来的会是「••••••••••abc」这种脏值；
+ * 失焦且没输入过任何东西时再恢复掩码，于是「留空即保留原 Key」的语义不受影响。
+ */
+const keyEditing = ref(false)
+/** 输入框里要显示的内容：明文态取真值，密码态要么是真输入、要么是掩码 */
+const keyValue = computed(() => {
+  if (showApiKey.value) return form.apiKey || revealedApiKey.value
+  if (form.apiKey) return form.apiKey
+  return hasApiKey.value && !keyEditing.value ? KEY_MASK : ''
+})
+/** 「获取模型」的动作挂在模型行的标题行上，由 `AiModelPicker` 通过 expose 提供 */
+const modelPicker = ref<InstanceType<typeof AiModelPicker> | null>(null)
+const modelFetching = computed(() => modelPicker.value?.fetching === true)
+/**
+ * 从小眼睛取回的明文 Key。
+ *
+ * 刻意**不**塞进 `form.apiKey`：那个字段是「用户这次输入的新 Key」，一旦被填入
+ * 已存的 Key，保存时就会把同一把 Key 再提交一遍，也可能在用户没察觉的情况下
+ * 覆盖掉别处的改动。展示与提交分开，留空仍然表示「保留现有 Key」。
+ */
+const revealedApiKey = ref('')
 const loading = ref(false)
 const message = ref('')
 const messageTone = ref<'ok' | 'error'>('ok')
@@ -68,14 +109,18 @@ const configReady = ref(false)
 function input(includeEmptyKey = false): AiConfigInput {
   const value: AiConfigInput = {
     baseUrl: form.baseUrl.trim(),
+    apiFormat: form.apiFormat,
     model: form.model.trim(),
+    // 目录跟着一起存：只改温度这类保存也要把已勾选的模型带上，否则面板下拉会被清空
+    models: [...form.models],
     temperature: Number(form.temperature),
     maxOutputTokens: form.maxOutputTokens,
     contextWindow: form.contextWindow,
     maxSteps: form.maxSteps,
     maxReadBytes: toBytes(form.maxReadKb, 1024),
-    idleTimeoutMs: toBytes(form.idleTimeoutMinutes, 60_000),
-    approvalMode: form.autoApprove ? 'auto' : 'ask'
+    idleTimeoutMs: toBytes(form.idleTimeoutMinutes, 60_000)
+    // 权限模式不在这里：它属于「本次怎么执行」，已经挪到 AI 面板输入框下方的下拉。
+    // 保存时不带这个字段（undefined），主进程会保留用户当前选择的模式。
   }
   if (form.apiKey || includeEmptyKey) value.apiKey = form.apiKey
   return value
@@ -91,51 +136,70 @@ function fromBytes(value: number | undefined, unit: number): number | undefined 
   return Math.round(value / unit)
 }
 
-/** 把服务端视图搬进表单，顺便把字节/毫秒换算成 KB/分钟，并广播审批模式。 */
+/** 把服务端视图搬进表单，顺便把字节/毫秒换算成 KB/分钟。 */
 function fillForm(data: AiConfigView): void {
   form.baseUrl = data.baseUrl
+  form.apiFormat = normalizeAiApiFormat(data.apiFormat)
   form.model = data.model
+  form.models = Array.isArray(data.models) ? [...data.models] : []
   form.temperature = data.temperature
   form.maxOutputTokens = data.maxOutputTokens
   form.contextWindow = data.contextWindow
   form.maxSteps = data.maxSteps
   form.maxReadKb = fromBytes(data.maxReadBytes, 1024)
   form.idleTimeoutMinutes = fromBytes(data.idleTimeoutMs, 60_000)
-  form.autoApprove = data.approvalMode === 'auto'
   form.apiKey = ''
-  broadcastApprovalMode()
+  revealedApiKey.value = ''
+  showApiKey.value = false
+  keyEditing.value = false
 }
 
-/** 顶条徽标要看这个状态，但设置面板不归 App 管，所以走窗口事件广播。 */
-function broadcastApprovalMode(): void {
-  window.dispatchEvent(
-    new CustomEvent('ai:approval-mode', { detail: form.autoApprove ? 'auto' : 'ask' })
-  )
+/** 地址示例跟着接口格式走：两种协议的路径约定并不相同 */
+const baseUrlPlaceholder = computed(() => apiFormatOption(form.apiFormat).baseUrlPlaceholder)
+
+/** 接口格式来自下拉的字符串，归一后再写回表单（未知值回落默认） */
+function onApiFormatChange(value: string): void {
+  form.apiFormat = normalizeAiApiFormat(value)
+}
+
+function onModelUpdate(value: string): void {
+  form.model = value
+}
+
+function onModelsUpdate(value: string[]): void {
+  form.models = value
+}
+
+/** Key 输入框在「已显示」状态下会把取回的明文一起渲染，所以要自己接管写回 */
+function onKeyInput(event: Event): void {
+  form.apiKey = (event.target as HTMLInputElement).value
 }
 
 /**
- * 切换「完全控制」。
+ * 小眼睛：先立刻切换到明文（观感要跟得上手），再异步把已存的 Key 取回来填上。
  *
- * 这是把「每次都要我点允许」换成「不再问」，代价是不可逆操作也会被自动放行，
- * 所以只在开启方向要一次明确确认；关闭随时可以。
+ * 只有「已保存 Key 且用户没在输入框里改过」时才需要去取；否则眼前这份就是
+ * 用户自己刚打的，直接显示即可。
  */
-async function toggleAutoApprove(next: boolean): Promise<void> {
-  if (!next) {
-    form.autoApprove = false
-    broadcastApprovalMode()
+async function toggleKeyVisibility(): Promise<void> {
+  if (showApiKey.value) {
+    showApiKey.value = false
+    revealedApiKey.value = ''
+    // 收起时回到掩码，而不是留下一片空白
+    keyEditing.value = false
     return
   }
-  const choice = await requestDialog({
-    title: '开启完全控制',
-    message: '开启后 AI 将自动执行所有操作，不再逐次请求批准。',
-    detail: '包括写入文档、移动/删除文件等不可恢复的操作。会话里仍会留下「自动执行」记录，但不会再给你拦截的机会。',
-    buttons: [
-      { label: '取消', value: 1 },
-      { label: '开启', value: 0, primary: true }
-    ]
-  })
-  form.autoApprove = choice === 0
-  broadcastApprovalMode()
+
+  showApiKey.value = true
+  if (!hasApiKey.value || form.apiKey) return
+
+  try {
+    const result = await window.electronAPI?.revealAiApiKey?.()
+    if (result?.success) revealedApiKey.value = result.data?.apiKey ?? ''
+  } catch {
+    // 取不到就只显示输入框里现有的内容，不额外弹错——「看不到」不是保存类失败
+    revealedApiKey.value = ''
+  }
 }
 
 function configFingerprint(value: AiConfigInput): string {
@@ -181,6 +245,9 @@ async function save(): Promise<boolean> {
     if (result.success && result.data) {
       hasApiKey.value = result.data.hasApiKey
       form.apiKey = ''
+      revealedApiKey.value = ''
+      showApiKey.value = false
+      keyEditing.value = false
       persistedFingerprint.value = configFingerprint(input())
       capabilities.value = result.data.capabilities ?? null
       capabilityFingerprint.value = capabilities.value ? configFingerprint(input()) : null
@@ -256,6 +323,7 @@ function onSubmit(): void {
 watch(
   () => [
     form.baseUrl,
+    form.apiFormat,
     form.model,
     form.apiKey,
     form.temperature,
@@ -263,8 +331,7 @@ watch(
     form.contextWindow,
     form.maxSteps,
     form.maxReadKb,
-    form.idleTimeoutMinutes,
-    form.autoApprove
+    form.idleTimeoutMinutes
   ],
   () => {
     if (capabilityFingerprint.value === configFingerprint(input())) return
@@ -296,24 +363,23 @@ defineExpose({ save })
       <input
         v-model="form.baseUrl"
         class="ai-input"
+        data-testid="ai-base-url"
         type="url"
         required
-        placeholder="https://api.example.com/v1"
+        :placeholder="baseUrlPlaceholder"
       >
     </SettingsRow>
 
     <SettingsRow
-      title="模型"
-      desc="由 Provider 提供的模型标识"
+      title="接口格式"
+      desc="请求协议：兼容走 /chat/completions，Responses 走 /responses"
     >
-      <input
-        v-model="form.model"
-        class="ai-input"
-        data-testid="ai-model"
-        type="text"
-        required
-        placeholder="模型名称"
-      >
+      <SettingsSelect
+        :model-value="form.apiFormat"
+        :options="AI_API_FORMAT_OPTIONS"
+        test-id="ai-api-format"
+        @update:model-value="onApiFormatChange"
+      />
     </SettingsRow>
 
     <SettingsRow
@@ -322,12 +388,15 @@ defineExpose({ save })
     >
       <span class="key-field">
         <input
-          v-model="form.apiKey"
+          :value="keyValue"
           class="ai-input"
           data-testid="ai-api-key"
           :type="showApiKey ? 'text' : 'password'"
           autocomplete="new-password"
           :placeholder="hasApiKey ? '留空以保留现有 Key' : '输入 API Key'"
+          @input="onKeyInput"
+          @focus="keyEditing = true"
+          @blur="keyEditing = false"
         >
         <span class="key-field-toggle">
           <Tooltip :content="showApiKey ? '隐藏密钥' : '显示密钥'">
@@ -337,7 +406,7 @@ defineExpose({ save })
               data-testid="ai-api-key-toggle"
               :aria-label="showApiKey ? '隐藏密钥' : '显示密钥'"
               :aria-pressed="showApiKey"
-              @click="showApiKey = !showApiKey"
+              @click="toggleKeyVisibility"
             >
               <IconEyeOff
                 v-if="showApiKey"
@@ -351,6 +420,38 @@ defineExpose({ save })
           </Tooltip>
         </span>
       </span>
+    </SettingsRow>
+
+    <SettingsRow
+      title="模型"
+      desc="一行一个模型；可手填，也可以点「获取模型」拉取后勾选"
+    >
+      <template #actions>
+        <button
+          type="button"
+          class="model-fetch"
+          data-testid="ai-fetch-models"
+          :disabled="loading || modelFetching"
+          @click="modelPicker?.fetchModels()"
+        >
+          <IconRefresh
+            :size="14"
+            :class="{ 'is-spinning': modelFetching }"
+            aria-hidden="true"
+          />
+          {{ modelFetching ? '获取中…' : '获取模型' }}
+        </button>
+      </template>
+      <AiModelPicker
+        ref="modelPicker"
+        :model="form.model"
+        :models="form.models"
+        :base-url="form.baseUrl"
+        :api-key="form.apiKey"
+        :disabled="loading"
+        @update:model="onModelUpdate($event)"
+        @update:models="onModelsUpdate($event)"
+      />
     </SettingsRow>
 
     <SettingsRow
@@ -441,21 +542,6 @@ defineExpose({ save })
         placeholder="默认 10"
       >
       <span class="settings-unit">分钟</span>
-    </SettingsRow>
-
-    <SettingsRow
-      title="完全控制"
-      desc="开启后 AI 自动执行写入、移动、删除等操作，不再逐次请求批准；会话里仍会留档"
-    >
-      <label class="ai-toggle">
-        <input
-          data-testid="ai-auto-approve"
-          type="checkbox"
-          :checked="form.autoApprove"
-          @change="toggleAutoApprove(($event.target as HTMLInputElement).checked)"
-        >
-        <span>{{ form.autoApprove ? '已开启' : '关闭' }}</span>
-      </label>
     </SettingsRow>
 
     <p class="ai-privacy">
@@ -550,6 +636,42 @@ defineExpose({ save })
   color: var(--color-text);
 }
 
+/* 模型行标题右侧的「获取模型」：与行内其他次要按钮同一副样子 */
+.model-fetch {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  color: var(--color-text-secondary);
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font: inherit;
+  font-size: calc(var(--ui-font-size) - 1px);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.model-fetch:hover:not(:disabled) {
+  color: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+.model-fetch:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.model-fetch .is-spinning {
+  animation: model-fetch-spin 1s linear infinite;
+}
+
+@keyframes model-fetch-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .ai-privacy {
   margin: 14px 0 0;
   color: var(--color-text-tertiary);
@@ -618,14 +740,5 @@ defineExpose({ save })
 
 .ai-message.ok {
   color: var(--color-primary);
-}
-
-.ai-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  color: var(--color-text);
-  font-size: var(--ui-font-size);
-  cursor: pointer;
 }
 </style>

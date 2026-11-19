@@ -139,6 +139,9 @@ async function save(): Promise<void> {
     activeSection.value = 'ai'
     return
   }
+  // 模型目录、当前模型、接口格式都可能刚被改过：AI 面板的模型下拉要跟着刷新，
+  // 否则关掉设置后它还挂着保存前的那份列表，切换模型会被主进程按「已不在列表中」拒绝
+  window.dispatchEvent(new CustomEvent('ai:config-changed'))
   emit('close')
 }
 
@@ -336,7 +339,7 @@ onUnmounted(() => {
 .settings-overlay {
   position: fixed;
   inset: 0;
-  z-index: 10010;
+  z-index: var(--z-settings-overlay);
   display: flex;
   align-items: center;
   justify-content: center;

@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import type { AiExecutionSnapshot } from '../../../shared/ai/types'
 import { ToolRegistry, defineTool, type ToolExecutionContext } from '../tool-registry'
-import { evaluateToolPolicy } from '../policy-engine'
 import { createSourceAuthorizationContext } from '../source-authorization'
 
 const snapshot: AiExecutionSnapshot = {
@@ -132,40 +131,5 @@ describe('ToolRegistry', () => {
     if (result.status === 'failed') {
       expect(result.message).toContain('输入')
     }
-  })
-})
-
-describe('evaluateToolPolicy', () => {
-  it('requires approval when policy is always', () => {
-    expect(
-      evaluateToolPolicy({
-        effect: 'write',
-        approval: 'always',
-        riskLevel: 'high',
-        supportsRememberDecision: false
-      })
-    ).toBe(true)
-  })
-
-  it('requires approval when policy is policy (first version)', () => {
-    expect(
-      evaluateToolPolicy({
-        effect: 'write',
-        approval: 'policy',
-        riskLevel: 'medium',
-        supportsRememberDecision: true
-      })
-    ).toBe(true)
-  })
-
-  it('does not require approval when policy is never', () => {
-    expect(
-      evaluateToolPolicy({
-        effect: 'read',
-        approval: 'never',
-        riskLevel: 'low',
-        supportsRememberDecision: false
-      })
-    ).toBe(false)
   })
 })

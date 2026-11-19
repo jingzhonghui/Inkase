@@ -1,8 +1,32 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from 'vue'
+import AiPermissionSelect from './AiPermissionSelect.vue'
+import AiModelSelect from './AiModelSelect.vue'
+import { DEFAULT_AI_PERMISSION_MODE, type AiPermissionMode } from '../../../shared/ai/permission'
 
-const props = defineProps<{ running: boolean; ready: boolean }>()
-const emit = defineEmits<{ send: [text: string]; stop: [] }>()
+const props = withDefaults(defineProps<{
+  running: boolean
+  ready: boolean
+  /** 当前权限模式：真相在主进程配置里，这里只负责呈现与回传选择 */
+  permissionMode?: AiPermissionMode
+  permissionSaving?: boolean
+  /** 当前模型与可选目录，同样以主进程配置为准 */
+  model?: string
+  models?: string[]
+  modelSaving?: boolean
+}>(), {
+  permissionMode: DEFAULT_AI_PERMISSION_MODE,
+  permissionSaving: false,
+  model: '',
+  models: () => [],
+  modelSaving: false
+})
+const emit = defineEmits<{
+  send: [text: string]
+  stop: []
+  permissionChange: [mode: AiPermissionMode]
+  modelChange: [model: string]
+}>()
 const text = ref('')
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
 const disabled = computed(() => !text.value.trim() || !props.ready || props.running)
@@ -41,30 +65,81 @@ defineExpose({ setText })
       spellcheck="false"
       @keydown="keydown"
     />
-    <button
-      v-if="running"
-      type="button"
-      class="stop"
-      data-testid="ai-stop"
-      @click="emit('stop')"
-    >
-      停止
-    </button>
-    <button
-      v-else
-      type="submit"
-      data-testid="ai-send"
-      :disabled="disabled"
-    >
-      发送
-    </button>
+    <div class="composer-actions">
+      <!-- 权限模式与模型都住在输入框内部：它们跟这条消息一起发送，就是输入框的一部分 -->
+      <AiPermissionSelect
+        :model-value="permissionMode"
+        :disabled="permissionSaving"
+        @change="emit('permissionChange', $event)"
+      />
+      <AiModelSelect
+        :model="model"
+        :models="models"
+        :disabled="modelSaving"
+        @change="emit('modelChange', $event)"
+      />
+      <button
+        v-if="running"
+        type="button"
+        class="stop"
+        data-testid="ai-stop"
+        @click="emit('stop')"
+      >
+        停止
+      </button>
+      <button
+        v-else
+        type="submit"
+        data-testid="ai-send"
+        :disabled="disabled"
+      >
+        发送
+      </button>
+    </div>
   </form>
 </template>
 
 <style scoped>
-/* 与消息列同宽居中，否则输入框和上方的会话对不齐 */
-.composer { display: flex; align-items: flex-end; gap: 10px; max-width: 780px; margin: 0 auto; padding: 12px; border: 1px solid var(--color-border); border-radius: 10px; background: var(--color-bg-primary); box-shadow: 0 8px 24px rgb(0 0 0 / 8%); }
-textarea { flex: 1; min-height: 42px; resize: none; border: 0; outline: none; background: transparent; color: var(--color-text); font: inherit; line-height: 1.5; }
-button { min-width: 62px; padding: 8px 13px; border: 0; border-radius: 6px; background: var(--color-primary); color: white; cursor: pointer; }
-button:disabled { cursor: not-allowed; opacity: .45; }.stop { background: var(--color-text-secondary); }
+/* 输入框与外框是一体的：textarea 无边框，底栏（权限 + 发送）在同一张卡里 */
+.composer {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 780px;
+  margin: 0 auto;
+  padding: 10px 10px 8px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-bg-primary);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 8%);
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.composer:focus-within {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px var(--color-primary-light), 0 8px 24px rgb(0 0 0 / 8%);
+}
+textarea {
+  width: 100%;
+  min-height: 42px;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  line-height: 1.5;
+  resize: none;
+}
+.composer-actions { display: flex; align-items: center; gap: 8px; }
+.composer-actions button {
+  min-width: 62px;
+  margin-left: auto;
+  padding: 7px 13px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--color-primary);
+  color: white;
+  cursor: pointer;
+}
+.composer-actions button:disabled { cursor: not-allowed; opacity: .45; }
+.composer-actions .stop { background: var(--color-text-secondary); }
 </style>

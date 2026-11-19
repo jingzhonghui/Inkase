@@ -160,6 +160,17 @@ vi.mock('../conversation-title', () => ({
   generateConversationTitle: vi.fn(async () => '生成标题')
 }))
 
+const catalogMocks = vi.hoisted(() => ({
+  fetchModelCatalog: vi.fn(async (_input: { baseUrl: string; apiKey?: string }) => [
+    'demo',
+    'demo-mini'
+  ])
+}))
+
+vi.mock('../model-catalog', () => ({
+  fetchModelCatalog: catalogMocks.fetchModelCatalog
+}))
+
 const summaryMocks = vi.hoisted(() => ({
   authorize: vi.fn((_senderId: number, root: string | null) => {
     void root
@@ -216,6 +227,7 @@ describe('registerAiHandlers', () => {
     providerMocks.testedConfig = null
     providerMocks.tool = null
     providerMocks.toolResult = null
+    catalogMocks.fetchModelCatalog.mockClear()
     disposeAiServices()
   })
 
@@ -227,8 +239,12 @@ describe('registerAiHandlers', () => {
         AI.CONFIG.GET,
         AI.CONFIG.SET,
         AI.CONFIG.TEST,
+        AI.CONFIG.MODELS,
+        AI.CONFIG.REVEAL_KEY,
+        AI.MODEL.SET,
         AI.RUN.START,
         AI.RUN.CANCEL,
+        AI.PERMISSION.SET,
         AI.APPROVAL.CLAIM,
         AI.APPROVAL.RESOLVE,
         AI.CONVERSATION.LIST,
@@ -246,7 +262,7 @@ describe('registerAiHandlers', () => {
 
   it('返回清理器并移除已注册的 handler', () => {
     const cleanup = registerAiHandlers(() => null)
-    expect(electronMocks.handlers.size).toBe(13)
+    expect(electronMocks.handlers.size).toBe(17)
 
     cleanup()
     expect(electronMocks.handlers.size).toBe(0)
@@ -326,6 +342,132 @@ describe('registerAiHandlers', () => {
       success: true,
       data: { ready: true, capabilities: { textGeneration: true, toolCalling: true } }
     })
+  })
+
+  it('permission:set 持久化权限模式，非法值不覆盖已存模式', async () => {
+    registerAiHandlers(() => null)
+    await electronMocks.handlers.get(AI.CONFIG.SET)!({}, makeConfigInput())
+    const setMode = electronMocks.handlers.get(AI.PERMISSION.SET)!
+    const getConfig = electronMocks.handlers.get(AI.CONFIG.GET)!
+
+    const switched = (await setMode({}, 'readonly')) as {
+      success: boolean
+      data?: { permissionMode?: string }
+    }
+    expect(switched).toMatchObject({ success: true })
+    expect(switched.data?.permissionMode).toBe('readonly')
+
+    const invalid = await setMode({}, 'root')
+    expect(invalid).toMatchObject({ success: false })
+
+    const view = (await getConfig({})) as { data?: { permissionMode?: string } }
+    expect(view.data?.permissionMode).toBe('readonly')
+
+    // 配置文件在同一个进程里跨用例共享，读完就还原，免得后续用例跑在只读模式下
+    await setMode({}, 'standard')
+  })
+
+  it('config:models 用表单 Key 拉取模型列表', async () => {
+    registerAiHandlers(() => null)
+    const result = await electronMocks.handlers.get(AI.CONFIG.MODELS)!({}, {
+      baseUrl: 'https://api.example.com/v1',
+      apiKey: 'form-key'
+    })
+
+    expect(result).toMatchObject({ success: true, data: { models: ['demo', 'demo-mini'] } })
+    expect(catalogMocks.fetchModelCatalog).toHaveBeenCalledWith({
+      baseUrl: 'https://api.example.com/v1',
+      apiKey: 'form-key'
+    })
+  })
+
+  it('config:models 缺省 Key 时只在同源沿用已存 Key', async () => {
+    registerAiHandlers(() => null)
+    await electronMocks.handlers.get(AI.CONFIG.SET)!({}, makeConfigInput())
+    const fetchModels = electronMocks.handlers.get(AI.CONFIG.MODELS)!
+
+    await fetchModels({}, { baseUrl: 'https://api.example.com/v1' })
+    expect(catalogMocks.fetchModelCatalog).toHaveBeenLastCalledWith({
+      baseUrl: 'https://api.example.com/v1',
+      apiKey: 'secret'
+    })
+
+    await fetchModels({}, { baseUrl: 'https://other.example.com/v1' })
+    expect(catalogMocks.fetchModelCatalog).toHaveBeenLastCalledWith({
+      baseUrl: 'https://other.example.com/v1',
+      apiKey: ''
+    })
+  })
+
+  it('config:models 对非法 payload 返回失败而非抛异常', async () => {
+    registerAiHandlers(() => null)
+    const result = await electronMocks.handlers.get(AI.CONFIG.MODELS)!({}, { baseUrl: '   ' })
+
+    expect(result).toMatchObject({ success: false, error: '请求参数无效' })
+    expect(catalogMocks.fetchModelCatalog).not.toHaveBeenCalled()
+  })
+
+  it('config:revealKey 返回明文 Key，而 config:get 仍然不含', async () => {
+    registerAiHandlers(() => null)
+    await electronMocks.handlers.get(AI.CONFIG.SET)!({}, makeConfigInput())
+
+    const revealed = (await electronMocks.handlers.get(AI.CONFIG.REVEAL_KEY)!({})) as {
+      success: boolean
+      data?: { apiKey?: string }
+    }
+    expect(revealed).toMatchObject({ success: true })
+    expect(revealed.data?.apiKey).toBe('secret')
+
+    const view = (await electronMocks.handlers.get(AI.CONFIG.GET)!({})) as {
+      data?: Record<string, unknown>
+    }
+    expect(view.data).not.toHaveProperty('apiKey')
+  })
+
+  it('model:set 切换已配置列表内的模型，列表外的模型被拒绝', async () => {
+    registerAiHandlers(() => null)
+    await electronMocks.handlers.get(AI.CONFIG.SET)!({}, makeConfigInput({
+      models: ['demo', 'demo-mini']
+    }))
+    const setModel = electronMocks.handlers.get(AI.MODEL.SET)!
+
+    const switched = (await setModel({}, 'demo-mini')) as {
+      success: boolean
+      data?: { model?: string; models?: string[] }
+    }
+    expect(switched).toMatchObject({ success: true })
+    expect(switched.data?.model).toBe('demo-mini')
+    expect(switched.data?.models).toEqual(['demo', 'demo-mini'])
+
+    expect(await setModel({}, 'unknown-model')).toMatchObject({ success: false })
+    expect(await setModel({}, '   ')).toMatchObject({ success: false, error: '模型名无效' })
+
+    const view = (await electronMocks.handlers.get(AI.CONFIG.GET)!({})) as {
+      data?: { model?: string }
+    }
+    expect(view.data?.model).toBe('demo-mini')
+  })
+
+  it('config:set 持久化 apiFormat，缺省落 openai-compatible', async () => {
+    registerAiHandlers(() => null)
+
+    await electronMocks.handlers.get(AI.CONFIG.SET)!({}, makeConfigInput({ model: 'a' }))
+    let view = (await electronMocks.handlers.get(AI.CONFIG.GET)!({})) as {
+      data?: { apiFormat?: string }
+    }
+    expect(view.data?.apiFormat).toBe('openai-compatible')
+
+    await electronMocks.handlers.get(AI.CONFIG.SET)!({}, makeConfigInput({
+      model: 'a',
+      apiFormat: 'openai-responses'
+    }))
+    view = (await electronMocks.handlers.get(AI.CONFIG.GET)!({})) as {
+      data?: { apiFormat?: string }
+    }
+    expect(view.data?.apiFormat).toBe('openai-responses')
+
+    // 还原，避免影响后续用例（配置文件在同一进程内共享）
+    await electronMocks.handlers.get(AI.CONFIG.SET)!({}, makeConfigInput({ model: 'demo' }))
   })
 
   it('accepts source-looking strings without renderer candidates and rejects legacy materialIds', async () => {
@@ -591,6 +733,7 @@ describe('conversation handlers', () => {
     providerMocks.testedConfig = null
     providerMocks.tool = null
     providerMocks.toolResult = null
+    catalogMocks.fetchModelCatalog.mockClear()
     disposeAiServices()
     registerAiHandlers(() => null)
   })

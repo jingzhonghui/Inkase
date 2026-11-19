@@ -192,6 +192,22 @@ export const useAiStore = defineStore('ai', () => {
     approvalMessageIds.delete(request.id)
   }
 
+  /**
+   * 收尾：把仍在「运行中」的工具调用改成终态。
+   *
+   * 一轮运行结束后不可能还有工具在跑，剩下这些就是没等到 `tool-call-completed`
+   * 的调用：模型调用了不存在的工具、主进程没上报结果、或者这一轮被中止了。
+   * 不回收它们，卡片会永远显示「运行中」，而且会随会话一起存盘——重开还在。
+   */
+  function settleRunningToolCalls(result: ToolExecutionResult): void {
+    for (const call of toolCalls.value) {
+      if (call.status !== 'running') continue
+      call.status = 'failed'
+      // 逐条复制：共享同一个对象引用时，后续改动会串到所有卡片上
+      call.result = { ...result }
+    }
+  }
+
   function discardApprovalsForRun(runId: string): void {
     const discarded = pendingApprovals.value.filter((approval) => approval.runId === runId)
     pendingApprovals.value = pendingApprovals.value.filter((approval) => approval.runId !== runId)
@@ -245,6 +261,9 @@ export const useAiStore = defineStore('ai', () => {
     running.value = false
     activeRunId.value = null
     discardApprovalsForRun(runId)
+    // 这里必须自己回收：activeRunId 已经清空，随后到达的 run-cancelled 会被
+    // `event.runId !== activeRunId` 挡掉，指望那条事件收尾是收不到的。
+    settleRunningToolCalls({ status: 'cancelled', message: '运行已取消' })
     finalizeStreamingAssistantMessage()
     return true
   }
@@ -548,6 +567,9 @@ export const useAiStore = defineStore('ai', () => {
         if (startRequestPending) terminalRunsDuringStart.add(event.runId)
         running.value = false
         activeRunId.value = null
+        // 兜底：正常路径下每个调用都该有 tool-call-completed，但事件在窗口关闭、
+        // 运行被替换等情况下可能丢。运行已经结束，剩下的不该再显示「运行中」。
+        settleRunningToolCalls({ status: 'failed', message: '未收到该工具的执行结果' })
         finalizeStreamingAssistantMessage()
         discardApprovalsForRun(event.runId)
         persistConversation()
@@ -557,6 +579,7 @@ export const useAiStore = defineStore('ai', () => {
         if (startRequestPending) terminalRunsDuringStart.add(event.runId)
         running.value = false
         activeRunId.value = null
+        settleRunningToolCalls({ status: 'failed', message: '运行中断，未收到该工具的执行结果' })
         finalizeStreamingAssistantMessage()
         discardApprovalsForRun(event.runId)
         messages.value.push({
@@ -571,6 +594,7 @@ export const useAiStore = defineStore('ai', () => {
         if (startRequestPending) terminalRunsDuringStart.add(event.runId)
         running.value = false
         activeRunId.value = null
+        settleRunningToolCalls({ status: 'cancelled', message: '运行已取消' })
         finalizeStreamingAssistantMessage()
         discardApprovalsForRun(event.runId)
         persistConversation()

@@ -535,15 +535,63 @@ describe('AI 主进程端到端链路（真实 HTTP + 真实 Provider + Runtime 
     const { runId } = await runtime.start(makeRunInput(), (event) => events.push(event))
     await waitForEvent(events, 'run-completed')
 
-    // AI SDK 6.x 在 tool() 层自行校验 Zod schema：非法参数被拦截为 tool-error，
-    // 不进入 AiRuntime 的 execute（不会产生 status:'failed' 的 tool-call-completed）。
-    // 运行应正常完成，模型可读取错误后继续输出。
+    // AI SDK 6.x 在 tool() 层自行校验 Zod schema：非法参数被拦截成 tool-error，
+    // 不进入 AiRuntime 的 execute。这条分片必须被上报成一次失败的「完成」事件，
+    // 否则渲染层的工具卡片会永远停在「运行中」（provider.ts 的 tool-error 分支）。
     expect(events).toContainEqual(
       expect.objectContaining({ type: 'tool-call-started', runId, toolName: 'search_workspace' })
+    )
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'tool-call-completed',
+        runId,
+        toolCallId: 'call_bad_1',
+        result: expect.objectContaining({ status: 'failed' })
+      })
     )
     expect(events).not.toContainEqual(expect.objectContaining({ type: 'run-failed' }))
     expect(events).toContainEqual(expect.objectContaining({ type: 'run-completed', runId }))
     expect(server.requestCount).toBe(2)
+  })
+
+  it('E10b 工具不存在：SDK 给的是 tool-error，同样要落成失败', async () => {
+    server = new MockOpenAiServer()
+    const baseUrl = await server.start({
+      handler: (_req, res) => {
+        res.writeHead(200, { 'Content-Type': 'text/event-stream' })
+        if (server!.requestCount === 1) {
+          // 模型幻觉出来的工具名：SDK 不执行它，只发一条 tool-error
+          res.write(
+            'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_ghost_1","type":"function","function":{"name":"edit_workspace_file","arguments":"{}"}}]}}]}\n\n'
+          )
+          res.write('data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n\n')
+        } else {
+          res.write('data: {"choices":[{"delta":{"content":"换个方式。"},"finish_reason":"stop"}]}\n\n')
+        }
+        res.write('data: [DONE]\n\n')
+        res.end()
+      }
+    })
+    const events: AiRunEvent[] = []
+    const runtime = makeRuntime(baseUrl)
+
+    const { runId } = await runtime.start(makeRunInput(), (event) => events.push(event))
+    await waitForEvent(events, 'run-completed')
+
+    // 调错工具名和不合法参数走的是同一条 tool-error 分片，都必须收尾，
+    // 否则那张卡片会永远停在「运行中」
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'tool-call-completed',
+        runId,
+        toolCallId: 'call_ghost_1',
+        result: expect.objectContaining({
+          status: 'failed',
+          message: expect.stringContaining('edit_workspace_file')
+        })
+      })
+    )
+    expect(events).toContainEqual(expect.objectContaining({ type: 'run-completed', runId }))
   })
 
   it('E11 工具步骤超限：达到 maxSteps 后终止运行', async () => {

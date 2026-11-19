@@ -148,7 +148,8 @@ describe('AiConfigService', () => {
     ['model', { model: 'other' }],
     ['temperature', { temperature: 0.2 }],
     ['API key', { apiKey: 'different-secret' }],
-    ['读取上限', { maxReadBytes: 64 * 1024 }]
+    ['读取上限', { maxReadBytes: 64 * 1024 }],
+    ['接口格式', { apiFormat: 'openai-responses' as const }]
   ])('invalidates capability evidence when the saved %s changes', (_label, change) => {
     const service = new AiConfigService(configPath)
     const original = {
@@ -234,22 +235,72 @@ describe('AiConfigService', () => {
     expect(runtime.idleTimeoutMs).toBeUndefined()
   })
 
-  it('persists the approval mode and defaults to ask', () => {
+  it('persists the permission mode and defaults to standard', () => {
     const service = new AiConfigService(configPath)
     service.save({
       baseUrl: 'https://api.example.com/v1', model: 'demo', apiKey: 'secret', temperature: 0.7
     })
-    // 未设置时保持 undefined，运行期按 ask 处理
-    expect(service.getRuntimeConfig().approvalMode).toBeUndefined()
+    // 没设置过就是标准模式；视图与运行期配置要给出一致的值
+    expect(service.getRuntimeConfig().permissionMode).toBe('standard')
+    expect(service.getView().permissionMode).toBe('standard')
 
     service.save({
       baseUrl: 'https://api.example.com/v1',
       model: 'demo',
       temperature: 0.7,
-      approvalMode: 'auto'
+      permissionMode: 'auto'
     })
-    expect(service.getRuntimeConfig().approvalMode).toBe('auto')
-    expect(new AiConfigService(configPath).getView().approvalMode).toBe('auto')
+    expect(service.getRuntimeConfig().permissionMode).toBe('auto')
+    expect(new AiConfigService(configPath).getView().permissionMode).toBe('auto')
+  })
+
+  it('keeps the stored permission mode when a save omits it', () => {
+    // 设置中心不再携带权限模式：保存其它参数不能把用户在面板里选的模式冲回默认
+    const service = new AiConfigService(configPath)
+    service.save({
+      baseUrl: 'https://api.example.com/v1', model: 'demo', apiKey: 'secret', temperature: 0.7,
+      permissionMode: 'readonly'
+    })
+
+    service.save({
+      baseUrl: 'https://api.example.com/v1', model: 'demo', temperature: 0.5
+    })
+    expect(service.getView().permissionMode).toBe('readonly')
+  })
+
+  it('switches the permission mode without touching the key or other fields', () => {
+    const service = new AiConfigService(configPath)
+    service.save({
+      baseUrl: 'https://api.example.com/v1', model: 'demo', apiKey: 'secret', temperature: 0.7,
+      maxSteps: 30
+    })
+
+    const view = service.setPermissionMode('auto')
+    expect(view.permissionMode).toBe('auto')
+    expect(view.hasApiKey).toBe(true)
+    expect(view.maxSteps).toBe(30)
+    // Key 仍然可用：切换模式不该把它清掉
+    expect(service.getRuntimeConfig().apiKey).toBe('secret')
+  })
+
+  it('migrates the legacy approvalMode field to the permission mode', () => {
+    fs.writeFileSync(configPath, JSON.stringify({
+      baseUrl: 'https://api.example.com/v1',
+      model: 'demo',
+      temperature: 0.7,
+      // 旧版本：'ask' 是逐次审批（= 标准），'auto' 是完全控制
+      approvalMode: 'ask'
+    }))
+    const service = new AiConfigService(configPath)
+    expect(service.getView().permissionMode).toBe('standard')
+
+    fs.writeFileSync(configPath, JSON.stringify({
+      baseUrl: 'https://api.example.com/v1',
+      model: 'demo',
+      temperature: 0.7,
+      approvalMode: 'auto'
+    }))
+    expect(new AiConfigService(configPath).getView().permissionMode).toBe('auto')
   })
 
   it('getRuntimeConfig decrypts the stored key', () => {
@@ -354,6 +405,169 @@ describe('AiConfigService', () => {
 
     const runtime = service.getRuntimeConfig()
     expect(runtime.apiKey).toBe('secret')
+  })
+
+  it('defaults the API format to openai-compatible and round-trips it', () => {
+    const service = new AiConfigService(configPath)
+    service.save({
+      baseUrl: 'https://api.example.com/v1', model: 'demo', apiKey: 'secret', temperature: 0.7
+    })
+    expect(service.getView().apiFormat).toBe('openai-compatible')
+    expect(service.getRuntimeConfig().apiFormat).toBe('openai-compatible')
+
+    service.save({
+      baseUrl: 'https://api.example.com/v1',
+      model: 'demo',
+      temperature: 0.7,
+      apiFormat: 'openai-responses'
+    })
+    expect(new AiConfigService(configPath).getView().apiFormat).toBe('openai-responses')
+    expect(new AiConfigService(configPath).getRuntimeConfig().apiFormat).toBe('openai-responses')
+  })
+
+  it('falls back to the default API format when the stored value is unknown', () => {
+    fs.writeFileSync(configPath, JSON.stringify({
+      baseUrl: 'https://api.example.com/v1',
+      model: 'demo',
+      temperature: 0.7,
+      apiFormat: 'gemini'
+    }))
+
+    expect(new AiConfigService(configPath).getView().apiFormat).toBe('openai-compatible')
+  })
+
+  it('keeps the active model inside the picker list', () => {
+    const service = new AiConfigService(configPath)
+    const view = service.save({
+      baseUrl: 'https://api.example.com/v1',
+      model: 'demo-mini',
+      apiKey: 'secret',
+      temperature: 0.7,
+      models: ['demo', 'demo-mini']
+    })
+    // 已经在列表里就保持用户勾选的顺序
+    expect(view.models).toEqual(['demo', 'demo-mini'])
+
+    // 手填的模型不在已获取列表里时要补到首位，否则下拉框指向一个不存在的项
+    const patched = service.save({
+      baseUrl: 'https://api.example.com/v1',
+      model: 'demo-pro',
+      temperature: 0.7,
+      models: ['demo', 'demo-mini']
+    })
+    expect(patched.models).toEqual(['demo-pro', 'demo', 'demo-mini'])
+  })
+
+  it('treats an omitted model list as unchanged and an empty one as just the active model', () => {
+    const service = new AiConfigService(configPath)
+    service.save({
+      baseUrl: 'https://api.example.com/v1',
+      model: 'demo',
+      apiKey: 'secret',
+      temperature: 0.7,
+      models: ['demo', 'demo-mini']
+    })
+
+    // 不携带 models 的保存（例如只改温度）不能把已获取的目录清掉
+    const untouched = service.save({
+      baseUrl: 'https://api.example.com/v1', model: 'demo', temperature: 0.5
+    })
+    expect(untouched.models).toEqual(['demo', 'demo-mini'])
+
+    // 显式清空后只剩当前模型一项（下拉仍可展开，把这一项勾在自己身上）
+    const cleared = service.save({
+      baseUrl: 'https://api.example.com/v1', model: 'demo', temperature: 0.5, models: []
+    })
+    expect(cleared.models).toEqual(['demo'])
+  })
+
+  it('always exposes the active model in the picker list', () => {
+    // 老配置（Round A 之前存的）与「只改温度」的保存都不会写 models 字段，
+    // 视图里必须用当前模型兜住，否则面板下拉一个候选都没有、点了没反应
+    fs.writeFileSync(configPath, JSON.stringify({
+      baseUrl: 'https://api.example.com/v1',
+      model: 'legacy-model',
+      temperature: 0.7
+    }), 'utf8')
+
+    expect(new AiConfigService(configPath).getView().models).toEqual(['legacy-model'])
+  })
+
+  it('dedupes and trims the model list', () => {
+    const service = new AiConfigService(configPath)
+    const view = service.save({
+      baseUrl: 'https://api.example.com/v1',
+      model: 'demo',
+      apiKey: 'secret',
+      temperature: 0.7,
+      models: [' demo ', 'demo', 'demo-mini', '  ']
+    })
+
+    expect(view.models).toEqual(['demo', 'demo-mini'])
+  })
+
+  it('switches the model without touching the list or the key', () => {
+    const service = new AiConfigService(configPath)
+    service.save({
+      baseUrl: 'https://api.example.com/v1',
+      model: 'demo',
+      apiKey: 'secret',
+      temperature: 0.7,
+      models: ['demo', 'demo-mini']
+    })
+
+    const view = service.setModel('demo-mini')
+    expect(view.model).toBe('demo-mini')
+    expect(view.models).toEqual(['demo', 'demo-mini'])
+    expect(view.hasApiKey).toBe(true)
+    expect(new AiConfigService(configPath).getRuntimeConfig()).toMatchObject({
+      model: 'demo-mini',
+      apiKey: 'secret'
+    })
+  })
+
+  it('rejects a model that is no longer in the list', () => {
+    const service = new AiConfigService(configPath)
+    service.save({
+      baseUrl: 'https://api.example.com/v1',
+      model: 'demo',
+      apiKey: 'secret',
+      temperature: 0.7,
+      models: ['demo', 'demo-mini']
+    })
+
+    // 面板拿着过期列表写入的旧模型必须被拦住
+    expect(() => service.setModel('removed-model')).toThrow('该模型已不在可选列表中，请重新选择')
+    expect(service.getView().model).toBe('demo')
+  })
+
+  it('rejects an empty or over-long model name', () => {
+    const service = new AiConfigService(configPath)
+    service.save({
+      baseUrl: 'https://api.example.com/v1', model: 'demo', apiKey: 'secret', temperature: 0.7
+    })
+
+    expect(() => service.setModel('   ')).toThrow('模型名不能为空')
+    expect(() => service.setModel('x'.repeat(201))).toThrow('模型名过长')
+    // 目录为空时不限制具体模型名，方便服务商没实现 /models 的情况
+    expect(service.setModel('any-model').model).toBe('any-model')
+  })
+
+  it('reveals the plaintext key on demand only', () => {
+    const service = new AiConfigService(configPath)
+    service.save({
+      baseUrl: 'https://api.example.com/v1', model: 'demo', apiKey: 'secret', temperature: 0.7
+    })
+
+    expect(service.revealApiKey()).toBe('secret')
+    expect(service.getView()).not.toHaveProperty('apiKey')
+
+    service.save({ baseUrl: 'https://api.example.com/v1', model: 'demo', temperature: 0.7 })
+    expect(service.revealApiKey()).toBe('secret')
+
+    // 换成别的源又没带新 Key：没有可用 Key 时返回 undefined 而不是抛错
+    service.save({ baseUrl: 'https://other.example.com/v1', model: 'demo', temperature: 0.7 })
+    expect(service.revealApiKey()).toBeUndefined()
   })
 
   it('clear removes the key and the persisted file', () => {

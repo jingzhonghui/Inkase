@@ -30,10 +30,19 @@ withDefaults(
     class="settings-row"
     :class="[`settings-row--${layout}`, { 'settings-row--clickable': clickable }]"
   >
-    <span class="settings-row__text">
-      <strong>{{ title }}</strong>
-      <small v-if="desc">{{ desc }}</small>
-    </span>
+    <div class="settings-row__head">
+      <span class="settings-row__text">
+        <strong>{{ title }}</strong>
+        <small v-if="desc">{{ desc }}</small>
+      </span>
+      <!-- 标题行右侧的动作（如「获取模型」）：与控件分开，才不会挤成一行 -->
+      <span
+        v-if="$slots.actions"
+        class="settings-row__actions"
+      >
+        <slot name="actions" />
+      </span>
+    </div>
     <span class="settings-row__control">
       <slot />
     </span>
@@ -66,6 +75,28 @@ withDefaults(
 
 .settings-row--clickable {
   cursor: pointer;
+}
+
+/* 标题行：标题/说明在左，可选的动作按钮贴右。两种布局下都成立——
+   stacked 时它自己占一行，inline 时它与控件各占一侧 */
+.settings-row__head {
+  display: flex;
+  flex: 1;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.settings-row--inline .settings-row__head {
+  align-items: center;
+}
+
+.settings-row__actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
 }
 
 .settings-row__text {

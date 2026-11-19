@@ -1,3 +1,15 @@
+import type { AiPermissionMode } from './permission'
+import type { AiApiFormat } from './api-format'
+
+export type { AiPermissionMode } from './permission'
+export type { AiApiFormat } from './api-format'
+
+/** 单个模型标识的长度上限；配置归一与 IPC 校验共用同一把尺子。 */
+export const MAX_AI_MODEL_ID_LENGTH = 200
+
+/** 可选模型目录的条数上限：几百个模型足够覆盖公开服务，也挡得住恶意超长响应。 */
+export const MAX_AI_MODELS = 500
+
 export interface ApiResult<T = void> {
   success: boolean
   data?: T
@@ -6,7 +18,20 @@ export interface ApiResult<T = void> {
 
 export interface AiConfigInput {
   baseUrl: string
+  /**
+   * 接口格式（协议）：决定端点路径与鉴权方式。
+   * 缺省表示 `openai-compatible`，见 `./api-format`。
+   */
+  apiFormat?: AiApiFormat
+  /** 当前使用的模型：运行期只认这一个 */
   model: string
+  /**
+   * 可选模型目录（设置页「获取模型」勾选的结果），面板下拉的数据源。
+   *
+   * 空数组表示「只有 `model` 一个可选」。它不影响运行时行为，因此不参与
+   * 能力指纹，也不参与 runtime 重建判定。
+   */
+  models?: string[]
   apiKey?: string
   temperature: number
   maxOutputTokens?: number
@@ -21,11 +46,19 @@ export interface AiConfigInput {
    * 否则用户看一份 diff 的时间就能把整轮运行拖超时。
    */
   idleTimeoutMs?: number
-  /** 审批模式，缺省为 ask（逐次请求批准） */
-  approvalMode?: AiApprovalMode
+  /**
+   * 权限模式：只读 / 标准 / 完全控制。
+   *
+   * 缺省（undefined）表示「本次不改变」——设置中心保存其余参数时不携带它，
+   * 免得把用户在 AI 面板里刚选定的模式冲回默认值。
+   */
+  permissionMode?: AiPermissionMode
 }
 
-export interface AiConfigView extends Omit<AiConfigInput, 'apiKey'> {
+export interface AiConfigView extends Omit<AiConfigInput, 'apiKey' | 'apiFormat' | 'models'> {
+  /** 归一后的格式与目录：视图里永远是合法值，UI 不用写兜底分支 */
+  apiFormat: AiApiFormat
+  models: string[]
   hasApiKey: boolean
   /** 地址、模型与 API Key 齐备即为 true；能力探测只作为额外信息，不是前置条件 */
   ready: boolean
@@ -116,16 +149,9 @@ export interface ToolPolicy {
 }
 
 /**
- * 审批模式。
- *
- * - `ask`：按工具策略逐次请求批准（默认）
- * - `auto`：完全控制——不再逐次询问，写操作与危险操作直接执行
- *
- * auto 下渲染进程类操作仍然会生成一条 `auto: true` 的审批记录：
- * 执行路径不变（认领 → 应用 → 回传结果），只是不需要人点，
- * 会话里也能翻到「AI 自己做了什么」。
+ * 权限模式在 `./permission` 里定义（含旧值 `ask → standard` 的迁移），
+ * 这里只做类型再导出，避免 UI 与主进程各写一份取值。
  */
-export type AiApprovalMode = 'ask' | 'auto'
 
 export interface AiDocumentSnapshot {
   id: string

@@ -2,6 +2,7 @@ import { ipcMain, type BrowserWindow } from 'electron'
 import { IPC_CHANNELS } from '../ipc/channels'
 import { AiConfigService, normalizeAiBaseUrl } from './config'
 import { AiRuntime } from './runtime'
+import { fetchModelCatalog } from './model-catalog'
 import { SourceAccessService } from './source-access-service'
 import { VercelAiSdkProvider, mapProviderError } from './provider'
 import { ToolRegistry } from './tool-registry'
@@ -23,14 +24,23 @@ import type {
   ConversationRecord,
   ToolExecutionResult
 } from '../../shared/ai/types'
+import { MAX_AI_MODEL_ID_LENGTH, MAX_AI_MODELS } from '../../shared/ai/types'
 import { aiRunInputSchema, approvalResolutionSchema, runIdSchema } from '../../shared/ai/contracts'
 import { z } from 'zod'
 
 const { AI } = IPC_CHANNELS
 
+const aiPermissionModeSchema = z.enum(['readonly', 'standard', 'auto'])
+const aiApiFormatSchema = z.enum(['openai-compatible', 'openai-responses'])
+const aiModelIdSchema = z.string().trim().min(1).max(MAX_AI_MODEL_ID_LENGTH)
+
 const aiConfigInputSchema = z.object({
   baseUrl: z.string().trim().min(1),
-  model: z.string().trim().min(1),
+  /** 接口格式；缺省按 openai-compatible 处理（旧配置没有这个字段） */
+  apiFormat: aiApiFormatSchema.optional(),
+  model: aiModelIdSchema,
+  /** 可选模型目录；缺省表示「本次不改变」，显式空数组表示清空 */
+  models: z.array(aiModelIdSchema).max(MAX_AI_MODELS).optional(),
   apiKey: z.string().optional(),
   temperature: z.number().min(0).max(2),
   maxOutputTokens: z.number().int().positive().optional(),
@@ -40,9 +50,16 @@ const aiConfigInputSchema = z.object({
   maxReadBytes: z.number().int().min(4 * 1024).max(4 * 1024 * 1024).optional(),
   // 30 秒 ~ 60 分钟
   idleTimeoutMs: z.number().int().min(30_000).max(60 * 60_000).optional(),
-  /** ask：逐次审批；auto：完全控制，不再逐次询问 */
-  approvalMode: z.enum(['ask', 'auto']).optional()
+  /** 只读 / 标准 / 完全控制；缺省表示「本次不改变」（设置中心不携带它） */
+  permissionMode: aiPermissionModeSchema.optional()
 }).strict()
+
+const aiModelCatalogInputSchema = z
+  .object({
+    baseUrl: z.string().trim().min(1),
+    apiKey: z.string().optional()
+  })
+  .strict()
 
 let configService: AiConfigService | null = null
 let runtime: AiRuntime | null = null
@@ -96,6 +113,8 @@ function toResult<T>(data: T): { success: true; data: T } {
 function configsEqual(a: AiRuntimeConfig, b: AiRuntimeConfig): boolean {
   return (
     a.baseUrl === b.baseUrl &&
+    // 接口格式决定用哪套协议，换了就必须重建 provider
+    a.apiFormat === b.apiFormat &&
     a.model === b.model &&
     a.apiKey === b.apiKey &&
     a.temperature === b.temperature &&
@@ -103,8 +122,9 @@ function configsEqual(a: AiRuntimeConfig, b: AiRuntimeConfig): boolean {
     a.contextWindow === b.contextWindow &&
     a.maxSteps === b.maxSteps &&
     a.maxReadBytes === b.maxReadBytes &&
-    a.idleTimeoutMs === b.idleTimeoutMs &&
-    (a.approvalMode ?? 'ask') === (b.approvalMode ?? 'ask')
+    a.idleTimeoutMs === b.idleTimeoutMs
+    // permissionMode 刻意不参与比较：切换模式走 AI.PERMISSION.SET 直接改运行中的
+    // runtime，若在这里算作「配置变化」就会重建 runtime，把正在跑的会话打断
   )
 }
 
@@ -122,6 +142,24 @@ function createRuntime(config: AiRuntimeConfig): AiRuntime {
     config,
     maxSteps: config.maxSteps
   })
+}
+
+/**
+ * 「获取模型」用的 API Key：优先表单里刚填的那把；没填就复用已保存的，
+ * 但仅限同一服务来源——换了地址还拿旧 Key 去请求，等于把凭据发给别人。
+ * 两者都没有时返回空串（不带 Authorization 头），支持本地无鉴权服务。
+ */
+function resolveCatalogApiKey(baseUrl: string, provided: string | undefined): string {
+  const key = provided?.trim()
+  if (key) return key
+  try {
+    const saved = getConfigService().getRuntimeConfig()
+    const sameOrigin =
+      new URL(normalizeAiBaseUrl(baseUrl)).origin === new URL(saved.baseUrl).origin
+    return sameOrigin ? saved.apiKey : ''
+  } catch {
+    return ''
+  }
 }
 
 /**
@@ -149,8 +187,12 @@ export function registerAiHandlers(_getWindow: () => BrowserWindow | null): () =
     AI.CONFIG.GET,
     AI.CONFIG.SET,
     AI.CONFIG.TEST,
+    AI.CONFIG.MODELS,
+    AI.CONFIG.REVEAL_KEY,
+    AI.MODEL.SET,
     AI.RUN.START,
     AI.RUN.CANCEL,
+    AI.PERMISSION.SET,
     AI.APPROVAL.CLAIM,
     AI.APPROVAL.RESOLVE,
     AI.CONVERSATION.LIST,
@@ -202,6 +244,76 @@ export function registerAiHandlers(_getWindow: () => BrowserWindow | null): () =
       return toResult(result)
     } catch (error) {
       return { success: false, error: mapProviderError(error).message }
+    }
+  })
+
+  /**
+   * 拉取服务端模型目录（设置页「获取模型」）。
+   *
+   * 请求在主进程发出：Key 不出主进程，渲染层只拿到模型标识列表。
+   */
+  ipcMain.handle(AI.CONFIG.MODELS, async (_event, input: unknown) => {
+    try {
+      const parsed = aiModelCatalogInputSchema.parse(input)
+      const models = await fetchModelCatalog({
+        baseUrl: parsed.baseUrl,
+        apiKey: resolveCatalogApiKey(parsed.baseUrl, parsed.apiKey)
+      })
+      return toResult({ models })
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof z.ZodError ? '请求参数无效' : errorMessage(error)
+      }
+    }
+  })
+
+  /**
+   * 按需返回明文 Key。
+   *
+   * 设置页点「小眼睛」时才调它：`AI.CONFIG.GET` 的返回值永远不含明文，
+   * 明文暴露面只剩用户显式点击这一个动作。
+   */
+  ipcMain.handle(AI.CONFIG.REVEAL_KEY, () => {
+    try {
+      return toResult({ apiKey: getConfigService().revealApiKey() })
+    } catch (error) {
+      return { success: false, error: errorMessage(error) }
+    }
+  })
+
+  /**
+   * 切换当前模型。
+   *
+   * 只写配置，不重建 runtime：下一次 `AI.RUN.START` 的 `ensureRuntime` 会发现
+   * model 变了并按需重建，正在跑的那一轮不会被切换打断。
+   */
+  ipcMain.handle(AI.MODEL.SET, (_event, model: unknown) => {
+    try {
+      const parsed = aiModelIdSchema.parse(model)
+      return toResult(getConfigService().setModel(parsed))
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof z.ZodError ? '模型名无效' : errorMessage(error)
+      }
+    }
+  })
+
+  /**
+   * 切换权限模式。
+   *
+   * 面板里的下拉直接调这里：先写配置（下次启动仍是这个模式），再热更新运行中的
+   * runtime（下一次工具调用立即按新模式判定）。不重建 runtime，避免打断会话。
+   */
+  ipcMain.handle(AI.PERMISSION.SET, (_event, mode: unknown) => {
+    try {
+      const parsed = aiPermissionModeSchema.parse(mode)
+      const view = getConfigService().setPermissionMode(parsed)
+      runtime?.setPermissionMode(parsed)
+      return toResult(view)
+    } catch (error) {
+      return { success: false, error: errorMessage(error) }
     }
   })
 

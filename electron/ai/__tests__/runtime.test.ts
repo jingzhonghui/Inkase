@@ -7,7 +7,8 @@ import { ToolRegistry, type ToolExecutionContext } from '../tool-registry'
 import { ApprovalManager } from '../approval-manager'
 import { SourceAccessService } from '../source-access-service'
 import { createSourceAuthorizationContext } from '../source-authorization'
-import { SYSTEM_PROMPT } from '../prompts'
+import { SYSTEM_PROMPT, buildPermissionInstruction } from '../prompts'
+import type { AiPermissionMode } from '../../../shared/ai/permission'
 import { WorkspaceSearchService } from '../../workspace/workspace-search-service'
 import type { LlmProvider, AiProviderEvent, ProviderTool } from '../provider'
 import type {
@@ -129,6 +130,12 @@ function makeFakeSearchService(
       totalSize: 0,
       readable: true
     })),
+    resolveNewPath: vi.fn((_root: string, relativePath: string) => ({
+      relative: relativePath,
+      absolute: `C:\\ws\\${relativePath.replace(/\//g, '\\')}`,
+      parentRelative: '.',
+      parentAbsolute: 'C:\\ws'
+    })),
     ...overrides
   } as unknown as WorkspaceSearchService
   return base
@@ -200,19 +207,25 @@ class FakeProvider implements LlmProvider {
 
 function makeRuntime(
   provider: LlmProvider,
-  options: { maxSteps?: number; toolTimeoutMs?: number; approvalTimeoutMs?: number } = {},
+  options: {
+    maxSteps?: number
+    toolTimeoutMs?: number
+    approvalTimeoutMs?: number
+    permissionMode?: AiPermissionMode
+  } = {},
   sourceAccessService = new SourceAccessService(),
   searchService: WorkspaceSearchService = makeFakeSearchService()
 ): AiRuntime {
-  const approvalTimeoutMs = options.approvalTimeoutMs ?? 60_000
+  const { permissionMode, ...rest } = options
+  const approvalTimeoutMs = rest.approvalTimeoutMs ?? 60_000
   return new AiRuntime({
     provider,
     registry: new ToolRegistry(),
     approvalManager: new ApprovalManager({ approvalTimeoutMs }),
     sourceAccessService,
     searchService,
-    config: makeConfig(),
-    ...options,
+    config: { ...makeConfig(), permissionMode },
+    ...rest,
     approvalTimeoutMs
   })
 }
@@ -841,7 +854,9 @@ describe('runtime approval flow', () => {
     void runtime.start(makeRunInput(makeSnapshot(makeDoc())), (e) => events.push(e))
 
     await vi.waitFor(() => expect(provider.captured).not.toBeNull())
-    expect(provider.captured!.system).toBe(SYSTEM_PROMPT)
+    expect(provider.captured!.system).toBe(
+      SYSTEM_PROMPT + buildPermissionInstruction('standard')
+    )
 
     provider.finish()
     await waitRunEnd(events, 'run-completed')
@@ -858,6 +873,122 @@ describe('runtime approval flow', () => {
     const serialized = JSON.stringify(provider.captured!.messages)
     expect(serialized).not.toContain('正文内容')
     expect(provider.captured!.system).not.toContain('正文内容')
+
+    provider.finish()
+    await waitRunEnd(events, 'run-completed')
+  })
+})
+
+/**
+ * 三档权限模式与运行期的联动。
+ *
+ * 这里断言的是「AI 实际能做什么」，不是「配置里存了什么」：只读挡在工具列表
+ * 与执行期两道，标准逐次审批，完全控制省掉点击但仍走同一条审批通道。
+ */
+describe('permission modes', () => {
+  function startWithMode(mode: AiPermissionMode): {
+    provider: FakeProvider
+    runtime: AiRuntime
+    events: AiRunEvent[]
+  } {
+    const provider = new FakeProvider()
+    const runtime = makeRuntime(provider, { permissionMode: mode })
+    const events: AiRunEvent[] = []
+    void runtime.start(
+      makeRunInput(makeSnapshot(makeDoc(), null, null, 'C:\\ws')),
+      (e) => events.push(e)
+    )
+    return { provider, runtime, events }
+  }
+
+  it('只读：写类工具不递给模型，读类与网络读取保留', async () => {
+    const { provider, events } = startWithMode('readonly')
+    await vi.waitFor(() => expect(provider.captured).not.toBeNull())
+
+    const names = Object.keys(provider.captured!.tools)
+    expect(names).toEqual(
+      expect.arrayContaining([
+        'search_workspace',
+        'read_workspace_file',
+        'read_selected_text',
+        'get_current_datetime',
+        'read_web_url',
+        'read_local_file'
+      ])
+    )
+    for (const writeTool of [
+      'write_workspace_file',
+      'delete_workspace_file',
+      'create_workspace_directory',
+      'move_workspace_entry',
+      'replace_current_document',
+      'insert_into_current_document',
+      'create_document',
+      'create_mindmap',
+      'update_mindmap'
+    ]) {
+      expect(names).not.toContain(writeTool)
+    }
+    expect(provider.captured!.system).toContain('权限模式（只读）')
+
+    provider.finish()
+    await waitRunEnd(events, 'run-completed')
+  })
+
+  it('只读：运行中切换后，已递交的写工具在执行期被直接拒绝且不弹审批', async () => {
+    const { provider, runtime, events } = startWithMode('standard')
+    await vi.waitFor(() => expect(provider.captured).not.toBeNull())
+    const createDirectory = provider.captured!.tools['create_workspace_directory']!
+
+    // 工具已经交到模型手里（开始跑的时候还是标准模式），切到只读后下一次调用必须被挡
+    runtime.setPermissionMode('readonly')
+    const execution = createDirectory.execute({ path: 'docs/归档', reason: '测试' })
+
+    await expect(execution).resolves.toMatchObject({ status: 'rejected' })
+    const rejected = await execution
+    expect(rejected.status === 'rejected' && rejected.message).toContain('只读')
+    expect(events.some((e) => e.type === 'approval-required')).toBe(false)
+
+    provider.finish()
+    await waitRunEnd(events, 'run-completed')
+  })
+
+  it('标准：写类工具发出审批请求，请求不带 auto 标记', async () => {
+    const { provider, runtime, events } = startWithMode('standard')
+    await vi.waitFor(() => expect(provider.captured).not.toBeNull())
+    const createDirectory = provider.captured!.tools['create_workspace_directory']!
+
+    const execution = createDirectory.execute({ path: 'docs/归档', reason: '测试' })
+    await vi.waitFor(() => expect(events.some((e) => e.type === 'approval-required')).toBe(true))
+    const request = events.find((e) => e.type === 'approval-required')!.approval
+
+    expect(request.auto).toBeUndefined()
+    expect(request.effect).toBe('write')
+
+    runtime.claimApproval(request.id)
+    runtime.resolveApproval(request.id, { status: 'approved', scope: 'once' }, { status: 'applied' })
+    await expect(execution).resolves.toEqual({ status: 'applied' })
+
+    provider.finish()
+    await waitRunEnd(events, 'run-completed')
+  })
+
+  it('完全控制：写类工具仍走同一条审批通道，但请求带 auto 标记、无需用户点击', async () => {
+    const { provider, runtime, events } = startWithMode('auto')
+    await vi.waitFor(() => expect(provider.captured).not.toBeNull())
+    const createDirectory = provider.captured!.tools['create_workspace_directory']!
+
+    const execution = createDirectory.execute({ path: 'docs/归档', reason: '测试' })
+    await vi.waitFor(() => expect(events.some((e) => e.type === 'approval-required')).toBe(true))
+    const request = events.find((e) => e.type === 'approval-required')!.approval
+
+    expect(request.auto).toBe(true)
+    expect(provider.captured!.system).toContain('权限模式（完全控制）')
+
+    // 渲染层收到 auto 请求时就地认领并应用，等价于「用户点了允许」
+    runtime.claimApproval(request.id)
+    runtime.resolveApproval(request.id, { status: 'approved', scope: 'once' }, { status: 'applied' })
+    await expect(execution).resolves.toEqual({ status: 'applied' })
 
     provider.finish()
     await waitRunEnd(events, 'run-completed')

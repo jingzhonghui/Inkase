@@ -1,4 +1,3 @@
-import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 import { getErrorMessage, isAbortError } from '@ai-sdk/provider-utils'
 import {
   APICallError,
@@ -21,6 +20,7 @@ import type {
   ToolExecutionResult
 } from '../../shared/ai/types'
 import { CONVERSATION_TITLE_SYSTEM_PROMPT, CAPABILITY_PROBE_SYSTEM_PROMPT } from './prompts'
+import { createLanguageModel } from './model-factory'
 
 export interface LlmRunInput {
   config: AiRuntimeConfig
@@ -92,6 +92,17 @@ function resolveIdleTimeout(configured: number | undefined, fallback: number): n
 }
 
 const CAPABILITY_PROBE_TOOL = 'markdown_plus_capability_probe'
+
+/**
+ * 把 SDK 的工具错误整理成给用户看的一句话。
+ *
+ * 入参校验失败时 `error` 是字符串，工具抛异常时是 Error，两者都要能读出来。
+ */
+function describeToolFailure(error: unknown): string {
+  const detail = error instanceof Error ? error.message : typeof error === 'string' ? error : ''
+  const trimmed = detail.trim()
+  return trimmed ? `工具未执行：${trimmed}` : '工具未执行：模型给出的参数无效，或调用了不存在的工具'
+}
 
 function isRetryableHttpError(error: unknown): boolean {
   if (!APICallError.isInstance(error)) return false
@@ -307,6 +318,21 @@ export class VercelAiSdkProvider implements LlmProvider {
                 toolCallId: part.toolCallId,
                 result: part.output as ToolExecutionResult
               }
+            } else if (part.type === 'tool-error') {
+              // 工具没产出 tool-result：模型给的参数不满足 Schema(结构约束)、
+              // 或调用了不存在的工具名。这条分片早先被直接丢弃，渲染层于是收不到
+              // tool-call-completed，那张卡片会永久停在「运行中」。
+              // 它同样是一次「有结论的工具调用」，必须当成失败结果上报。
+              emitted = true
+              if (firstEventTimer) {
+                clearTimeout(firstEventTimer)
+                firstEventTimer = undefined
+              }
+              yield {
+                type: 'tool-call-completed',
+                toolCallId: part.toolCallId,
+                result: { status: 'failed', message: describeToolFailure(part.error) }
+              }
             } else if (part.type === 'finish') {
               finishReason = part.finishReason
             }
@@ -428,11 +454,13 @@ export class VercelAiSdkProvider implements LlmProvider {
   }
 
   private createModel(config: AiRuntimeConfig): LanguageModel {
-    return createOpenAICompatible({
-      name: 'inkase',
-      baseURL: config.baseUrl,
-      apiKey: config.apiKey
-    })(config.model)
+    // 按接口格式分派到对应 provider：这里是唯一知道「协议」的地方
+    return createLanguageModel({
+      apiFormat: config.apiFormat,
+      baseUrl: config.baseUrl,
+      apiKey: config.apiKey,
+      model: config.model
+    })
   }
 
   private toProviderError(error: unknown): AiProviderError {
