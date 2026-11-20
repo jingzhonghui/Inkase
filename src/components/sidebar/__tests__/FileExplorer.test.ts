@@ -717,3 +717,103 @@ describe('FileExplorer 文件树自动定位滚动', () => {
     expect(scrollSpy).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('FileExplorer 节点右键菜单的复制路径', () => {
+  let written: string | null = null
+
+  beforeEach(() => {
+    written = null
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: (text: string) => {
+          written = text
+          return Promise.resolve()
+        }
+      }
+    })
+  })
+
+  afterEach(() => {
+    delete (navigator as { clipboard?: unknown }).clipboard
+  })
+
+  /** 根 `C:/ws` 下挂 `docs/b.md`，用于比对相对路径的正斜杠形态 */
+  function mountTree() {
+    const { wrapper } = mountExplorerWithDialogs(
+      [
+        makeDir('C:/ws', 'ws', [
+          makeDir('C:/ws/docs', 'docs', [makeFile('C:/ws/docs/b.md', 'b.md')])
+        ])
+      ],
+      { openedFolderPath: 'C:/ws' }
+    )
+    return wrapper
+  }
+
+  async function openNodeMenu(wrapper: ReturnType<typeof mount>, path: string): Promise<void> {
+    const content = wrapper.find(`.item-content[data-file-path="${path}"]`)
+    expect(content.exists()).toBe(true)
+    await content.trigger('contextmenu', { clientX: 10, clientY: 10 })
+    await nextTick()
+  }
+
+  /** 顶层菜单项（排除二级菜单里的同名子项） */
+  function menuItem(label: string): HTMLElement | undefined {
+    const items = Array.from(
+      document.body.querySelectorAll<HTMLElement>('.context-menu > .context-menu-item')
+    )
+    // 普通项的文字是裸文本节点，聚合项是 `<span>`：两者都看第一个子节点，
+    // 这样不会把二级菜单的子项文字一起拼进来
+    return items.find((el) => el.firstChild?.textContent?.trim() === label)
+  }
+
+  async function clickMenuItem(label: string): Promise<void> {
+    const item = menuItem(label)
+    expect(item).toBeTruthy()
+    item!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await nextTick()
+  }
+
+  it('文件节点：「复制相对路径」紧挨在「复制路径」上方', async () => {
+    const wrapper = mountTree()
+    await openNodeMenu(wrapper, 'C:/ws/docs/b.md')
+
+    const labels = topLevelLabels()
+    const relativeIndex = labels.indexOf('复制相对路径')
+    expect(relativeIndex).toBeGreaterThan(-1)
+    expect(labels[relativeIndex + 1]).toBe('复制路径')
+  })
+
+  it('文件节点：「复制相对路径」给的是正斜杠相对路径', async () => {
+    const wrapper = mountTree()
+    await openNodeMenu(wrapper, 'C:/ws/docs/b.md')
+
+    await clickMenuItem('复制相对路径')
+
+    expect(written).toBe('docs/b.md')
+  })
+
+  it('文件节点：「复制路径」仍是绝对路径', async () => {
+    const wrapper = mountTree()
+    await openNodeMenu(wrapper, 'C:/ws/docs/b.md')
+
+    await clickMenuItem('复制路径')
+
+    // 传进 store 的就是文件树节点的原始路径，原样复制
+    expect(written).toBe('C:/ws/docs/b.md')
+  })
+
+  it('文件夹节点也有这一对，复制的是目录的相对路径', async () => {
+    const wrapper = mountTree()
+    await openNodeMenu(wrapper, 'C:/ws/docs')
+
+    const labels = topLevelLabels()
+    const relativeIndex = labels.indexOf('复制相对路径')
+    expect(relativeIndex).toBeGreaterThan(-1)
+    expect(labels[relativeIndex + 1]).toBe('复制路径')
+
+    await clickMenuItem('复制相对路径')
+    expect(written).toBe('docs')
+  })
+})

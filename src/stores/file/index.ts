@@ -1843,6 +1843,7 @@ export const useFileStore = defineStore('file', () => {
     moveItems: folder.moveItems,
     deleteItem: folder.deleteItem,
     copyPath: folder.copyPath,
+    copyRelativePath: folder.copyRelativePath,
     importFilesInto: folder.importFilesInto,
     importDirectoryInto: folder.importDirectoryInto,
 

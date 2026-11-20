@@ -1,7 +1,9 @@
 import { ref, type Ref } from 'vue'
 import { useAiStore } from '../ai'
+import { writeClipboardText } from '../../utils/clipboard'
 import { compareFolderEntries } from '../../utils/folder-sort'
 import { requestFileConflictAction } from '../../utils/file-conflict'
+import { toWorkspaceRelativePath } from '../../utils/workspace-path'
 import type { FileTreeNode, FolderItem, TabInfo } from './types'
 
 export interface FolderDeps {
@@ -696,12 +698,26 @@ export function useFolder(deps: FolderDeps) {
     return runImportToFolder('directory', targetDir)
   }
 
+  /** 复制**绝对**路径 */
   function copyPath(filePath: string): void {
-    try {
-      navigator.clipboard.writeText(filePath)
-    } catch {
-      // 忽略
+    writeClipboardText(filePath)
+  }
+
+  /**
+   * 复制相对工作区根的路径（正斜杠、不带 `./` 前缀）。
+   *
+   * 三种兜底都是为了「复制出来的东西一定有用」：
+   * - 根自身给 `.`（给空串等于什么都没复制，用户会以为点了没生效）；
+   * - 目标在工作区外、或压根没打开文件夹时给绝对路径（相对路径无从谈起）。
+   */
+  function copyRelativePath(filePath: string): void {
+    const root = openedFolderPath.value
+    const relative = root ? toWorkspaceRelativePath(root, filePath) : null
+    if (relative === null) {
+      writeClipboardText(filePath)
+      return
     }
+    writeClipboardText(relative === '' ? '.' : relative)
   }
 
   return {
@@ -736,6 +752,7 @@ export function useFolder(deps: FolderDeps) {
     deleteItem,
     importFilesInto,
     importDirectoryInto,
-    copyPath
+    copyPath,
+    copyRelativePath
   }
 }

@@ -406,6 +406,7 @@ function onFileContextMenu(event: MouseEvent, node: FileTreeNode): void {
     CONTEXT_MENU_DIVIDER,
     { label: '重命名', action: () => promptRename(node) },
     { label: '删除', action: () => promptDelete(node) },
+    { label: '复制相对路径', action: () => fileStore.copyRelativePath(node.path) },
     { label: '复制路径', action: () => fileStore.copyPath(node.path) },
     {
       label: '打开文件所在位置',
@@ -484,6 +485,7 @@ function onFolderContextMenu(event: MouseEvent, node: FileTreeNode): void {
     CONTEXT_MENU_DIVIDER,
     { label: '重命名', action: () => promptRename(node) },
     { label: '删除', action: () => promptDelete(node) },
+    { label: '复制相对路径', action: () => fileStore.copyRelativePath(node.path) },
     { label: '复制路径', action: () => fileStore.copyPath(node.path) },
     ...(node.path === fileStore.openedFolderPath
       ? [
