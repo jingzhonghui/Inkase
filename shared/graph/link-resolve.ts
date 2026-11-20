@@ -1,4 +1,5 @@
 import { basenameOf, graphFormatForPath, normalizeGraphId, type GraphNodeFormat } from './types'
+import { decodeLinkTarget } from '../markdown/link-encoding'
 
 /**
  * 链接目标解析。
@@ -82,15 +83,14 @@ export function stripHrefSuffix(href: string): { path: string; fragmentOnly: boo
   return { path: href.slice(0, cut), fragmentOnly: cut === hashIndex && hashIndex === 0 }
 }
 
-/** `decodeURIComponent` 的安全版本：非法转义序列保留原串 */
-export function decodeHref(href: string): string {
-  if (!href.includes('%')) return href
-  try {
-    return decodeURIComponent(href)
-  } catch {
-    return href
-  }
-}
+/**
+ * `decodeURIComponent` 的安全版本：非法转义序列保留原串。
+ *
+ * 实现放在 `shared/markdown/link-encoding`，因为预览与 IR 的图片路径也要用它
+ * （markdown-it 会把中文文件名编码成 `%E6%B5%8B…`）。这里保留 `decodeHref`
+ * 这个名称供既有调用方使用。
+ */
+export const decodeHref = decodeLinkTarget
 
 /** 是否形如绝对路径（POSIX 根、Windows 盘符、UNC） */
 export function isAbsoluteLike(target: string): boolean {

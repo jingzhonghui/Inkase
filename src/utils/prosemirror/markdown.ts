@@ -8,6 +8,7 @@ import type Token from 'markdown-it/lib/token.mjs'
 import { MarkdownParser, MarkdownSerializer, MarkdownSerializerState } from 'prosemirror-markdown'
 import { markdownSchema } from './schema'
 import { injectHeadingMarkers } from './heading-markers'
+import { decodeLinkTarget } from '../../../shared/markdown/link-encoding'
 
 /**
  * markdown-it 规则：把相邻的、marker 重新开始的有序列表拆分为独立列表。
@@ -319,7 +320,10 @@ function createTokens(_schema: Schema): Record<string, any> {
     image: {
       node: 'image',
       getAttrs: (tok: Token) => ({
-        src: getAttr(tok, 'src') || '',
+        // markdown-it 会把非 ASCII 路径编码成 `%E6%B5%8B…`。这里还原成原文，
+        // 否则节点里存的是编码串：既读不到磁盘上的中文文件，序列化时还会把
+        // 文件里原本的中文链接改写掉。
+        src: decodeLinkTarget(getAttr(tok, 'src') || ''),
         alt: getAttr(tok, 'alt') || '',
         title: getAttr(tok, 'title') || ''
       })

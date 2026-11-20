@@ -37,16 +37,125 @@ let renderDebounceTimer: ReturnType<typeof setTimeout> | null = null
 
 // ────── Task 6: markdown-it render cache ──────
 let lastRenderedContent = ''
+let lastRenderedFilePath: string | undefined
 let lastRenderedHtml = ''
 
+/**
+ * 预览 HTML。
+ *
+ * 已经读进内存的图片要**在内联时就换成 data URL**：预览 DOM 每次更新都会让
+ * `<img>` 重建，若只写相对路径，图片会先空一帧再等异步补上——分屏里每敲一个
+ * 字就闪一次。内联后重建出来的元素自带 src，同一帧就能画出来。
+ */
 const previewHtml = computed(() => {
   const content = fileStore.fileContent
-  if (content === lastRenderedContent) return lastRenderedHtml
-  const html = renderMarkdown(content, fileStore.imageAssets)
+  const filePath = fileStore.currentFile?.path || undefined
+  if (content === lastRenderedContent && filePath === lastRenderedFilePath) {
+    return lastRenderedHtml
+  }
+  const html = renderMarkdown(content, fileStore.imageAssets, {
+    resolveImage: (src) => fileStore.getCachedImage(`${filePath ?? ''}:${src}`)
+  })
   lastRenderedContent = content
+  lastRenderedFilePath = filePath
   lastRenderedHtml = html
   return html
 })
+
+/**
+ * 顶层块的「内容签名」，用于增量更新。
+ *
+ * **忽略 `data-source-line`**：在文档上方插入一行会让后面所有块的行号整体平移，
+ * 但那些块的内容一个字都没变。按行号参与比较的话，每次打字都会整段重建，
+ * 图片、Shiki 高亮、代码块全都跟着重来一遍——这正是「打个字预览就闪」的来源。
+ */
+function blockSignature(node: Node): string {
+  if (node.nodeType === Node.TEXT_NODE) return `T${node.textContent ?? ''}`
+  const el = node as HTMLElement
+  // 已高亮的代码块与模板里的原始 `<pre>` 结构完全不同（一堆 Shiki 的
+  // `<span style>`），按 outerHTML 比会永远「不相等」，每次打字都重建一遍。
+  // 两边的纯文本一致，就用它当签名。
+  if (el.tagName === 'PRE') return `P${el.textContent ?? ''}`
+  return `E${el.outerHTML.replace(/\sdata-source-line="\d+"/g, '')}`
+}
+
+/**
+ * 增量更新预览 DOM：只替换真正变化的那一段顶层块。
+ *
+ * 用的是「保留公共前缀 + 公共后缀，替换中间」的老办法。相较 `v-html` 整段
+ * 替换，未被编辑的块（尤其是图片和已高亮的代码块）**节点对象原样保留**，
+ * 浏览器不需要重新解码图片、也不需要重新高亮。
+ */
+function patchPreview(html: string): void {
+  const root = previewRef.value
+  if (!root) return
+
+  const template = document.createElement('div')
+  template.innerHTML = html
+  const nextNodes = Array.from(template.childNodes)
+  const currentNodes = Array.from(root.childNodes)
+
+  let start = 0
+  while (
+    start < currentNodes.length &&
+    start < nextNodes.length &&
+    blockSignature(currentNodes[start]) === blockSignature(nextNodes[start])
+  ) start++
+
+  let endCurrent = currentNodes.length - 1
+  let endNext = nextNodes.length - 1
+  while (
+    endCurrent >= start &&
+    endNext >= start &&
+    blockSignature(currentNodes[endCurrent]) === blockSignature(nextNodes[endNext])
+  ) {
+    endCurrent--
+    endNext--
+  }
+
+  if (start <= endCurrent || start <= endNext) {
+    const anchor = endCurrent + 1 < currentNodes.length ? currentNodes[endCurrent + 1] : null
+    for (let i = endCurrent; i >= start; i--) currentNodes[i].remove()
+
+    const fragment = document.createDocumentFragment()
+    for (let i = start; i <= endNext; i++) fragment.appendChild(nextNodes[i])
+    root.insertBefore(fragment, anchor)
+  }
+
+  // 保留下来的节点行号可能已经随上方的增删行平移，按位置同步回去
+  const patched = Array.from(root.childNodes)
+  for (let i = 0; i < patched.length && i < nextNodes.length; i++) {
+    const line = (nextNodes[i] as Element).getAttribute?.('data-source-line')
+    const target = patched[i] as Element
+    if (line && typeof target.setAttribute === 'function') {
+      target.setAttribute('data-source-line', line)
+    }
+  }
+}
+
+/**
+ * 兜底：刚插入的块里，把缓存里已有的图片补上。
+ *
+ * 正常情况下 `previewHtml` 已经内联了，这里覆盖的是「渲染发生在前、图片读完
+ * 在后」那一小段竞态——交给 100ms 的 `renderPreview` 防抖会看到明显的空窗。
+ */
+function applyCachedImages(): void {
+  const root = previewRef.value
+  if (!root) return
+  const filePath = fileStore.currentFile?.path || undefined
+  for (const img of root.querySelectorAll('img')) {
+    const src = img.getAttribute('src')
+    if (!src || /^(https?:|data:)/i.test(src)) continue
+    const cached = fileStore.getCachedImage(`${filePath ?? ''}:${src}`)
+    if (cached) img.src = cached
+  }
+}
+
+// DOM 更新完（flush: 'post'）再补图，晚一帧就会看见闪烁
+watch(previewHtml, (html) => {
+  patchPreview(html)
+  applyCachedImages()
+}, { flush: 'post' })
 
 // ────── Viewport helpers ──────
 function isInViewport(el: Element, margin: number): boolean {
@@ -357,6 +466,9 @@ watch(() => themeStore.isDark, () => {
 
 // ────── Lifecycle ──────
 onMounted(() => {
+  // 预览 DOM 由 patchPreview 增量维护（模板里不再用 v-html），首屏先灌一次
+  patchPreview(previewHtml.value)
+  applyCachedImages()
   initShiki()
   renderPreview()
   restoreScrollPosition()
@@ -401,7 +513,6 @@ defineExpose({
       <div
         ref="previewRef"
         class="preview-content"
-        v-html="previewHtml"
       />
     </div>
   </div>

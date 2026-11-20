@@ -485,4 +485,51 @@ describe('mdx file handlers', () => {
     )
     expect(second.success).toBe(true)
   })
+
+  describe('get image', () => {
+    /**
+     * 中文文件名 + 中文 assets 目录：markdown-it 解析 `![](测试.assets/a.png)`
+     * 时会产生 `%E6%B5%8B%E8%AF%95.assets/a.png`，渲染层拿这个串来读文件会落空。
+     */
+    function makeChineseDocWithImage(): { docPath: string; png: Buffer } {
+      const dir = newDir()
+      const docPath = path.join(dir, '测试.md')
+      fs.writeFileSync(docPath, '![截图](测试.assets/a.png)\n')
+      const assetsDir = path.join(dir, '测试.assets')
+      fs.mkdirSync(assetsDir, { recursive: true })
+      const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+      fs.writeFileSync(path.join(assetsDir, 'a.png'), png)
+      return { docPath, png }
+    }
+
+    it('reads an image whose relative path contains Chinese characters', async () => {
+      registerMdxHandlers()
+      const { docPath, png } = makeChineseDocWithImage()
+
+      const result = await call(IPC_CHANNELS.MDX.GET_IMAGE, '测试.assets/a.png', docPath)
+      expect(result.success).toBe(true)
+      const data = result.data as { buffer: Buffer; mimeType: string }
+      expect(data.mimeType).toBe('image/png')
+      expect(Buffer.compare(data.buffer, png)).toBe(0)
+    })
+
+    it('falls back to a decoded path when the percent-encoded one misses', async () => {
+      registerMdxHandlers()
+      const { docPath } = makeChineseDocWithImage()
+      const encoded = `${encodeURIComponent('测试')}.assets/a.png`
+
+      const result = await call(IPC_CHANNELS.MDX.GET_IMAGE, encoded, docPath)
+      expect(result.success).toBe(true)
+      expect((result.data as { mimeType: string }).mimeType).toBe('image/png')
+    })
+
+    it('reports a missing image instead of throwing', async () => {
+      registerMdxHandlers()
+      const { docPath } = makeChineseDocWithImage()
+
+      const result = await call(IPC_CHANNELS.MDX.GET_IMAGE, '测试.assets/missing.png', docPath)
+      expect(result.success).toBe(false)
+      expect(result.error).toBe('图片不存在')
+    })
+  })
 })

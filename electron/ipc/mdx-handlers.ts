@@ -31,6 +31,7 @@ import {
   writeArchive,
   writeArchiveFromDir
 } from '../mindmap/inkmind-archive'
+import { decodeLinkTarget } from '../../shared/markdown/link-encoding'
 
 // 文件路径 → 临时目录的映射（主进程唯一持有的状态）
 const tempDirsByFile = new Map<string, string>()
@@ -75,6 +76,17 @@ const IMAGE_MIME_TYPES: Record<string, string> = {
 
 function getImageMimeType(filePath: string): string | null {
   return IMAGE_MIME_TYPES[path.extname(filePath).toLowerCase()] ?? null
+}
+
+/** 读一张图片并组装 IPC 返回值；`fullPath` 必须已确认存在 */
+function readImageFile(fullPath: string): {
+  success: boolean
+  data?: { buffer: Buffer; mimeType: string }
+} {
+  return {
+    success: true,
+    data: { buffer: fs.readFileSync(fullPath), mimeType: getImageMimeType(fullPath) ?? 'image/png' }
+  }
 }
 
 function registerTempDir(filePath: string, tempDir: string): void {
@@ -970,25 +982,20 @@ export function registerMdxHandlers(): void {
           : path.join(tempDir!, imagePath)
 
         if (!fs.existsSync(fullPath)) {
+          // markdown-it 会把中文路径 percent-encode（`测试.assets/a.png` →
+          // `%E6%B5%8B%E8%AF%95.assets/a.png`）。渲染层已经会解码，这里兜底
+          // 旧版本写入的链接与外部工具生成的文件。
+          const decoded = decodeLinkTarget(imagePath)
+          if (decoded !== imagePath) {
+            const decodedPath = isMarkdown
+              ? path.resolve(baseDir, decoded)
+              : path.join(tempDir!, decoded)
+            if (fs.existsSync(decodedPath)) return readImageFile(decodedPath)
+          }
           return { success: false, error: '图片不存在' }
         }
 
-        const fileData = fs.readFileSync(fullPath)
-        const ext = path.extname(fullPath).toLowerCase()
-        const mimeTypeMap: Record<string, string> = {
-          '.png': 'image/png',
-          '.jpg': 'image/jpeg',
-          '.jpeg': 'image/jpeg',
-          '.gif': 'image/gif',
-          '.webp': 'image/webp',
-          '.svg': 'image/svg+xml',
-          '.bmp': 'image/bmp',
-          '.ico': 'image/x-icon'
-        }
-        return {
-          success: true,
-          data: { buffer: fileData, mimeType: mimeTypeMap[ext] || 'image/png' }
-        }
+        return readImageFile(fullPath)
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : '未知错误'
         return { success: false, error: errorMessage }

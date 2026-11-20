@@ -3,6 +3,7 @@ import type Token from 'markdown-it/lib/token.mjs'
 import katex from 'katex'
 import type { MdxImageAsset } from '../types/mdx'
 import { applyAdjacentOrderedListSplit } from './prosemirror/markdown'
+import { decodeLinkTarget } from '../../shared/markdown/link-encoding'
 
 // Markdown-it 实例
 let md: MarkdownIt | null = null
@@ -230,6 +231,18 @@ function applyTaskListRule(markdownIt: MarkdownIt): void {
 }
 
 /**
+ * 图片 `src` 是否指向本地文件（而不是远程 URL / data URL / 锚点）。
+ *
+ * 只有本地路径才需要解码与内存缓存查询：`https:`、`data:` 之类原样保留。
+ * Windows 盘符（`C:/pics/a.png`）仍算本地，不能被当成协议。
+ */
+const NON_LOCAL_IMAGE_TARGET_RE = /^(?:https?:|data:|blob:|file:|inkase-[a-z]+:|\/\/|#)/i
+
+function isLocalImageTarget(src: string): boolean {
+  return !NON_LOCAL_IMAGE_TARGET_RE.test(src)
+}
+
+/**
  * 获取 Markdown-it 实例（单例）
  */
 export function getMarkdownIt(): MarkdownIt {
@@ -267,6 +280,27 @@ export function getMarkdownIt(): MarkdownIt {
       tokens[idx].attrSet('class', 'md-link')
       tokens[idx].attrSet('data-link-href', href)
       return self.renderToken(tokens, idx, options)
+    }
+
+    // 图片：markdown-it 的 `normalizeLink` 会把非 ASCII 路径 percent-encode
+    // （中文文件名 / 中文目录名 → `%E6%B5%8B…`），而预览要把 `src` 当本地路径
+    // 去读文件（`fileStore.getImage`），磁盘上存的是原文。这里换回去。
+    //
+    // 顺带把已经解出来的图片（内存里的 data URL）直接内联：预览是 `v-html`
+    // 整段替换，每次重建 `<img>` 若只写相对路径，图片会先空一帧再被异步补上
+    // ——分屏里每敲一个字就闪一次。内联后重建出来的元素自带 src，不会闪。
+    const defaultImageRender = md.renderer.rules.image || function(tokens, idx, options, _env, self) {
+      return self.renderToken(tokens, idx, options)
+    }
+
+    md.renderer.rules.image = function(tokens, idx, options, env, self) {
+      const raw = tokens[idx].attrGet('src')
+      if (raw && isLocalImageTarget(raw)) {
+        const src = decodeLinkTarget(raw)
+        const resolved = (env as RenderEnv | undefined)?.resolveImage?.(src)
+        tokens[idx].attrSet('src', resolved || src)
+      }
+      return defaultImageRender(tokens, idx, options, env, self)
     }
 
     // GFM 任务列表（`- [ ]` / `- [x]`）
@@ -320,13 +354,29 @@ function escapeHtml(text: string): string {
     .replace(/'/g, '&#039;')
 }
 
+/** `renderMarkdown` 的渲染环境（透传给 markdown-it 的 renderer） */
+interface RenderEnv {
+  /**
+   * 把图片链接解析成可直接显示的 URL。
+   *
+   * 返回 `undefined` 表示「还不知道」，保留解码后的原始路径交给调用方
+   * 异步加载（预览只有在图片读进内存之后才应该返回 data URL）。
+   */
+  resolveImage?: (src: string) => string | undefined
+}
+
 /**
  * 渲染 Markdown 为 HTML
  * @param content Markdown 内容
  * @param imageAssets 图片资源列表，用于替换路径
+ * @param options 渲染选项（如把已加载的图片内联成 data URL）
  * @returns HTML 字符串
  */
-export function renderMarkdown(content: string, imageAssets: MdxImageAsset[] = []): string {
+export function renderMarkdown(
+  content: string,
+  imageAssets: MdxImageAsset[] = [],
+  options?: RenderEnv
+): string {
   const markdown = getMarkdownIt()
 
   // 处理图片路径替换
@@ -341,7 +391,7 @@ export function renderMarkdown(content: string, imageAssets: MdxImageAsset[] = [
     })
   })
 
-  return markdown.render(processedContent)
+  return markdown.render(processedContent, options)
 }
 
 /**
