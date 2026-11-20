@@ -28,6 +28,14 @@ describe('findCodeLanguage', () => {
     expect(findCodeLanguage('LICENSE')).toBeNull()
     expect(findCodeLanguage('.gitignore')).toBeNull()
   })
+
+  it('recognises CMakeLists.txt by whole file name, not by the .txt suffix', () => {
+    const cmake = findCodeLanguage('CMakeLists.txt')
+    expect(cmake).not.toBeNull()
+    expect(cmake?.name).toBe('CMake')
+    // 同一个后缀的普通文本文件仍然不带高亮
+    expect(findCodeLanguage('readme.txt')).toBeNull()
+  })
 })
 
 describe('language load (runtime resolution)', () => {

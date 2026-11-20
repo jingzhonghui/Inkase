@@ -18,6 +18,8 @@ import { loadSessionState, saveSessionState } from '../session'
 import { useAiStore } from '../ai'
 import { useWorkspaceStore } from '../workspace'
 import { requestDialog } from '../../utils/dialog'
+import { requestPrompt } from '../../utils/prompt'
+import { validateWindowsFileName } from '../../utils/windows-filename'
 import type { FileInfo, EditorMode, EditorSelectionSnapshot, RecentItem, TabInfo } from './types'
 import { createTabState, createTabOps } from './tabs'
 import { useAssets } from './assets'
@@ -443,92 +445,84 @@ export const useFileStore = defineStore('file', () => {
   }
 
   // ====== 新建 / 打开 / 保存 / 关闭 ======
-  async function newFile(): Promise<boolean> {
-    isLoading.value = true
-    error.value = null
-
-    try {
-      if (tabs.value.length >= maxOpenTabs.value) {
-        await requestDialog({
-          title: '已达标签上限',
-          message: `最多同时打开 ${maxOpenTabs.value} 个标签，请先关闭一些标签。`,
-          buttons: [{ label: '知道了', value: 0, primary: true }]
-        })
-        return false
-      }
-      const tab = tabState.createTab()
-      tab.excludeFromRecent = true
-
-      if (window.electronAPI) {
-        const result = await window.electronAPI.newFile()
-        if (result.success && result.data) {
-          const doc = result.data.document as MdxDocument
-          tab.document = doc
-          tab.content = doc.content
-          tab.fileInfo = {
-            path: '',
-            name: '未命名.mdx',
-            modified: false,
-            format: 'mdx'
-          }
-          activeTabId.value = tab.id
-          useAiStore().deactivatePanel()
-          return true
-        }
-      }
-
-      // Fallback: 本地创建
-      const { createMdxDocument } = await import('../../types/mdx')
-      tab.document = createMdxDocument('未命名文档', '')
-      tab.content = tab.document.content
-      tab.fileInfo = {
-        path: '',
-        name: '未命名.mdx',
-        modified: false,
-        format: 'mdx'
-      }
-      activeTabId.value = tab.id
-      useAiStore().deactivatePanel()
-      return true
-    } catch (err) {
-      error.value = err instanceof Error ? err.message : '新建文件失败'
-      return false
-    } finally {
-      isLoading.value = false
-    }
-  }
-
   /**
-   * 新建思维导图。
-   * 不需要主进程参与：内容是一段 JSON 文本，本地生成即可，
-   * 首次保存时走「另存为」让用户选路径。
+   * 「新建文档」的共同骨架（文件 / 思维导图 / 图表三个入口共用）。
+   *
+   * 两条路径，取决于**有没有打开工作区**：
+   *
+   * - **有工作区**：先让用户起名，再按这个名字在工作区根目录真的落一个文件
+   *   （`.inkmind` / `.drawio` 的空白内容由主进程按后缀写入）。这与文件树右键
+   *   「新建 ▸ …」是同一件事——同样是「新建文件」，不该一条路径问名字、
+   *   另一条路径先开一张 `未命名.mdx` 让用户存盘时自己挑目录。
+   * - **没有工作区**：无处落盘，退回空白标签 + 首次保存再选路径。
+   *
+   * `isLoading` 只在真正读写磁盘时置位：状态栏拿它显示「加载中...」，
+   * 压在「等用户敲名字」这一步上，用户只会以为程序卡死。
    */
-  async function newMindMap(): Promise<boolean> {
-    isLoading.value = true
+  async function createDocument(spec: {
+    /** 对话框标题与失败提示，如「新建文件」 */
+    label: string
+    /** 起名对话框的预填值，空串表示让用户自己写 */
+    initialName: string
+    placeholder: string
+    /** 没有工作区时在本地造一张空白标签文档 */
+    createBlankTab: () => Promise<{ document: MdxDocument; name: string; format: DocumentFormat } | null>
+  }): Promise<boolean> {
     error.value = null
 
-    try {
-      if (tabs.value.length >= maxOpenTabs.value) {
-        await requestDialog({
-          title: '已达标签上限',
-          message: `最多同时打开 ${maxOpenTabs.value} 个标签，请先关闭一些标签。`,
-          buttons: [{ label: '知道了', value: 0, primary: true }]
-        })
+    if (tabs.value.length >= maxOpenTabs.value) {
+      await requestDialog({
+        title: '已达标签上限',
+        message: `最多同时打开 ${maxOpenTabs.value} 个标签，请先关闭一些标签。`,
+        buttons: [{ label: '知道了', value: 0, primary: true }]
+      })
+      return false
+    }
+
+    const folderPath = folder.openedFolderPath.value
+    if (folderPath && window.electronAPI) {
+      const name = await requestPrompt({
+        title: spec.label,
+        initialValue: spec.initialName,
+        placeholder: spec.placeholder,
+        validate: validateWindowsFileName,
+        // 预填名字时只选中主干，后缀留着——直接打字就是「改名」
+        selection: 'stem'
+      })
+      if (!name) return false
+
+      isLoading.value = true
+      try {
+        const created = await folder.createFile(folderPath, name)
+        if (!created) {
+          await requestDialog({
+            title: `${spec.label}失败`,
+            message: error.value || `无法创建“${name}”，请检查名称是否已存在或文件夹是否可写`,
+            buttons: [{ label: '确定', value: 0, primary: true }]
+          })
+        }
+        return created
+      } catch (err) {
+        error.value = err instanceof Error ? err.message : `${spec.label}失败`
         return false
+      } finally {
+        isLoading.value = false
       }
+    }
 
-      const document = createEmptyMindMap()
-      const content = serializeMindMap(document)
-
+    isLoading.value = true
+    try {
+      const blank = await spec.createBlankTab()
+      if (!blank) return false
       const tab = tabState.createTab()
       tab.excludeFromRecent = true
-      tab.document = createMdxDocument('未命名思维导图', content)
-      tab.content = content
+      tab.document = blank.document
+      tab.content = blank.document.content
       tab.fileInfo = {
         path: '',
-        name: `未命名思维导图${MINDMAP_EXTENSION}`,
+        name: blank.name,
         modified: false,
-        format: 'mindmap'
+        format: blank.format
       }
       activeTabId.value = tab.id
       useAiStore().deactivatePanel()
@@ -536,55 +530,79 @@ export const useFileStore = defineStore('file', () => {
       updateWordCount()
       return true
     } catch (err) {
-      error.value = err instanceof Error ? err.message : '新建思维导图失败'
+      error.value = err instanceof Error ? err.message : `${spec.label}失败`
       return false
     } finally {
       isLoading.value = false
     }
+  }
+
+  async function newFile(): Promise<boolean> {
+    return createDocument({
+      label: '新建文件',
+      initialName: '',
+      placeholder: '例如：笔记.mdx、deploy.sh、config.json',
+      createBlankTab: async () => {
+        if (window.electronAPI) {
+          const result = await window.electronAPI.newFile()
+          if (result.success && result.data) {
+            return {
+              document: result.data.document as MdxDocument,
+              name: '未命名.mdx',
+              format: 'mdx' as const
+            }
+          }
+        }
+        // 主进程没参与（或失败）时本地造一份，保证「新建」永远有结果
+        return {
+          document: createMdxDocument('未命名文档', ''),
+          name: '未命名.mdx',
+          format: 'mdx' as const
+        }
+      }
+    })
+  }
+
+  /**
+   * 新建思维导图。
+   * 空白导图是一段 JSON 文本，本地生成即可；在工作区里则由主进程落盘。
+   */
+  async function newMindMap(): Promise<boolean> {
+    return createDocument({
+      label: '新建思维导图',
+      initialName: `未命名导图${MINDMAP_EXTENSION}`,
+      placeholder: `例如：项目规划${MINDMAP_EXTENSION}`,
+      createBlankTab: async () => {
+        const content = serializeMindMap(createEmptyMindMap())
+        return {
+          document: createMdxDocument('未命名思维导图', content),
+          name: `未命名思维导图${MINDMAP_EXTENSION}`,
+          format: 'mindmap' as const
+        }
+      }
+    })
   }
 
   /**
    * 新建图表。
    *
-   * 与思维导图同理：内容是一段 XML 文本，本地生成即可，首次保存时走「另存为」。
-   * 空白页模板来自 `shared/diagram/document.ts`，与 draw.io 自己新建时一致。
+   * 与思维导图同理：空白页模板来自 `shared/diagram/document.ts`，
+   * 与 draw.io 自己新建时一致；在工作区里则由主进程落盘。
    */
   async function newDiagram(): Promise<boolean> {
-    isLoading.value = true
-    error.value = null
-
-    try {
-      if (tabs.value.length >= maxOpenTabs.value) {
-        await requestDialog({
-          title: '已达标签上限',
-          message: `最多同时打开 ${maxOpenTabs.value} 个标签，请先关闭一些标签。`,
-          buttons: [{ label: '知道了', value: 0, primary: true }]
-        })
-        return false
+    return createDocument({
+      label: '新建图表',
+      initialName: `未命名图表${DIAGRAM_EXTENSION}`,
+      placeholder: `例如：流程图${DIAGRAM_EXTENSION}`,
+      createBlankTab: async () => {
+        const content = createEmptyDiagramXml()
+        return {
+          document: createMdxDocument('未命名图表', content),
+          name: `未命名图表${DIAGRAM_EXTENSION}`,
+          format: 'diagram' as const
+        }
       }
-
-      const content = createEmptyDiagramXml()
-      const tab = tabState.createTab()
-      tab.excludeFromRecent = true
-      tab.document = createMdxDocument('未命名图表', content)
-      tab.content = content
-      tab.fileInfo = {
-        path: '',
-        name: `未命名图表${DIAGRAM_EXTENSION}`,
-        modified: false,
-        format: 'diagram'
-      }
-      activeTabId.value = tab.id
-      useAiStore().deactivatePanel()
-      stateVersion.value++
-      updateWordCount()
-      return true
-    } catch (err) {
-      error.value = err instanceof Error ? err.message : '新建图表失败'
-      return false
-    } finally {
-      isLoading.value = false
-    }
+    })
   }
 
   async function openFile(

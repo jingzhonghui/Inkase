@@ -15,10 +15,16 @@ const store = useAiStore()
 const resolving = ref(false)
 
 /**
- * 折叠状态只取一次初值：等待批准的要摊开（否则用户看不见、点不到），
- * 已经判定过的收起来，让会话保持清爽。之后开合完全交给用户。
+ * 折叠状态只取一次初值：
+ * - **真正在等用户点的**才摊开（否则用户看不见、点不到）；
+ * - 已经判定过的收起来，让会话保持清爽；
+ * - **完全控制下自动放行的从不摊开**：它不需要任何人操作，摊开只是把整段
+ *   diff/文件内容塞进消息流。注意判定要放在 `decision` 之外——`auto` 审批的
+ *   记录是先插入、再被 store 自动 resolve 的，卡片创建那一瞬 `decision` 还没写、
+ *   只靠 `decision === undefined` 会判成「等待批准」而永远展开。
+ * 之后开合完全交给用户。
  */
-const open = ref(props.record.decision === undefined)
+const open = ref(props.record.decision === undefined && !props.record.auto)
 
 const preview = computed(() => validApprovalPreview(props.record.preview))
 const previewType = computed(() => approvalPreviewType(preview.value))

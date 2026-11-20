@@ -283,6 +283,37 @@ describe('AI approval card', () => {
     // details 的内容仍在 DOM 里，展开即可回看当时批准的到底是什么
     expect(wrapper.get('[data-testid="diff-added"]').text()).toContain('新增')
   })
+
+  it('starts folded for an auto-approved request even before its decision lands', () => {
+    // 完全控制的记录是「先插入、再被 store 自动 resolve」，卡片创建这一瞬
+    // decision 还没写，只看 decision 会判成「等待批准」而永久展开
+    const wrapper = mount(AiApprovalCard, { props: { record: approval({ auto: true }) } })
+
+    expect(details(wrapper).open).toBe(false)
+    expect(wrapper.get('[data-testid="approval-state"]').text()).toBe('自动执行中')
+  })
+
+  it('starts folded for an auto-approved request that already has its decision', () => {
+    const wrapper = mount(AiApprovalCard, {
+      props: { record: approval({
+        auto: true,
+        decision: { status: 'approved', scope: 'once' },
+        outcome: 'applied'
+      }) }
+    })
+
+    expect(details(wrapper).open).toBe(false)
+    // 折叠不等于丢信息：结论仍在摘要行
+    expect(wrapper.get('[data-testid="approval-state"]').text()).toContain('完全控制')
+  })
+
+  it('does not fold a manual request merely because it is not auto', () => {
+    // 对照组：非完全控制下真等人点的必须摊开
+    const wrapper = mount(AiApprovalCard, { props: { record: approval({ auto: false }) } })
+
+    expect(details(wrapper).open).toBe(true)
+    expect(wrapper.get('[data-testid="approval-allow"]').exists()).toBe(true)
+  })
 })
 
 function details(wrapper: ReturnType<typeof mount>): HTMLDetailsElement {
@@ -349,5 +380,38 @@ describe('AI approval group', () => {
 
     expect(wrapper.findAll('[data-testid="ai-approval-card"]')).toHaveLength(2)
     expect(wrapper.get('[data-testid="approval-group-state"]').text()).toBe('已允许 1 · 已拒绝 1')
+  })
+
+  it('stays folded for a batch made only of auto-approved requests', () => {
+    const wrapper = mount(AiApprovalGroup, {
+      props: { records: [approval({ id: 'a1', auto: true })] }
+    })
+
+    // 完全控制下没有需要人点的东西，分组不该抢视线
+    expect(groupDetails(wrapper).open).toBe(false)
+    expect(wrapper.findAll('[data-testid="ai-approval-card"]')).toHaveLength(1)
+  })
+
+  it('still opens when an auto batch also carries a request that needs a human', () => {
+    const wrapper = mount(AiApprovalGroup, {
+      props: {
+        records: [
+          approval({ id: 'a1', auto: true, decision: { status: 'approved', scope: 'once' }, decidedAt: 2 }),
+          approval({ id: 'a2' })
+        ]
+      }
+    })
+
+    expect(groupDetails(wrapper).open).toBe(true)
+  })
+
+  it('does not reopen itself when only an auto-approved request arrives', async () => {
+    const settled = [approval({ id: 'a1', decision: { status: 'approved', scope: 'once' }, decidedAt: 2 })]
+    const wrapper = mount(AiApprovalGroup, { props: { records: settled } })
+    expect(groupDetails(wrapper).open).toBe(false)
+
+    await wrapper.setProps({ records: [...settled, approval({ id: 'a2', auto: true })] })
+
+    expect(groupDetails(wrapper).open).toBe(false)
   })
 })

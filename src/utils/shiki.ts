@@ -9,7 +9,8 @@ const SHARED_LANGS = [
   'c', 'cpp', 'csharp', 'php', 'ruby', 'swift', 'kotlin',
   'html', 'css', 'scss', 'json', 'yaml', 'xml', 'sql',
   'bash', 'powershell', 'dockerfile', 'markdown', 'vue',
-  'svelte', 'astro', 'lua', 'perl', 'haskell', 'r', 'dart'
+  'svelte', 'astro', 'lua', 'perl', 'haskell', 'r', 'dart',
+  'cmake'
 ]
 
 export function getHighlighter(): Promise<Highlighter> {

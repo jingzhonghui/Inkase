@@ -4,6 +4,7 @@ import { IconChevronRight, IconFolderOpen } from '@tabler/icons-vue'
 import { useFileStore, type FileTreeNode } from '../../stores/file'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { requestDialog } from '../../utils/dialog'
+import { requestPrompt } from '../../utils/prompt'
 import { validateWindowsFolderName, validateWindowsFileName } from '../../utils/windows-filename'
 import { dedupeTopLevelPaths } from '../../../shared/fs/dedupe'
 import { MINDMAP_EXTENSION } from '../../types/mindmap'
@@ -254,24 +255,40 @@ function isEditableTarget(target: EventTarget | null): boolean {
   )
 }
 
+/** 按路径在文件树里找节点（含展开与未展开的子树） */
+function findTreeNode(path: string): FileTreeNode | null {
+  const visit = (nodes: FileTreeNode[]): FileTreeNode | null => {
+    for (const node of nodes) {
+      if (node.path === path) return node
+      if (node.isDirectory) {
+        const found = visit(node.children)
+        if (found) return found
+      }
+    }
+    return null
+  }
+  return visit(fileStore.fileTree)
+}
+
 async function onListKeydown(event: KeyboardEvent): Promise<void> {
   if (isEditableTarget(event.target)) return
+  /*
+   * F2 / Delete 都只在「文件列表本体持有焦点」时响应：
+   * 焦点在编辑器或对话框输入框里时，这两个键属于那边（Del 是删字）。
+   */
+  const listFocused = document.activeElement === fileListRef.value
   if (event.key === 'F2') {
-    if (document.activeElement !== fileListRef.value) return
+    if (!listFocused) return
     event.preventDefault()
     if (fileStore.selectedPaths.length !== 1) return
-    const findNode = (nodes: FileTreeNode[]): FileTreeNode | null => {
-      for (const node of nodes) {
-        if (node.path === fileStore.selectedPaths[0]) return node
-        if (node.isDirectory) {
-          const found = findNode(node.children)
-          if (found) return found
-        }
-      }
-      return null
-    }
-    const node = findNode(fileStore.fileTree)
+    const node = findTreeNode(fileStore.selectedPaths[0])
     if (node) await promptRename(node)
+    return
+  }
+  if (event.key === 'Delete') {
+    if (!listFocused) return
+    event.preventDefault()
+    await promptDeleteSelection()
     return
   }
   const modifier = event.ctrlKey || event.metaKey
@@ -494,147 +511,62 @@ async function importDirectoryToFolder(node: FileTreeNode): Promise<void> {
   if (await fileStore.importDirectoryInto(node.path)) await fileStore.loadChildren(node)
 }
 
-// ========== 输入对话框 ==========
-const showInputDialog = ref(false)
-const inputDialogTitle = ref('')
-const inputValue = ref('')
-const inputPlaceholder = ref('')
-const inputError = ref('')
-const inputRef = ref<HTMLInputElement | null>(null)
-let inputResolve: ((value: string | null) => void) | null = null
-
-const showConfirmDialog = ref(false)
-const confirmDialogTitle = ref('')
-const confirmDialogMessage = ref('')
-let confirmResolve: ((value: boolean) => void) | null = null
-
-function openInputDialog(
-  title: string,
-  initialValue: string,
-  placeholder: string
-): Promise<string | null> {
-  return new Promise((resolve) => {
-    inputDialogTitle.value = title
-    inputValue.value = initialValue
-    inputPlaceholder.value = placeholder
-    inputError.value = ''
-    showInputDialog.value = true
-    inputResolve = resolve
-    nextTick(() => inputRef.value?.focus())
-  })
-}
-
-// ========== 新建文件对话框（文件名，后缀自由输入） ==========
-const showCreateFileDialog = ref(false)
-const createFileName = ref('')
-const createFileError = ref('')
-const createFileInputRef = ref<HTMLInputElement | null>(null)
-let createFileResolve: ((value: string | null) => void) | null = null
-
-function openCreateFileDialog(initialName = ''): Promise<string | null> {
-  return new Promise((resolve) => {
-    createFileName.value = initialName
-    createFileError.value = ''
-    showCreateFileDialog.value = true
-    createFileResolve = resolve
-    nextTick(() => {
-      createFileInputRef.value?.focus()
-      // 预填文件名时把光标放在主干之后（`.inkmind` 之前），方便直接改名
-      const input = createFileInputRef.value
-      if (input && initialName) {
-        const dot = input.value.lastIndexOf('.')
-        const caret = dot > 0 ? dot : input.value.length
-        input.setSelectionRange(0, caret)
-      }
-    })
-  })
-}
-
-function confirmCreateFile(): void {
-  // 文件名（含后缀）原样使用，不做默认后缀补全
-  const name = createFileName.value.trim()
-  const validationError = validateWindowsFileName(name)
-  if (validationError) {
-    createFileError.value = validationError
-    createFileInputRef.value?.focus()
-    return
-  }
-  createFileError.value = ''
-  showCreateFileDialog.value = false
-  createFileResolve?.(name)
-  createFileResolve = null
-}
-
-function cancelCreateFile(): void {
-  showCreateFileDialog.value = false
-  createFileResolve?.(null)
-  createFileResolve = null
-}
-
-function confirmInput(): void {
-  const validationError = validateWindowsFolderName(inputValue.value)
-  if (validationError) {
-    inputError.value = validationError
-    return
-  }
-  const val = inputValue.value.trim()
-  inputError.value = ''
-  showInputDialog.value = false
-  inputResolve?.(val)
-  inputResolve = null
-}
-
-function cancelInput(): void {
-  showInputDialog.value = false
-  inputResolve?.(null)
-  inputResolve = null
-}
-
-function openConfirmDialog(title: string, message: string): Promise<boolean> {
-  return new Promise((resolve) => {
-    confirmDialogTitle.value = title
-    confirmDialogMessage.value = message
-    showConfirmDialog.value = true
-    confirmResolve = resolve
-  })
-}
-
-function resolveConfirmDialog(value: boolean): void {
-  showConfirmDialog.value = false
-  confirmResolve?.(value)
-  confirmResolve = null
-}
-
 // ========== 操作函数 ==========
-async function promptCreateFile(dirPath: string): Promise<void> {
-  const name = await openCreateFileDialog()
+/**
+ * 新建文件。
+ *
+ * 文件名（含后缀）由用户自由输入，主进程按它在 `dirPath` 下落盘，不做默认后缀补全。
+ * 对话框本身在 `App.vue` 挂载（`PromptDialog`），这里只发请求——
+ * 文件菜单的「新建 ▸ 文件」走的是同一个入口（store 的 `newFile`）。
+ */
+async function promptCreateFile(dirPath: string, initialName = ''): Promise<void> {
+  const name = await requestPrompt({
+    title: '新建文件',
+    initialValue: initialName,
+    placeholder: '例如：笔记.mdx、导图.inkmind、deploy.sh、config.json',
+    validate: validateWindowsFileName,
+    // 预填名字时只选中主干，后缀留着——直接打字就是「改名」
+    selection: 'stem'
+  })
   if (!name) return
-  await fileStore.createFile(dirPath, name)
+  const ok = await fileStore.createFile(dirPath, name)
+  if (!ok) {
+    await requestDialog({
+      title: '新建文件失败',
+      message: fileStore.error || `无法创建“${name}”，请检查名称是否已存在或文件夹是否可写`,
+      buttons: [{ label: '确定', value: 0, primary: true }]
+    })
+  }
 }
 
-/**
- * 新建思维导图：预填 `.inkmind` 后缀，主进程会写入一张可解析的空白导图
- */
+/** 新建思维导图：预填 `.inkmind` 后缀，主进程会写入一张可解析的空白导图 */
 async function promptCreateMindMap(dirPath: string): Promise<void> {
-  const name = await openCreateFileDialog(`未命名导图${MINDMAP_EXTENSION}`)
-  if (!name) return
-  await fileStore.createFile(dirPath, name)
+  await promptCreateFile(dirPath, `未命名导图${MINDMAP_EXTENSION}`)
 }
 
 async function promptCreateDiagram(dirPath: string): Promise<void> {
-  const name = await openCreateFileDialog(`未命名图表${DIAGRAM_EXTENSION}`)
-  if (!name) return
-  await fileStore.createFile(dirPath, name)
+  await promptCreateFile(dirPath, `未命名图表${DIAGRAM_EXTENSION}`)
 }
 
 async function promptCreateFolder(dirPath: string): Promise<void> {
-  const name = await openInputDialog('新建文件夹', '', '请输入文件夹名称')
+  const name = await requestPrompt({
+    title: '新建文件夹',
+    placeholder: '请输入文件夹名称',
+    validate: validateWindowsFolderName
+  })
   if (!name) return
   await fileStore.createFolder(dirPath, name)
 }
 
 async function promptRename(node: FileTreeNode): Promise<void> {
-  const name = await openInputDialog('重命名', node.name, '新名称')
+  const name = await requestPrompt({
+    title: '重命名',
+    initialValue: node.name,
+    placeholder: '新名称',
+    // 文件默认只选中主文件名：想改名时直接打字，后缀不会被覆盖掉
+    selection: node.isDirectory ? 'all' : 'stem',
+    validate: node.isDirectory ? validateWindowsFolderName : validateWindowsFileName
+  })
   if (!name || name === node.name) return
   const ok = await fileStore.renameItem(node.path, name)
   if (!ok) {
@@ -646,13 +578,70 @@ async function promptRename(node: FileTreeNode): Promise<void> {
   }
 }
 
-async function promptDelete(node: FileTreeNode): Promise<void> {
+/** 删除确认：确认按钮是破坏性动作，所以默认焦点在「取消」侧 */
+async function confirmDelete(title: string, message: string): Promise<boolean> {
+  const choice = await requestDialog({
+    title,
+    message,
+    buttons: [
+      { label: '取消', value: 0 },
+      { label: '删除', value: 1, primary: true }
+    ]
+  })
+  return choice === 1
+}
+
+async function promptDelete(node: FileTreeNode): Promise<boolean> {
   const type = node.isDirectory ? '文件夹' : '文件'
-  const confirmed = await openConfirmDialog(
+  const confirmed = await confirmDelete(
     `删除${type}`,
-    `确定要删除${type}“${node.name}”吗？此操作不可恢复。`
+    `确定要删除${type}“${node.name}”吗？将移入回收站。`
   )
-  if (confirmed) await fileStore.deleteItem(node.path)
+  if (!confirmed) return false
+  const ok = await fileStore.deleteItem(node.path)
+  if (!ok) {
+    // 回收站失败（网络盘、只读卷、回收站容量超限）必须说出来：
+    // 文件还在磁盘上，静默失败会让用户以为删掉了
+    await requestDialog({
+      title: '删除失败',
+      message: fileStore.error || `无法删除“${node.name}”，请检查文件是否被占用`,
+      buttons: [{ label: '确定', value: 0, primary: true }]
+    })
+  }
+  return ok
+}
+
+/**
+ * Delete 键：删除当前选中的项目。
+ *
+ * 多选时先把「已被选中目录包含的子项」剔掉（`dedupeTopLevelPaths`），
+ * 否则父目录删完再删子项会全部失败，还会多弹一串错误。
+ */
+async function promptDeleteSelection(): Promise<void> {
+  const paths = dedupeTopLevelPaths([...fileStore.selectedPaths])
+  if (paths.length === 0) return
+  if (paths.length === 1) {
+    const node = findTreeNode(paths[0])
+    if (node) await promptDelete(node)
+    return
+  }
+  const confirmed = await confirmDelete(
+    '删除所选项目',
+    `确定要删除选中的 ${paths.length} 个项目吗？将移入回收站。`
+  )
+  if (!confirmed) return
+  const failed: string[] = []
+  for (const path of paths) {
+    // 逐个删：某一项失败不该中断其余的
+    if (!(await fileStore.deleteItem(path))) failed.push(path.split(/[/\\]/).pop() || path)
+  }
+  if (failed.length > 0) {
+    await requestDialog({
+      title: failed.length === paths.length ? '删除失败' : '部分项目删除失败',
+      message: `以下项目没能移入回收站：${failed.join('、')}`,
+      buttons: [{ label: '确定', value: 0, primary: true }]
+    })
+  }
 }
 
 // ========== 基础操作 ==========
@@ -811,136 +800,6 @@ onUnmounted(() => {
             {{ item.label }}
           </div>
         </template>
-      </div>
-    </teleport>
-
-    <!-- ====== 删除确认对话框 ====== -->
-    <teleport to="body">
-      <div
-        v-if="showConfirmDialog"
-        class="dialog-overlay"
-      >
-        <div
-          class="dialog"
-          @click.stop
-        >
-          <h3 class="dialog-title">
-            {{ confirmDialogTitle }}
-          </h3>
-          <p class="dialog-message">
-            {{ confirmDialogMessage }}
-          </p>
-          <div class="dialog-actions">
-            <button
-              class="dialog-btn dialog-btn-cancel"
-              @click="resolveConfirmDialog(false)"
-            >
-              取消
-            </button>
-            <button
-              class="dialog-btn dialog-btn-confirm"
-              @click="resolveConfirmDialog(true)"
-            >
-              删除
-            </button>
-          </div>
-        </div>
-      </div>
-    </teleport>
-
-    <!-- ====== 输入对话框（新建文件夹/重命名） ====== -->
-    <teleport to="body">
-      <div
-        v-if="showInputDialog"
-        class="dialog-overlay"
-      >
-        <div
-          class="dialog"
-          @click.stop
-        >
-          <h3 class="dialog-title">
-            {{ inputDialogTitle }}
-          </h3>
-          <input
-            ref="inputRef"
-            v-model="inputValue"
-            type="text"
-            spellcheck="false"
-            class="dialog-input"
-            :class="{ 'dialog-input-error': inputError }"
-            :placeholder="inputPlaceholder"
-            @keyup.enter="confirmInput"
-          >
-          <p
-            v-if="inputError"
-            class="dialog-error"
-          >
-            {{ inputError }}
-          </p>
-          <div class="dialog-actions">
-            <button
-              class="dialog-btn dialog-btn-cancel"
-              @click="cancelInput"
-            >
-              取消
-            </button>
-            <button
-              class="dialog-btn dialog-btn-confirm"
-              @click="confirmInput"
-            >
-              确定
-            </button>
-          </div>
-        </div>
-      </div>
-    </teleport>
-
-    <!-- ====== 新建文件对话框（文件名，后缀自由输入） ====== -->
-    <teleport to="body">
-      <div
-        v-if="showCreateFileDialog"
-        class="dialog-overlay"
-        @keyup.esc="cancelCreateFile"
-      >
-        <div
-          class="dialog"
-          @click.stop
-        >
-          <h3 class="dialog-title">
-            新建文件
-          </h3>
-          <input
-            ref="createFileInputRef"
-            v-model="createFileName"
-            type="text"
-            spellcheck="false"
-            class="dialog-input"
-            :class="{ 'dialog-input-error': createFileError }"
-            placeholder="例如：笔记.mdx、导图.inkmind、deploy.sh、config.json"
-            @keyup.enter="confirmCreateFile"
-            @input="createFileError = ''"
-          >
-          <p
-            v-if="createFileError"
-            class="dialog-error"
-          >
-            {{ createFileError }}
-          </p>
-          <div class="dialog-actions">
-            <button
-              class="dialog-btn dialog-btn-cancel"
-              @click="cancelCreateFile"
-            >
-              取消
-            </button>
-            <button
-              class="dialog-btn dialog-btn-confirm"
-              @click="confirmCreateFile"
-            >
-              确定
-            </button>
-          </div>
-        </div>
       </div>
     </teleport>
   </div>
@@ -1174,103 +1033,5 @@ onUnmounted(() => {
   height: 1px;
   margin: 4px 8px;
   background: var(--color-border);
-}
-
-.dialog-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 9999;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.4);
-}
-
-.dialog {
-  min-width: 360px;
-  padding: 20px;
-  background: var(--color-bg-primary);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg, 8px);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
-}
-
-.dialog-title {
-  margin: 0 0 12px;
-  font-size: calc(var(--ui-font-size) + 2px);
-  font-weight: 600;
-  color: var(--color-text);
-}
-
-.dialog-message {
-  margin: 0;
-  color: var(--color-text-secondary);
-  font-size: var(--ui-font-size);
-  line-height: 1.6;
-}
-
-.dialog-input {
-  width: 100%;
-  padding: 8px 12px;
-  font-size: var(--ui-font-size);
-  color: var(--color-text);
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  outline: none;
-  box-sizing: border-box;
-}
-
-.dialog-input:focus {
-  border-color: var(--color-primary);
-}
-
-.dialog-input-error {
-  border-color: var(--color-error);
-}
-
-.dialog-input-error:focus {
-  border-color: var(--color-error);
-}
-
-.dialog-error {
-  margin: 6px 0 0;
-  color: var(--color-error);
-  font-size: calc(var(--ui-font-size) - 1px);
-  line-height: 1.4;
-}
-
-.dialog-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 16px;
-}
-
-.dialog-btn {
-  padding: 6px 16px;
-  font-size: var(--ui-font-size);
-  border: none;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.dialog-btn-cancel {
-  color: var(--color-text-secondary);
-  background: var(--color-bg-secondary);
-}
-
-.dialog-btn-cancel:hover {
-  color: var(--color-text);
-}
-
-.dialog-btn-confirm {
-  color: #fff;
-  background: var(--color-primary);
-}
-
-.dialog-btn-confirm:hover {
-  background: var(--color-primary-hover);
 }
 </style>

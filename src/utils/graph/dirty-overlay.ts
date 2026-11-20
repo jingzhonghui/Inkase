@@ -1,6 +1,7 @@
 import { buildResolveContextFromPayload } from '../../../shared/graph/build'
 import { extractLinks } from '../../../shared/graph/link-extract'
 import { resolveLink } from '../../../shared/graph/link-resolve'
+import { toWorkspaceRelativePath } from '../workspace-path'
 import {
   GRAPH_LINK_SOURCE_FORMATS,
   baseLabelOf,
@@ -184,18 +185,10 @@ function addEdge(
  * 绝对路径 → 工作区相对 POSIX 路径。
  *
  * 拿不到相对路径（文件不在工作区内）时返回 null：这类标签不该参与覆盖。
+ * 「目标就是根」也返回 null——图谱里没有「根自己」这一号节点。
+ * 归一规则（反斜杠、尾部斜杠、盘符大小写）只有 `toWorkspaceRelativePath` 一份实现。
  */
 export function toWorkspaceRelative(root: string, absolutePath: string): string | null {
-  const normalize = (value: string): string => value.replace(/\\/g, '/').replace(/\/+$/, '')
-  const normalizedRoot = normalize(root)
-  const normalizedPath = normalize(absolutePath)
-  if (!normalizedRoot) return null
-
-  const caseInsensitive = /^[a-zA-Z]:/.test(normalizedRoot)
-  const rootForCompare = caseInsensitive ? normalizedRoot.toLowerCase() : normalizedRoot
-  const pathForCompare = caseInsensitive ? normalizedPath.toLowerCase() : normalizedPath
-
-  if (pathForCompare === rootForCompare) return null
-  if (!pathForCompare.startsWith(`${rootForCompare}/`)) return null
-  return normalizedPath.slice(normalizedRoot.length + 1)
+  const relative = toWorkspaceRelativePath(root, absolutePath)
+  return relative ? relative : null
 }

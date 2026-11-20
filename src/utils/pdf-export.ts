@@ -1,6 +1,7 @@
 import { nextTick, shallowRef } from 'vue'
 import { getHighlighter } from './shiki'
 import { renderMarkdown } from './markdown'
+import { normalizeCodeLanguage } from './code-languages'
 import type { PdfSource } from '../types/pdf'
 
 export const pdfSource = shallowRef<PdfSource | null>(null)
@@ -10,7 +11,8 @@ async function highlightCode(container: HTMLElement): Promise<void> {
   const highlighter = await getHighlighter()
   for (const codeBlock of container.querySelectorAll('pre code')) {
     const element = codeBlock as HTMLElement
-    const language = element.className.match(/language-([\w+#.-]+)/)?.[1] || 'text'
+    // 围栏里的写法五花八门（`CMakeLists`、`text`、`sh`…），归一后再交给 Shiki
+    const language = normalizeCodeLanguage(element.className.match(/language-([\w+#.-]+)/)?.[1] ?? '')
     try {
       const wrapper = document.createElement('div')
       wrapper.innerHTML = highlighter.codeToHtml(element.textContent || '', {

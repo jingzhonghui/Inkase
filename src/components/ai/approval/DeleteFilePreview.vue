@@ -31,7 +31,7 @@ function formatSize(bytes: number): string {
 <template>
   <section class="file-delete">
     <p class="warning">
-      此操作会从磁盘上删除该文件，<strong>不可恢复</strong>。
+      此操作会把该文件移入<strong>回收站</strong>，需要时可以从那里恢复。
     </p>
     <dl>
       <dt>文件</dt>

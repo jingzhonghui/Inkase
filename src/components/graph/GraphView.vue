@@ -10,6 +10,7 @@ import { useGraphStore } from '../../stores/graph'
 import { useThemeStore } from '../../stores/theme'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { nodeShape } from '../../utils/graph/shape'
+import { writeClipboardText } from '../../utils/clipboard'
 import GraphCanvas from './GraphCanvas.vue'
 import GraphIssues from './GraphIssues.vue'
 import GraphSidebar from './GraphSidebar.vue'
@@ -149,13 +150,21 @@ function viewLocal(node: GraphNode): void {
   graphStore.setDepth(1)
 }
 
-async function copyPath(node: GraphNode): Promise<void> {
+/**
+ * 复制节点对应的**绝对**路径。
+ *
+ * `node.path` 本身是工作区相对的，拼上根才是真路径——这里必须转，
+ * 否则「复制路径」与「复制相对路径」复制的就是同一个东西。
+ */
+function copyPath(node: GraphNode): void {
   if (!node.path) return
-  try {
-    await navigator.clipboard.writeText(node.path)
-  } catch {
-    // 剪贴板不可用时静默失败，不值得弹错
-  }
+  writeClipboardText(graphStore.joinRoot(node.path))
+}
+
+/** 复制相对工作区的路径（`node.path` 本来就是，直接给） */
+function copyRelativePath(node: GraphNode): void {
+  if (!node.path) return
+  writeClipboardText(node.path)
 }
 
 // ===== 右键菜单 =====
@@ -197,6 +206,11 @@ function onNodeContext(nodeId: string, position: { x: number; y: number }): void
       {
         label: '链接到…',
         action: () => openPicker(node),
+        disabled: !node.path
+      },
+      {
+        label: '复制相对路径',
+        action: () => copyRelativePath(node),
         disabled: !node.path
       },
       {

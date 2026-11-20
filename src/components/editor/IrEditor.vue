@@ -18,7 +18,14 @@ import {
 import { useFileStore } from '../../stores/file'
 import { useOutlineStore } from '../../stores/outline'
 import { findHeadingForAnchor } from '../../utils/prosemirror/anchors'
-import { elementTopWithin, readScrollRatio, restoreScroll, scrollRestoreTarget, type ScrollRestoreTarget } from '../../utils/editor-scroll'
+import {
+  elementTopWithin,
+  readScrollRatio,
+  restoreScroll,
+  scrollDeltaToReveal,
+  scrollRestoreTarget,
+  type ScrollRestoreTarget
+} from '../../utils/editor-scroll'
 import { blockAtLine, blockAtPos, buildScrollAnchorTable, type ScrollAnchorTable } from '../../utils/prosemirror/scroll-anchor'
 import { useThemeStore } from '../../stores/theme'
 import { storeToRefs } from 'pinia'
@@ -52,9 +59,11 @@ import type { Node as ProseMirrorNode } from 'prosemirror-model'
 import katex from 'katex'
 import type { NodeView, ViewMutationRecord } from 'prosemirror-view'
 import { getHighlighter, type Highlighter } from '../../utils/shiki'
+import { codeLanguageLabel, normalizeCodeLanguage } from '../../utils/code-languages'
 import EditorContextMenu from '../common/EditorContextMenu.vue'
 import Tooltip from '../common/Tooltip.vue'
 import FindReplacePanel from './FindReplacePanel.vue'
+import CodeLanguageMenu from './CodeLanguageMenu.vue'
 import type { EditorContextMenuItem } from '../../types/editor-context-menu'
 import {
   addColumnBefore,
@@ -238,96 +247,127 @@ function focusEditor(): void {
   view.focus()
 }
 
-const supportedCodeLanguages = [
-  { value: '', label: '纯文本' },
-  { value: 'javascript', label: 'JavaScript' },
-  { value: 'typescript', label: 'TypeScript' },
-  { value: 'python', label: 'Python' },
-  { value: 'java', label: 'Java' },
-  { value: 'c', label: 'C' },
-  { value: 'cpp', label: 'C++' },
-  { value: 'csharp', label: 'C#' },
-  { value: 'go', label: 'Go' },
-  { value: 'rust', label: 'Rust' },
-  { value: 'html', label: 'HTML' },
-  { value: 'css', label: 'CSS' },
-  { value: 'scss', label: 'SCSS' },
-  { value: 'json', label: 'JSON' },
-  { value: 'yaml', label: 'YAML' },
-  { value: 'xml', label: 'XML' },
-  { value: 'sql', label: 'SQL' },
-  { value: 'bash', label: 'Bash' },
-  { value: 'powershell', label: 'PowerShell' },
-  { value: 'markdown', label: 'Markdown' },
-  { value: 'vue', label: 'Vue' },
-  { value: 'svelte', label: 'Svelte' },
-  { value: 'lua', label: 'Lua' },
-  { value: 'ruby', label: 'Ruby' },
-  { value: 'php', label: 'PHP' },
-  { value: 'swift', label: 'Swift' },
-  { value: 'kotlin', label: 'Kotlin' },
-  { value: 'dockerfile', label: 'Dockerfile' },
-  { value: 'text', label: '纯文本' }
-]
+/**
+ * 打开中的语言浮层状态。
+ * 用 `shallowRef` 而不是 `reactive`：这里装着 ProseMirror 的 `EditorView`，
+ * 深代理会把 `view.state` 整个包一层，轻则拖慢每次派发，重则把内部 identity 判断弄坏。
+ */
+interface CodeLanguageMenuState {
+  source: CodeBlockView
+  view: EditorView
+  pos: number
+  current: string
+  triggerEl: HTMLElement
+  anchor: { left: number; top: number; bottom: number }
+}
 
-function normalizeCodeLanguage(language: string): string {
-  const aliases: Record<string, string> = {
-    'c++': 'cpp',
-    'c#': 'csharp',
-    js: 'javascript',
-    ts: 'typescript',
-    py: 'python',
-    sh: 'bash',
-    shell: 'bash'
+const codeLanguageMenu = shallowRef<CodeLanguageMenuState | null>(null)
+
+function closeCodeLanguageMenu(reason?: 'escape' | 'dismiss'): void {
+  const menu = codeLanguageMenu.value
+  codeLanguageMenu.value = null
+  if (!menu) return
+  menu.triggerEl.setAttribute('aria-expanded', 'false')
+  // 按 Esc 收起时把焦点还给编辑器；点击别处收起则不动焦点，否则会把用户正要点的地方抢回来
+  if (reason === 'escape') menu.view.focus()
+}
+
+function chooseCodeLanguage(value: string): void {
+  const menu = codeLanguageMenu.value
+  codeLanguageMenu.value = null
+  if (!menu) return
+  const { view, pos } = menu
+  menu.triggerEl.setAttribute('aria-expanded', 'false')
+
+  // 浮层开着时文档可能已经被改过（撤销、外部改动、AI 写回）：
+  // 那个位置上不再是代码块就什么都不写，否则会把语言写到别的节点上
+  const node = view.state.doc.nodeAt(pos)
+  if (!node || node.type.name !== 'code_block') {
+    view.focus()
+    return
   }
-  return aliases[language.toLowerCase()] || language.toLowerCase()
+
+  if (node.attrs.language !== value) {
+    view.dispatch(view.state.tr.setNodeMarkup(pos, undefined, { language: value }))
+  }
+  view.focus()
 }
 
 class CodeBlockView implements NodeView {
   dom: HTMLElement
   contentDOM: HTMLElement
-  private select: HTMLSelectElement
+  private trigger: HTMLButtonElement
   private view: EditorView
   private getPos: () => number
+  private language = ''
 
   constructor(node: ProseMirrorNode, view: EditorView, getPos: () => number) {
     this.view = view
     this.getPos = getPos
     this.dom = document.createElement('pre')
     this.dom.className = 'ir-code-block'
-    this.select = document.createElement('select')
-    this.select.className = 'ir-code-language'
-    this.select.title = '选择代码语言'
-    for (const language of supportedCodeLanguages) {
-      const option = document.createElement('option')
-      option.value = language.value
-      option.textContent = language.label
-      this.select.appendChild(option)
-    }
-    this.select.value = normalizeCodeLanguage(node.attrs.language || '')
-    this.select.addEventListener('mousedown', (event) => event.stopPropagation())
-    this.select.addEventListener('change', this.handleLanguageChange)
-    this.dom.appendChild(this.select)
+    this.trigger = document.createElement('button')
+    this.trigger.type = 'button'
+    this.trigger.className = 'ir-code-language'
+    this.trigger.title = '选择代码语言（可输入搜索）'
+    this.trigger.setAttribute('aria-haspopup', 'listbox')
+    this.trigger.setAttribute('aria-expanded', 'false')
+    this.trigger.addEventListener('mousedown', (event) => event.stopPropagation())
+    this.trigger.addEventListener('click', this.handleTriggerClick)
+    this.dom.appendChild(this.trigger)
     this.contentDOM = document.createElement('code')
-    this.contentDOM.className = node.attrs.language ? `language-${node.attrs.language}` : ''
     this.dom.appendChild(this.contentDOM)
+    this.setLanguage(node.attrs.language || '')
   }
 
-  private handleLanguageChange = (): void => {
-    const language = this.select.value
-    this.view.dispatch(this.view.state.tr.setNodeMarkup(this.getPos(), undefined, { language }))
-    this.view.focus()
+  private setLanguage(language: string): void {
+    this.language = language
+    this.trigger.textContent = codeLanguageLabel(language)
+    this.contentDOM.className = language ? `language-${language}` : ''
+  }
+
+  private handleTriggerClick = (): void => {
+    // 同一个按钮再点一次 = 收起（浮层的「点击外部关闭」会跳过触发按钮，
+    // 否则 pointerdown 先关、click 再开，表现为点了没反应）
+    if (codeLanguageMenu.value?.source === this) {
+      closeCodeLanguageMenu()
+      return
+    }
+
+    let pos: number
+    try {
+      pos = this.getPos()
+    } catch {
+      // 节点已经不在文档里
+      return
+    }
+    if (typeof pos !== 'number') return
+
+    const rect = this.trigger.getBoundingClientRect()
+    codeLanguageMenu.value = {
+      source: this,
+      view: this.view,
+      pos,
+      current: this.language,
+      triggerEl: this.trigger,
+      anchor: { left: rect.left, top: rect.top, bottom: rect.bottom }
+    }
+    this.trigger.setAttribute('aria-expanded', 'true')
   }
 
   update(node: ProseMirrorNode): boolean {
     if (node.type.name !== 'code_block') return false
-    this.select.value = normalizeCodeLanguage(node.attrs.language || '')
-    this.contentDOM.className = node.attrs.language ? `language-${node.attrs.language}` : ''
+    this.setLanguage(node.attrs.language || '')
     return true
   }
 
+  destroy(): void {
+    // 代码块被删掉或重建时，浮层还指着已经不存在的位置
+    if (codeLanguageMenu.value?.source === this) closeCodeLanguageMenu()
+  }
+
   stopEvent(event: Event): boolean {
-    return event.target === this.select || this.select.contains(event.target as Node)
+    return event.target === this.trigger || this.trigger.contains(event.target as Node)
   }
 
   ignoreMutation(mutation: ViewMutationRecord): boolean {
@@ -1071,6 +1111,43 @@ function updateSearchDecorations(): void {
   view.dispatch(view.state.tr.setMeta(searchPluginKey, set))
 }
 
+/**
+ * 把文档中的某个位置滚进编辑区可视范围（尽量少滚）。
+ *
+ * 这里不能用 `tr.scrollIntoView()` 让 ProseMirror 代劳：查找时焦点在查找框上，
+ * `view.hasFocus()` 为 false，`selectionToDOM` 会被 `editorOwnsSelection` 挡在开头，
+ * 选区根本没有写进 DOM；于是 `scrollToSelection()` 里 `domSelectionRange().focusNode`
+ * 不在编辑器内，直接跳过，一步都不滚。`view.focus()` 走的是 `focusPreventScroll`，
+ * 同样不会把匹配带到眼前。所以自己量坐标、直接改滚动容器的 `scrollTop`。
+ */
+function revealDocumentPosition(pos: number): void {
+  const view = viewRef.value
+  const container = containerRef.value
+  if (!view || view.isDestroyed || !container) return
+
+  const box = container.getBoundingClientRect()
+  // 容器没尺寸（分屏/隐藏中）时量不出坐标，硬滚只会把视图甩到别处
+  if (box.height <= 0) return
+
+  let rect: { top: number; bottom: number } | null = null
+  try {
+    rect = view.coordsAtPos(pos)
+  } catch {
+    return
+  }
+  if (!rect) return
+
+  const delta = scrollDeltaToReveal(rect, box)
+  if (delta !== 0) container.scrollTop += delta
+}
+
+/**
+ * 跳到第 index 个匹配。
+ *
+ * 刻意不 `view.focus()`：查找期间焦点该留在查找框里（否则敲第二个字就输入到正文了），
+ * 而且编辑器重新获得焦点的瞬间 ProseMirror 会回读 DOM 里那份**没同步过**的旧选区，
+ * 把刚设好的选区覆盖回原位——顺带把视图也带走。关闭面板时 `closeSearch` 再交还焦点。
+ */
 function jumpToMatch(index: number): void {
   const view = viewRef.value
   const match = searchMatches.value[index]
@@ -1082,7 +1159,7 @@ function jumpToMatch(index: number): void {
   )
   currentMatchIndex.value = index
   updateSearchDecorations()
-  view.focus()
+  revealDocumentPosition(match.from)
 }
 
 function nextMatch(): void {
@@ -1095,12 +1172,24 @@ function prevMatch(): void {
   jumpToMatch((currentMatchIndex.value - 1 + searchMatches.value.length) % searchMatches.value.length)
 }
 
+/**
+ * 查找词变化（输入 / 切换区分大小写 / 打开面板带选中文本）时的入口。
+ * 与源码模式一致：直接选中并滚到当前匹配。
+ */
+function handleSearch(query: string, caseSensitive: boolean): void {
+  recomputeMatches(query, caseSensitive)
+  if (searchMatches.value.length > 0 && currentMatchIndex.value >= 0) {
+    jumpToMatch(currentMatchIndex.value)
+  }
+}
+
 function replaceCurrent(query: string, replaceText: string, caseSensitive: boolean): void {
   const view = viewRef.value
   const match = searchMatches.value[currentMatchIndex.value]
   if (!view || !match) return
   view.dispatch(view.state.tr.replaceWith(match.from, match.to, view.state.schema.text(replaceText)))
-  recomputeMatches(query, caseSensitive)
+  // 用 handleSearch 而不是 recomputeMatches：替换后应把下一个匹配带进视野
+  handleSearch(query, caseSensitive)
 }
 
 function replaceAll(query: string, replaceText: string, caseSensitive: boolean): void {
@@ -2006,7 +2095,7 @@ defineExpose({
     <div
       ref="containerRef"
       class="ir-container"
-      :class="{ dragging: isDragging, 'ir-ctrl-pressed': ctrlPressed }"
+      :class="{ dragging: isDragging, 'ir-ctrl-pressed': ctrlPressed, 'ir-searching': searchOpen }"
     >
       <div
         v-if="tableToolbar.visible"
@@ -2077,7 +2166,7 @@ defineExpose({
       :current-index="currentMatchIndex"
       :initial-query="searchInitialQuery"
       @close="closeSearch"
-      @search="recomputeMatches"
+      @search="handleSearch"
       @next="nextMatch"
       @prev="prevMatch"
       @replace="replaceCurrent"
@@ -2092,6 +2181,15 @@ defineExpose({
     :y="contextMenu.y"
     :items="contextMenu.items"
     @close="closeContextMenu"
+  />
+
+  <CodeLanguageMenu
+    v-if="codeLanguageMenu"
+    :anchor="codeLanguageMenu.anchor"
+    :current="codeLanguageMenu.current"
+    :trigger-el="codeLanguageMenu.triggerEl"
+    @choose="chooseCodeLanguage"
+    @close="closeCodeLanguageMenu"
   />
 </template>
 
@@ -2115,13 +2213,31 @@ defineExpose({
   background-color: var(--color-primary-light);
   border: 2px dashed var(--color-primary);
 }
+/*
+ * 查找高亮分两级，必须一眼分得出「当前」是哪一处：
+ * 普通匹配是淡琥珀底（只是提示「这里也有」），当前匹配换成主色蓝——
+ * **换色相而不只是换明度**：同色相靠透明度/明度区分时，人眼要盯着比对才分得清。
+ * 用蓝色而不是红色：查找不是错误态，红色会被读成「这里有问题」；蓝色同时也是
+ * 应用主色，与导图那边「当前命中 = --color-primary 描边」保持一致。
+ */
 .ir-editor-wrapper :deep(.ir-search-match) {
-  background: rgb(255 200 0 / 0.3);
+  background: rgb(250 204 21 / 0.3);
   border-radius: 2px;
 }
 .ir-editor-wrapper :deep(.ir-search-match-current) {
-  background: rgb(255 165 0 / 0.5);
+  background: #2563eb;
+  color: #fff;
   border-radius: 2px;
+  box-shadow: 0 0 0 2px #1e3a8a;
+}
+/* 深色主题反过来取值：底色暗，当前匹配用亮蓝 + 深色字才既跳得出来又读得清 */
+[data-theme='dark'] .ir-editor-wrapper :deep(.ir-search-match) {
+  background: rgb(250 204 21 / 0.26);
+}
+[data-theme='dark'] .ir-editor-wrapper :deep(.ir-search-match-current) {
+  background: #60a5fa;
+  color: #0f172a;
+  box-shadow: 0 0 0 2px #bfdbfe;
 }
 
 .table-toolbar {
@@ -2290,8 +2406,11 @@ defineExpose({
   top: 6px;
   left: 10px;
   z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   max-width: 180px;
-  padding: 2px 24px 2px 8px;
+  padding: 2px 8px;
   color: var(--color-text-secondary);
   background: var(--color-bg-primary);
   border: 1px solid var(--color-border);
@@ -2299,7 +2418,21 @@ defineExpose({
   font: 12px var(--font-sans);
   cursor: pointer;
 }
-.ir-editor-wrapper :deep(.ProseMirror .ir-code-language:focus) {
+/* 原来靠原生 select 的箭头，换成 button 后自己画一个 */
+.ir-editor-wrapper :deep(.ProseMirror .ir-code-language::after) {
+  content: '';
+  width: 0;
+  height: 0;
+  border-left: 3px solid transparent;
+  border-right: 3px solid transparent;
+  border-top: 4px solid currentColor;
+  opacity: 0.6;
+}
+.ir-editor-wrapper :deep(.ProseMirror .ir-code-language:hover) {
+  color: var(--color-text);
+  border-color: var(--color-primary);
+}
+.ir-editor-wrapper :deep(.ProseMirror .ir-code-language:focus-visible) {
   color: var(--color-text);
   border-color: var(--color-primary);
   outline: none;
@@ -2387,6 +2520,12 @@ defineExpose({
   padding-left: 0;
 }
 .ir-editor-wrapper :deep(.ProseMirror ::selection) { background: var(--color-selection); }
+/*
+ * 查找期间让出原生选区：浏览器会把选区底色画在匹配底色之上，当前匹配的实心琥珀
+ * 会被盖成一片蓝，反而认不出「当前是哪一处」。位置改由琥珀块 + 描边表达，
+ * 关闭面板（searchOpen 变 false）立即恢复选区颜色。
+ */
+.ir-container.ir-searching :deep(.ProseMirror ::selection) { background: transparent; }
 .ir-editor-wrapper :deep(.ProseMirror p.is-editor-empty:first-child::before) {
   content: '在此输入内容，支持 Markdown 语法...';
   color: var(--color-text-tertiary); float: left; height: 0; pointer-events: none;

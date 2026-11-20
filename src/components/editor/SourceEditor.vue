@@ -1671,7 +1671,10 @@ defineExpose({
 </script>
 
 <template>
-  <div class="source-container">
+  <div
+    class="source-container"
+    :class="{ 'is-searching': searchOpen }"
+  >
     <div
       ref="editorRef"
       class="codemirror-wrapper"
@@ -1834,14 +1837,32 @@ defineExpose({
   padding: 4px 8px;
 }
 
+/*
+ * 与即时渲染保持一致：普通匹配是淡琥珀底（弱提示），当前匹配换成主色蓝——
+ * **换色相而不只是换明度**，扫一眼就能定位当前项；不用红色是因为查找不是错误态。
+ * 原来普通匹配也是实心 --color-warning，比当前项还抢眼，两级的主次是反的。
+ */
 .codemirror-wrapper :deep(.cm-searchMatch) {
-  background-color: var(--color-warning);
-  color: var(--color-text);
+  background-color: rgb(250 204 21 / 0.3);
+  color: inherit;
+  border-radius: 2px;
 }
 
-.codemirror-wrapper :deep(.cm-searchMatch-selected) {
-  background-color: var(--color-primary);
-  color: white;
+.codemirror-wrapper :deep(.cm-searchMatch.cm-searchMatch-selected) {
+  background-color: #2563eb;
+  color: #fff;
+  border-radius: 2px;
+  box-shadow: 0 0 0 2px #1e3a8a;
+}
+
+[data-theme='dark'] .codemirror-wrapper :deep(.cm-searchMatch) {
+  background-color: rgb(250 204 21 / 0.26);
+}
+
+[data-theme='dark'] .codemirror-wrapper :deep(.cm-searchMatch.cm-searchMatch-selected) {
+  background-color: #60a5fa;
+  color: #0f172a;
+  box-shadow: 0 0 0 2px #bfdbfe;
 }
 
 /* git 冲突标记行高亮 */
@@ -1856,6 +1877,14 @@ defineExpose({
 /* 选区样式 - 确保选中效果更明显 */
 .codemirror-wrapper :deep(.cm-selectionBackground) {
   background-color: rgba(59, 130, 246, 0.3) !important;
+}
+
+/*
+ * 查找期间让出原生选区，理由同即时渲染：选区底色盖在匹配底色之上，
+ * 当前匹配的实心琥珀会被盖成蓝色，两级就分不清了。
+ */
+.source-container.is-searching :deep(.cm-selectionBackground) {
+  background-color: transparent !important;
 }
 
 .codemirror-wrapper :deep(.cm-selectionMatch) {

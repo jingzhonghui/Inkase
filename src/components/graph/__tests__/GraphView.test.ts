@@ -3,7 +3,7 @@
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { defineComponent, h } from 'vue'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 /**
  * 图谱视图（版式照官网 §知识图谱 那块面板）。
@@ -98,13 +98,23 @@ function payload(options: { broken?: boolean; orphan?: boolean; attachment?: boo
 }
 
 /**
+ * 最近一次挂载出来的「触发节点右键」入口。
+ *
+ * 真画布是 canvas，没法靠 DOM 点击打开菜单，所以替身把 `node-context` 的 emit
+ * 存到这里；只有右键菜单那组用例会用它，其余用例不受影响。
+ */
+let fireNodeContext: ((id: string, position: { x: number; y: number }) => void) | null = null
+
+/**
  * 画布替身：除了渲染一个占位 div，还要把 `centerOnNode` / `fitContent`
  * 暴露出来——视图会通过 ref 调它们（卡片跳转、适应内容），
  * 一个只会渲染模板的替身会让这些回调在测试里炸掉。
  */
 const GraphCanvasStub = defineComponent({
   name: 'GraphCanvas',
-  setup(_props, { expose }) {
+  emits: ['node-context'],
+  setup(_props, { emit, expose }) {
+    fireNodeContext = (id, position) => emit('node-context', id, position)
     const noop = (): void => {}
     expose({ centerOnNode: noop, fitContent: noop })
     return () => h('div', { class: 'graph-canvas-stub' })
@@ -645,6 +655,100 @@ describe('TC-VIEW-010 选中节点卡片', () => {
     } else {
       // 该图深度 1 已覆盖全部邻居，则不该出现提示
       expect(store.hiddenNeighborCount).toBe(0)
+    }
+  })
+})
+
+describe('TC-VIEW-012 节点右键菜单的复制路径', () => {
+  function openNodeMenu(wrapper: ReturnType<typeof mount>, nodeId: string): Promise<void> | void {
+    fireNodeContext!(nodeId, { x: 12, y: 18 })
+    return wrapper.vm.$nextTick()
+  }
+
+  function menuLabels(wrapper: ReturnType<typeof mount>): string[] {
+    return wrapper.findAll('.graph-menu button').map((item) => item.text())
+  }
+
+  beforeEach(() => {
+    let written: string | null = null
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: (text: string) => {
+          written = text
+          return Promise.resolve()
+        }
+      }
+    })
+    ;(globalThis as { __clipboardText?: () => string | null }).__clipboardText = () => written
+  })
+
+  afterEach(() => {
+    delete (navigator as { clipboard?: unknown }).clipboard
+    delete (globalThis as { __clipboardText?: unknown }).__clipboardText
+  })
+
+  function clipboardText(): string | null {
+    return (globalThis as { __clipboardText?: () => string | null }).__clipboardText?.() ?? null
+  }
+
+  async function clickMenu(wrapper: ReturnType<typeof mount>, label: string): Promise<void> {
+    const button = wrapper.findAll('.graph-menu button').find((item) => item.text() === label)
+    expect(button).toBeTruthy()
+    await button!.trigger('click')
+  }
+
+  it('「复制相对路径」紧挨在「复制路径」上方', async () => {
+    const store = useGraphStore()
+    seedGraph(store, payload())
+    const wrapper = mountView()
+
+    await openNodeMenu(wrapper, 'docs/b.md')
+
+    const labels = menuLabels(wrapper)
+    const relativeIndex = labels.indexOf('复制相对路径')
+    expect(relativeIndex).toBeGreaterThan(-1)
+    expect(labels[relativeIndex + 1]).toBe('复制路径')
+  })
+
+  it('「复制相对路径」给的是工作区相对路径', async () => {
+    const store = useGraphStore()
+    seedGraph(store, payload())
+    const wrapper = mountView()
+    await openNodeMenu(wrapper, 'docs/b.md')
+
+    await clickMenu(wrapper, '复制相对路径')
+
+    expect(clipboardText()).toBe('docs/b.md')
+  })
+
+  it('「复制路径」给的是拼上根之后的绝对路径', async () => {
+    const store = useGraphStore()
+    seedGraph(store, payload())
+    const wrapper = mountView()
+    await openNodeMenu(wrapper, 'docs/b.md')
+
+    await clickMenu(wrapper, '复制路径')
+
+    // 根是 C:\ws，joinRoot 按根的分隔符风格拼
+    expect(clipboardText()).toBe('C:\\ws\\docs/b.md'.replace(/\//g, '\\'))
+  })
+
+  it('断链节点（没有真实路径）时两项都禁用', async () => {
+    const store = useGraphStore()
+    seedGraph(store, payload({ broken: true }))
+    const brokenNode = store.payload?.nodes.find((node) => node.path === null)
+    expect(brokenNode).toBeTruthy()
+    const wrapper = mountView()
+
+    await openNodeMenu(wrapper, brokenNode!.id)
+
+    const copyButtons = wrapper
+      .findAll('.graph-menu button')
+      .filter((item) => item.text().startsWith('复制'))
+    expect(copyButtons).toHaveLength(2)
+    for (const button of copyButtons) {
+      expect(button.attributes('disabled')).toBeDefined()
     }
   })
 })

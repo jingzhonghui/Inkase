@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
-import { dialog } from 'electron'
+import { dialog, shell } from 'electron'
 import { IPC_CHANNELS } from '../channels'
 import { readArchive } from '../../mindmap/inkmind-archive'
 import { MINDMAP_VERSION } from '../../../shared/mindmap/document'
@@ -32,7 +32,7 @@ vi.mock('electron', () => ({
   dialog: { showOpenDialog: vi.fn(), showSaveDialog: vi.fn(), showMessageBox: vi.fn() },
   BrowserWindow: { getFocusedWindow: () => ({}) },
   app: { getPath: () => tmpDir },
-  shell: { showItemInFolder: vi.fn(), openPath: vi.fn() },
+  shell: { showItemInFolder: vi.fn(), openPath: vi.fn(), trashItem: vi.fn(async () => {}) },
   clipboard: {
     read: vi.fn(() => ''),
     readBuffer: vi.fn(() => Buffer.from('')),
@@ -225,6 +225,61 @@ describe('file:rename', () => {
     // Windows NTFS 不区分大小写：仅大小写变化时 fs.existsSync 会误判“目标已存在”
     expect(result.success).toBe(true)
     expect(fs.existsSync(path.join(dir, 'docs', 'x.mdx'))).toBe(true)
+  })
+})
+
+describe('file:delete', () => {
+  const trashItem = () => vi.mocked(shell.trashItem)
+
+  beforeEach(async () => {
+    await registerHandlersFresh()
+    trashItem().mockClear()
+  })
+
+  it('走系统回收站，而不是直接从磁盘抹掉', async () => {
+    const dir = path.join(tmpDir, 'delete-trash')
+    fs.mkdirSync(dir, { recursive: true })
+    const target = path.join(dir, 'note.mdx')
+    fs.writeFileSync(target, 'x', 'utf8')
+
+    const handler = electronMocks.handlers.get(IPC_CHANNELS.FILE.DELETE)!
+    const result = (await handler({}, { targetPath: target })) as { success: boolean }
+
+    expect(result.success).toBe(true)
+    // 关键断言：调用的是 trashItem（回收站），不是 unlink / rm
+    expect(trashItem()).toHaveBeenCalledWith(target)
+  })
+
+  it('路径不存在时返回可读的中文错误，不去碰回收站', async () => {
+    const handler = electronMocks.handlers.get(IPC_CHANNELS.FILE.DELETE)!
+    const result = (await handler({}, { targetPath: path.join(tmpDir, 'missing.mdx') })) as {
+      success: boolean
+      error?: string
+    }
+
+    expect(result.success).toBe(false)
+    expect(result.error).toContain('不存在')
+    expect(trashItem()).not.toHaveBeenCalled()
+  })
+
+  it('回收站不可用时报错，且绝不降级成永久删除', async () => {
+    const dir = path.join(tmpDir, 'delete-trash-unavailable')
+    fs.mkdirSync(dir, { recursive: true })
+    const target = path.join(dir, 'keep-me.mdx')
+    fs.writeFileSync(target, 'x', 'utf8')
+
+    trashItem().mockRejectedValueOnce(new Error('recycle bin unavailable'))
+
+    const handler = electronMocks.handlers.get(IPC_CHANNELS.FILE.DELETE)!
+    const result = (await handler({}, { targetPath: target })) as {
+      success: boolean
+      error?: string
+    }
+
+    expect(result.success).toBe(false)
+    expect(result.error).toContain('移入回收站失败')
+    // 文件必须还在：失败绝不能偷偷删掉
+    expect(fs.existsSync(target)).toBe(true)
   })
 })
 

@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
+import { nextTick } from 'vue'
 import { createMdxDocument, isEditableMarkdownFormat } from '../../types/mdx'
 import type { MdxDocument } from '../../types/mdx'
 import { useFileStore } from '../file'
 import type { FileTreeNode } from '../file/types'
 import { requestDialog } from '../../utils/dialog'
+import { cancelPrompt, promptState, submitPrompt } from '../../utils/prompt'
 
 vi.mock('../../utils/dialog', () => ({
   dialogState: { visible: false, title: '', message: '', detail: '', buttons: [] },
@@ -45,6 +47,8 @@ function createMockElectronAPI(overrides: Record<string, unknown> = {}) {
     removeRecentFile: vi.fn(async () => ({ success: true })),
     clearRecentFiles: vi.fn(async () => ({ success: true })),
     readFolder: vi.fn(async () => ({ success: false })),
+    createFile: vi.fn(async () => ({ success: false })),
+    createFolder: vi.fn(async () => ({ success: false })),
     writeRecovery: vi.fn(async () => ({ success: true })),
     clearRecovery: vi.fn(async () => ({ success: true })),
     recoveryStatus: vi.fn(async () => ({ success: true, data: { available: false } })),
@@ -74,6 +78,8 @@ describe('file store', () => {
   })
 
   afterEach(() => {
+    // 输入框状态是模块级单例，残留会让下一条用例一进 newFile 就撞到「已打开的对话框」
+    cancelPrompt()
     vi.clearAllTimers()
     vi.useRealTimers()
     vi.unstubAllGlobals()
@@ -104,6 +110,166 @@ describe('file store', () => {
 
       expect(store.isDirty).toBe(true)
       expect(store.hasFile).toBe(true)
+    })
+
+    describe('打开着工作区时', () => {
+      /** 工作区里新建：先起名（走 PromptDialog），再在根目录真的落一个文件 */
+      function openWorkspace(store: ReturnType<typeof useFileStore>): void {
+        store.openedFolderPath = 'C:/ws'
+        store.fileTree = [
+          {
+            name: 'ws',
+            path: 'C:/ws',
+            isDirectory: true,
+            isExpanded: true,
+            isLoading: false,
+            children: []
+          }
+        ]
+      }
+
+      it('先问名字，再按这个名字落盘并打开（不再开「未命名.mdx」空白标签）', async () => {
+        electronAPI.createFile.mockResolvedValue({ success: true, data: { path: 'C:/ws/部署.md' } })
+        electronAPI.openFile.mockResolvedValue({
+          success: true,
+          data: { document: makeDoc('部署', '# run'), filePath: 'C:/ws/部署.md', format: 'markdown' }
+        })
+
+        const store = useFileStore()
+        openWorkspace(store)
+
+        const pending = store.newFile()
+        await nextTick()
+
+        // 对话框已经弹出来，且标题是「新建文件」
+        expect(promptState.visible).toBe(true)
+        expect(promptState.title).toBe('新建文件')
+
+        promptState.value = '部署.md'
+        submitPrompt()
+        const ok = await pending
+
+        expect(ok).toBe(true)
+        expect(electronAPI.createFile).toHaveBeenCalledWith('C:/ws', '部署.md')
+        expect(electronAPI.newFile).not.toHaveBeenCalled()
+        expect(store.currentFile?.path).toBe('C:/ws/部署.md')
+        // 树里就地插进新文件，不必整目录重读
+        expect(store.fileTree[0].children.map((node) => node.name)).toEqual(['部署.md'])
+      })
+
+      it('取消起名就什么都不做', async () => {
+        const store = useFileStore()
+        openWorkspace(store)
+
+        const pending = store.newFile()
+        await nextTick()
+        cancelPrompt()
+
+        expect(await pending).toBe(false)
+        expect(electronAPI.createFile).not.toHaveBeenCalled()
+        expect(store.tabs).toHaveLength(0)
+      })
+
+      it('落盘失败时给出错误提示，不留下空标签', async () => {
+        electronAPI.createFile.mockResolvedValue({ success: false, error: '文件已存在' })
+
+        const store = useFileStore()
+        openWorkspace(store)
+
+        const pending = store.newFile()
+        await nextTick()
+        promptState.value = '部署.md'
+        submitPrompt()
+
+        expect(await pending).toBe(false)
+        expect(store.tabs).toHaveLength(0)
+        expect(store.error).toBe('文件已存在')
+        expect(requestDialog).toHaveBeenCalled()
+      })
+
+      it('新建思维导图同样先起名再落盘，预填名只选主干', async () => {
+        electronAPI.createFile.mockResolvedValue({ success: true, data: { path: 'C:/ws/规划.inkmind' } })
+        electronAPI.openFile.mockResolvedValue({
+          success: true,
+          data: { document: makeDoc('规划', '{}'), filePath: 'C:/ws/规划.inkmind', format: 'mindmap' }
+        })
+
+        const store = useFileStore()
+        openWorkspace(store)
+
+        const pending = store.newMindMap()
+        await nextTick()
+
+        expect(promptState.visible).toBe(true)
+        expect(promptState.title).toBe('新建思维导图')
+        // 预填「未命名导图.inkmind」，后缀由主进程按后缀写空白内容，不靠用户补
+        expect(promptState.value).toBe('未命名导图.inkmind')
+
+        promptState.value = '规划.inkmind'
+        submitPrompt()
+
+        expect(await pending).toBe(true)
+        expect(electronAPI.createFile).toHaveBeenCalledWith('C:/ws', '规划.inkmind')
+      })
+
+      it('新建图表同样先起名再落盘', async () => {
+        electronAPI.createFile.mockResolvedValue({ success: true, data: { path: 'C:/ws/流程.drawio' } })
+        electronAPI.openFile.mockResolvedValue({
+          success: true,
+          data: { document: makeDoc('流程', '<xml/>'), filePath: 'C:/ws/流程.drawio', format: 'diagram' }
+        })
+
+        const store = useFileStore()
+        openWorkspace(store)
+
+        const pending = store.newDiagram()
+        await nextTick()
+
+        expect(promptState.title).toBe('新建图表')
+        expect(promptState.value).toBe('未命名图表.drawio')
+
+        promptState.value = '流程.drawio'
+        submitPrompt()
+
+        expect(await pending).toBe(true)
+        expect(electronAPI.createFile).toHaveBeenCalledWith('C:/ws', '流程.drawio')
+      })
+
+      it('取消新建导图不留任何标签', async () => {
+        const store = useFileStore()
+        openWorkspace(store)
+
+        const pending = store.newMindMap()
+        await nextTick()
+        cancelPrompt()
+
+        expect(await pending).toBe(false)
+        expect(store.tabs).toHaveLength(0)
+      })
+    })
+
+    describe('没有工作区时', () => {
+      it('新建思维导图落在空白标签上，首次保存再选路径', async () => {
+        const store = useFileStore()
+
+        const ok = await store.newMindMap()
+
+        expect(ok).toBe(true)
+        expect(store.currentFile?.path).toBe('')
+        expect(store.currentFile?.name).toBe('未命名思维导图.inkmind')
+        expect(store.currentFile?.format).toBe('mindmap')
+      })
+
+      it('新建图表落在空白标签上', async () => {
+        const store = useFileStore()
+
+        const ok = await store.newDiagram()
+
+        expect(ok).toBe(true)
+        expect(store.currentFile?.path).toBe('')
+        expect(store.currentFile?.name).toBe('未命名图表.drawio')
+        expect(store.currentFile?.format).toBe('diagram')
+      })
     })
   })
 

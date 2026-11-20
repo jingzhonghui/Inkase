@@ -465,7 +465,7 @@ export function createDocumentTools(
   const deleteWorkspaceFile = defineTool({
     name: 'delete_workspace_file',
     description:
-      '删除工作区内的一个文件（不可恢复，不能删除目录）。执行前需要用户批准。若该文件还在编辑器中且有未保存的修改，删除会被拒绝。',
+      '删除工作区内的一个文件（移入系统回收站，不是永久删除；不能删除目录）。执行前需要用户批准。若该文件还在编辑器中且有未保存的修改，删除会被拒绝。',
     inputSchema: z
       .object({
         path: z.string().trim().min(1),

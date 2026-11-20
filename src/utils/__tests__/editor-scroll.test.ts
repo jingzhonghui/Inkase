@@ -5,6 +5,7 @@ import {
   readScrollRatio,
   restoreScroll,
   saveScrollPosition,
+  scrollDeltaToReveal,
   scrollRestoreTarget,
   scrollTargetForViewportOffset
 } from '../editor-scroll'
@@ -162,5 +163,39 @@ describe('scrollTargetForViewportOffset（按顶边对齐）', () => {
       value: () => ({ top: 700, bottom: 720, left: 0, right: 600, width: 600, height: 20, x: 0, y: 700, toJSON: () => ({}) })
     })
     expect(scrollTargetForViewportOffset(container, element, 600)).toBe(1000)
+  })
+})
+
+describe('scrollDeltaToReveal（把匹配/锚点带进视口）', () => {
+  const viewport = { top: 100, height: 800 }
+
+  it('已经在视口内时不滚动', () => {
+    expect(scrollDeltaToReveal({ top: 300, bottom: 320 }, viewport)).toBe(0)
+    // 距离上下边都超过 24px 空隙
+    expect(scrollDeltaToReveal({ top: 200, bottom: 220 }, viewport)).toBe(0)
+  })
+
+  it('贴边（不足空隙）时只补那几像素', () => {
+    // 相对视口顶边只有 20px，差 4px 才够 24px 空隙
+    expect(scrollDeltaToReveal({ top: 120, bottom: 140 }, viewport)).toBe(-4)
+  })
+
+  it('在视口上方时向上滚，并留出空隙', () => {
+    // 内容在视口顶边之上 100px，24px 空隙 → 需要上移 124
+    expect(scrollDeltaToReveal({ top: 0, bottom: 20 }, viewport)).toBe(-124)
+  })
+
+  it('在视口下方时向下滚，并留出空隙', () => {
+    // 内容底边超出视口底边 50px，24px 空隙 → 需要下移 74
+    expect(scrollDeltaToReveal({ top: 950, bottom: 950 }, viewport)).toBe(74)
+  })
+
+  it('容器没有尺寸（隐藏/未布局）时不动', () => {
+    expect(scrollDeltaToReveal({ top: 0, bottom: 10 }, { top: 0, height: 0 })).toBe(0)
+  })
+
+  it('空隙不会超过半屏，避免上下条件互相打架', () => {
+    // 视口只有 40px 高，margin 24 > 半屏 20 → 夹到 20
+    expect(scrollDeltaToReveal({ top: 0, bottom: 10 }, { top: 0, height: 40 }, 24)).toBe(-20)
   })
 })

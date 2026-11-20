@@ -5,12 +5,24 @@ import AiApprovalCard from './AiApprovalCard.vue'
 
 const props = defineProps<{ records: ConversationApprovalRecord[] }>()
 
-/** 有待批准的摊开，否则收起来；之后开合交给用户 */
-const open = ref(props.records.some((record) => !record.decision))
+/**
+ * 「要人来点」的待批准。
+ *
+ * 完全控制下自动放行的那些（`auto`）**不算**：它们不需要任何人操作，
+ * 把分组顶开只是把一堆 diff 推到用户眼前。注意必须判 `auto` 而不是只看
+ * `decision`——自动放行的记录是先插入、随后被 store 立即 resolve 的，
+ * 中间那一瞬 `decision` 仍是 undefined。
+ */
+function hasManualPending(records: ConversationApprovalRecord[]): boolean {
+  return records.some((record) => !record.decision && !record.auto)
+}
 
-// 分组已经收着的时候又来了新审批，得把它顶开，否则用户根本看不到
+/** 有要人点的待批准才摊开，否则收起来；之后开合交给用户 */
+const open = ref(hasManualPending(props.records))
+
+// 分组已经收着的时候又来了新的**需人工**审批，得把它顶开，否则用户根本看不到
 watch(
-  () => props.records.some((record) => !record.decision),
+  () => hasManualPending(props.records),
   (hasPending) => {
     if (hasPending) open.value = true
   }

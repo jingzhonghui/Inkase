@@ -11,6 +11,7 @@ import SideBar from './components/layout/SideBar.vue'
 import StatusBar from './components/layout/StatusBar.vue'
 import EditorPanel from './components/editor/EditorPanel.vue'
 import ConfirmDialog from './components/common/ConfirmDialog.vue'
+import PromptDialog from './components/common/PromptDialog.vue'
 import PdfExportView from './components/export/PdfExportView.vue'
 import PdfBatchProgressDialog from './components/export/PdfBatchProgressDialog.vue'
 import UpdateDialog from './components/update/UpdateDialog.vue'
@@ -149,6 +150,7 @@ onUnmounted(() => {
     <StatusBar />
 
     <ConfirmDialog />
+    <PromptDialog />
     <PdfExportView />
     <PdfBatchProgressDialog />
     <UpdateDialog />

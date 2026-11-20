@@ -3,11 +3,15 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { nextTick } from 'vue'
+import { defineComponent, h, nextTick } from 'vue'
 import FileExplorer from '../FileExplorer.vue'
+import PromptDialog from '../../common/PromptDialog.vue'
+import ConfirmDialog from '../../common/ConfirmDialog.vue'
 import { useFileStore } from '../../../stores/file'
 import type { FileTreeNode, TabInfo } from '../../../stores/file/types'
 import { validateWindowsFolderName, validateWindowsFileName } from '../../../utils/windows-filename'
+import { cancelDialogRequest } from '../../../utils/dialog'
+import { cancelPrompt } from '../../../utils/prompt'
 
 function makeDir(path: string, name: string, children: FileTreeNode[] = []): FileTreeNode {
   return { name, path, isDirectory: true, isExpanded: true, isLoading: false, children }
@@ -42,6 +46,57 @@ function topLevelLabels(): string[] {
     return label.textContent?.trim() ?? ''
   })
 }
+
+/**
+ * 挂载文件树，并带上它依赖的两个全局对话框。
+ *
+ * 输入框（`PromptDialog`）与确认框（`ConfirmDialog`）都挂在 `App.vue` 上：
+ * 新建文件 / 重命名也从文件菜单进来，不可能跟着文件树一起被 `v-if` 掉。
+ * 所以单挂 `FileExplorer` 是拿不到 `.dialog-input` 的，测试里必须把宿主一起挂。
+ */
+const mountedHosts: Array<ReturnType<typeof mount>> = []
+
+function mountExplorerWithDialogs(
+  tree: FileTreeNode[],
+  options: { openedFolderPath?: string | null; attachTo?: HTMLElement } = {}
+): { wrapper: ReturnType<typeof mount>; fileStore: ReturnType<typeof useFileStore> } {
+  const pinia = createPinia()
+  setActivePinia(pinia)
+  const fileStore = useFileStore()
+  fileStore.openedFolderPath =
+    'openedFolderPath' in options ? (options.openedFolderPath ?? null) : 'C:/workspace'
+  fileStore.fileTree = tree
+  const Host = defineComponent({
+    render: () => h('div', [h(FileExplorer), h(PromptDialog), h(ConfirmDialog)])
+  })
+  const wrapper = mount(Host, {
+    global: { plugins: [pinia] },
+    attachTo: options.attachTo
+  })
+  mountedHosts.push(wrapper)
+  return { wrapper, fileStore }
+}
+
+/**
+ * 所有用例统一由这里收尾。
+ *
+ * 三件事都必须做：
+ * 1. 关掉还开着的对话框。`promptState` / `dialogState` 是模块级单例，
+ *    跨用例残留会让下一条用例一挂载就弹出「上一条留下的」对话框，
+ *    于是 `querySelector('.dialog-input')` 抓到的是别的测试的输入框。
+ * 2. 卸载（让 Vue 自己把 teleport 收干净）。
+ * 3. 再清空 body。
+ *
+ * 顺序不能反：直接 `document.body.innerHTML = ''` 之后 Vue 手里还攥着被删掉的
+ * teleport 容器，下一次 `v-if` 打开就是
+ * `Cannot read properties of null (reading 'insertBefore')`。
+ */
+afterEach(() => {
+  cancelPrompt()
+  cancelDialogRequest()
+  while (mountedHosts.length > 0) mountedHosts.pop()?.unmount()
+  document.body.innerHTML = ''
+})
 
 describe('validateWindowsFolderName', () => {
   it('accepts normal Windows folder names', () => {
@@ -137,14 +192,11 @@ describe('FileExplorer 空白区右键菜单', () => {
   beforeEach(() => setActivePinia(createPinia()))
 
   function mountExplorer() {
-    const pinia = createPinia()
-    setActivePinia(pinia)
-    const fileStore = useFileStore()
-    fileStore.openedFolderPath = 'C:/ws'
-    fileStore.fileTree = [makeDir('C:/ws', 'ws', [makeFile('C:/ws/a.md', 'a.md')])]
-    return mount(FileExplorer, {
-      global: { plugins: [pinia] }
-    })
+    const { wrapper } = mountExplorerWithDialogs(
+      [makeDir('C:/ws', 'ws', [makeFile('C:/ws/a.md', 'a.md')])],
+      { openedFolderPath: 'C:/ws' }
+    )
+    return wrapper
   }
 
   async function openEmptyAreaMenu(wrapper: ReturnType<typeof mount>): Promise<void> {
@@ -168,12 +220,7 @@ describe('FileExplorer 空白区右键菜单', () => {
   })
 
   it('does not offer quick-open when no folder is opened', async () => {
-    const fileStore = useFileStore()
-    fileStore.openedFolderPath = null
-    fileStore.fileTree = []
-    const wrapper = mount(FileExplorer, {
-      global: { plugins: [createPinia()] }
-    })
+    const { wrapper } = mountExplorerWithDialogs([], { openedFolderPath: null })
     await openEmptyAreaMenu(wrapper)
 
     expect(submenuItem('打开', '快速打开')).toBeUndefined()
@@ -219,12 +266,9 @@ describe('FileExplorer 空白区右键菜单', () => {
 
 describe('FileExplorer 新建文件夹输入', () => {
   function mountExplorer() {
-    const pinia = createPinia()
-    setActivePinia(pinia)
-    const fileStore = useFileStore()
-    fileStore.openedFolderPath = 'C:/workspace'
-    fileStore.fileTree = [makeDir('C:/workspace', 'workspace')]
-    return { wrapper: mount(FileExplorer, { global: { plugins: [pinia] } }), fileStore }
+    // 必须带上 PromptDialog：输入框是全局单例（挂载在 App.vue），
+    // 只挂文件树时 `.dialog-input` 根本不在 DOM 里
+    return mountExplorerWithDialogs([makeDir('C:/workspace', 'workspace')])
   }
 
   async function openCreateFolderDialog(wrapper: ReturnType<typeof mount>): Promise<void> {
@@ -262,12 +306,7 @@ describe('FileExplorer 新建文件夹输入', () => {
 
 describe('FileExplorer 新建文件对话框（后缀自由输入）', () => {
   function mountExplorer() {
-    const pinia = createPinia()
-    setActivePinia(pinia)
-    const fileStore = useFileStore()
-    fileStore.openedFolderPath = 'C:/workspace'
-    fileStore.fileTree = [makeDir('C:/workspace', 'workspace')]
-    return { wrapper: mount(FileExplorer, { global: { plugins: [pinia] } }), fileStore }
+    return mountExplorerWithDialogs([makeDir('C:/workspace', 'workspace')])
   }
 
   async function openCreateFileDialog(wrapper: ReturnType<typeof mount>): Promise<void> {
@@ -284,14 +323,6 @@ describe('FileExplorer 新建文件对话框（后缀自由输入）', () => {
     document.body.querySelector<HTMLButtonElement>('.dialog-btn-confirm')?.click()
     await nextTick()
   }
-
-  beforeEach(() => {
-    document.body.innerHTML = ''
-  })
-
-  afterEach(() => {
-    document.body.innerHTML = ''
-  })
 
   it('starts empty with an example placeholder and no extension dropdown', async () => {
     const { wrapper } = mountExplorer()
@@ -348,30 +379,20 @@ describe('FileExplorer 新建文件对话框（后缀自由输入）', () => {
 })
 
 describe('FileExplorer F2 重命名', () => {
-  beforeEach(() => {
-    document.body.innerHTML = ''
-  })
+  function mountExplorer(children: FileTreeNode[] = [makeFile('C:/workspace/a.md', 'a.md')]) {
+    return mountExplorerWithDialogs([makeDir('C:/workspace', 'workspace', children)], {
+      attachTo: document.body
+    })
+  }
 
-  afterEach(() => {
-    document.body.innerHTML = ''
-  })
-
-  function mountExplorer() {
-    const pinia = createPinia()
-    setActivePinia(pinia)
-    const fileStore = useFileStore()
-    fileStore.openedFolderPath = 'C:/workspace'
-    fileStore.fileTree = [
-      makeDir('C:/workspace', 'workspace', [makeFile('C:/workspace/a.md', 'a.md')])
-    ]
-    const wrapper = mount(FileExplorer, { global: { plugins: [pinia] }, attachTo: document.body })
-    return { wrapper, fileStore }
+  function renameInput(): HTMLInputElement {
+    return document.body.querySelector<HTMLInputElement>('.dialog-input')!
   }
 
   it('opens rename input only when the explorer has focus and one item is selected', async () => {
-    const { wrapper, fileStore } = mountExplorer()
+    const { wrapper: host, fileStore } = mountExplorer()
     fileStore.selectOnly('C:/workspace/a.md')
-    const fileList = wrapper.find('.file-list')
+    const fileList = host.find('.file-list')
     await fileList.element.focus()
     await fileList.trigger('keydown', { key: 'F2' })
     await nextTick()
@@ -381,14 +402,210 @@ describe('FileExplorer F2 重命名', () => {
   })
 
   it('does not rename when multiple items are selected', async () => {
-    const { wrapper, fileStore } = mountExplorer()
+    const { wrapper: host, fileStore } = mountExplorer()
     fileStore.selectOnly('C:/workspace/a.md')
     fileStore.toggleSelected('C:/workspace')
-    const fileList = wrapper.find('.file-list')
+    const fileList = host.find('.file-list')
     await fileList.element.focus()
     await fileList.trigger('keydown', { key: 'F2' })
     await nextTick()
     expect(document.body.querySelector('.dialog-input')).toBeNull()
+  })
+
+  it('默认只选中主文件名，后缀留在选中区之外', async () => {
+    const { wrapper: host, fileStore } = mountExplorer()
+    fileStore.selectOnly('C:/workspace/a.md')
+    const fileList = host.find('.file-list')
+    await fileList.element.focus()
+    await fileList.trigger('keydown', { key: 'F2' })
+    await nextTick()
+    await nextTick()
+
+    const input = renameInput()
+    expect(input.value).toBe('a.md')
+    // 「a」被选中、「.md」不被选中：直接打字就是改名，后缀不会丢
+    expect([input.selectionStart, input.selectionEnd]).toEqual([0, 1])
+  })
+
+  it('多后缀文件只剥最后一个后缀', async () => {
+    const { wrapper: host, fileStore } = mountExplorer([
+      makeFile('C:/workspace/archive.tar.gz', 'archive.tar.gz')
+    ])
+    fileStore.selectOnly('C:/workspace/archive.tar.gz')
+    const fileList = host.find('.file-list')
+    await fileList.element.focus()
+    await fileList.trigger('keydown', { key: 'F2' })
+    await nextTick()
+    await nextTick()
+
+    const input = renameInput()
+    expect([input.selectionStart, input.selectionEnd]).toEqual([0, 'archive.tar'.length])
+  })
+
+  it('点开头的名字没有后缀可言，整名选中', async () => {
+    const { wrapper: host, fileStore } = mountExplorer([
+      makeFile('C:/workspace/.gitignore', '.gitignore')
+    ])
+    fileStore.selectOnly('C:/workspace/.gitignore')
+    const fileList = host.find('.file-list')
+    await fileList.element.focus()
+    await fileList.trigger('keydown', { key: 'F2' })
+    await nextTick()
+    await nextTick()
+
+    const input = renameInput()
+    expect([input.selectionStart, input.selectionEnd]).toEqual([0, '.gitignore'.length])
+  })
+
+  it('文件夹重命名整名选中（目录名里的点不是后缀）', async () => {
+    const { wrapper: host, fileStore } = mountExplorer([makeDir('C:/workspace/docs.v2', 'docs.v2')])
+    fileStore.selectOnly('C:/workspace/docs.v2')
+    const fileList = host.find('.file-list')
+    await fileList.element.focus()
+    await fileList.trigger('keydown', { key: 'F2' })
+    await nextTick()
+    await nextTick()
+
+    const input = renameInput()
+    expect([input.selectionStart, input.selectionEnd]).toEqual([0, 'docs.v2'.length])
+  })
+})
+
+describe('FileExplorer Delete 键删除', () => {
+  function mountExplorer(children: FileTreeNode[]) {
+    return mountExplorerWithDialogs([makeDir('C:/workspace', 'workspace', children)], {
+      attachTo: document.body
+    })
+  }
+
+  /** 点确认框里的「删除」 */
+  async function confirmDelete(): Promise<void> {
+    document.body.querySelector<HTMLButtonElement>('.dialog-btn-confirm')?.click()
+    await nextTick()
+    await nextTick()
+  }
+
+  it('单选按 Delete 先确认，确认后删掉该文件', async () => {
+    const { wrapper: host, fileStore } = mountExplorer([
+      makeFile('C:/workspace/a.md', 'a.md'),
+      makeFile('C:/workspace/b.md', 'b.md')
+    ])
+    const deleteItem = vi.spyOn(fileStore, 'deleteItem').mockResolvedValue(true)
+    fileStore.selectOnly('C:/workspace/a.md')
+
+    const fileList = host.find('.file-list')
+    await fileList.element.focus()
+    await fileList.trigger('keydown', { key: 'Delete' })
+    await nextTick()
+
+    expect(document.body.querySelector('.dialog-title')?.textContent).toContain('删除文件')
+    expect(deleteItem).not.toHaveBeenCalled()
+
+    await confirmDelete()
+    expect(deleteItem).toHaveBeenCalledWith('C:/workspace/a.md')
+  })
+
+  it('取消时不删除', async () => {
+    const { wrapper: host, fileStore } = mountExplorer([makeFile('C:/workspace/a.md', 'a.md')])
+    const deleteItem = vi.spyOn(fileStore, 'deleteItem').mockResolvedValue(true)
+    fileStore.selectOnly('C:/workspace/a.md')
+
+    const fileList = host.find('.file-list')
+    await fileList.element.focus()
+    await fileList.trigger('keydown', { key: 'Delete' })
+    await nextTick()
+    document.body.querySelector<HTMLButtonElement>('.dialog-btn-cancel')?.click()
+    await nextTick()
+
+    expect(deleteItem).not.toHaveBeenCalled()
+  })
+
+  it('多选时逐个删除', async () => {
+    const { wrapper: host, fileStore } = mountExplorer([
+      makeFile('C:/workspace/a.md', 'a.md'),
+      makeFile('C:/workspace/b.md', 'b.md'),
+      makeFile('C:/workspace/c.md', 'c.md')
+    ])
+    const deleteItem = vi.spyOn(fileStore, 'deleteItem').mockResolvedValue(true)
+    fileStore.selectOnly('C:/workspace/a.md')
+    fileStore.toggleSelected('C:/workspace/b.md')
+
+    const fileList = host.find('.file-list')
+    await fileList.element.focus()
+    await fileList.trigger('keydown', { key: 'Delete' })
+    await nextTick()
+
+    expect(document.body.querySelector('.dialog-title')?.textContent).toContain('删除所选项目')
+    await confirmDelete()
+
+    expect(deleteItem.mock.calls.map((call) => call[0])).toEqual([
+      'C:/workspace/a.md',
+      'C:/workspace/b.md'
+    ])
+  })
+
+  it('目录与其子项同时选中时只删目录（子项不再单独删一次）', async () => {
+    const { wrapper: host, fileStore } = mountExplorer([
+      makeDir('C:/workspace/src', 'src', [makeFile('C:/workspace/src/a.md', 'a.md')])
+    ])
+    const deleteItem = vi.spyOn(fileStore, 'deleteItem').mockResolvedValue(true)
+    fileStore.selectOnly('C:/workspace/src')
+    fileStore.toggleSelected('C:/workspace/src/a.md')
+
+    const fileList = host.find('.file-list')
+    await fileList.element.focus()
+    await fileList.trigger('keydown', { key: 'Delete' })
+    await nextTick()
+    await confirmDelete()
+
+    expect(deleteItem.mock.calls.map((call) => call[0])).toEqual(['C:/workspace/src'])
+  })
+
+  it('列表没有焦点时不响应 Delete（例如焦点在编辑器里）', async () => {
+    const { wrapper: host, fileStore } = mountExplorer([makeFile('C:/workspace/a.md', 'a.md')])
+    const deleteItem = vi.spyOn(fileStore, 'deleteItem').mockResolvedValue(true)
+    fileStore.selectOnly('C:/workspace/a.md')
+
+    const fileList = host.find('.file-list')
+    await fileList.trigger('keydown', { key: 'Delete' })
+    await nextTick()
+
+    expect(document.body.querySelector('.dialog-input')).toBeNull()
+    expect(deleteItem).not.toHaveBeenCalled()
+  })
+
+  it('确认框说明是移入回收站，不是永久删除', async () => {
+    const { wrapper: host, fileStore } = mountExplorer([makeFile('C:/workspace/a.md', 'a.md')])
+    vi.spyOn(fileStore, 'deleteItem').mockResolvedValue(true)
+    fileStore.selectOnly('C:/workspace/a.md')
+
+    const fileList = host.find('.file-list')
+    await fileList.element.focus()
+    await fileList.trigger('keydown', { key: 'Delete' })
+    await nextTick()
+
+    expect(document.body.querySelector('.dialog-message')?.textContent).toContain('回收站')
+  })
+
+  it('移入回收站失败时明确提示，不静默吞掉', async () => {
+    const { wrapper: host, fileStore } = mountExplorer([makeFile('C:/workspace/a.md', 'a.md')])
+    vi.spyOn(fileStore, 'deleteItem').mockResolvedValue(false)
+    fileStore.error = '移入回收站失败：recycle bin unavailable'
+    fileStore.selectOnly('C:/workspace/a.md')
+
+    const fileList = host.find('.file-list')
+    await fileList.element.focus()
+    await fileList.trigger('keydown', { key: 'Delete' })
+    await nextTick()
+
+    // 第一层是删除确认
+    await confirmDelete()
+    // 失败提示要等 deleteItem 的 promise 结算后才弹，比成功路径多一轮微任务
+    await nextTick()
+    await nextTick()
+
+    expect(document.body.querySelector('.dialog-title')?.textContent).toContain('删除失败')
+    expect(document.body.querySelector('.dialog-message')?.textContent).toContain('回收站')
   })
 })
 

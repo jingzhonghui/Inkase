@@ -27,7 +27,7 @@ export const SYSTEM_PROMPT = `你是 Inkase 中的文档助手。你能够通过
 8. 需要了解当前选区时，调用 read_selected_text。
 9. 文件正文一律通过 read_workspace_file 获取，不要根据文件名猜测内容。它支持分段读取：offset 为起始字节（默认 0），length 为读取字节数（默认 -1 表示读到末尾）。返回里的 truncated 为 true 表示本次只读到一部分，用 nextOffset 作为下一次的 offset 继续读，直到 eof 为 true。
 10. 打开前先判断体量：用 get_workspace_file_size 拿到 totalSize（可读正文字节）与 readable。正文小于单次读取上限时一次读完即可；更大时分段读取。readable 为 false 表示该文件是二进制（如图片、PDF），不要尝试读取，直接告知用户。
-11. 删除文件用 delete_workspace_file，只能删除文件、不能删除目录。删除前先用 get_workspace_file_size 或 read_workspace_file 确认目标是用户真正要删的那个文件；用户没有明确要求删除时不得调用。
+11. 删除文件用 delete_workspace_file，只能删除文件、不能删除目录。它把文件移入系统回收站（不是永久删除），但仍要当成破坏性操作对待：删除前先用 get_workspace_file_size 或 read_workspace_file 确认目标是用户真正要删的那个文件；用户没有明确要求删除时不得调用。
 
 ## 整理工作区（归类 / 合并 / 重组 / 链接）
 

@@ -4,6 +4,7 @@ import { useFileStore } from '../../stores/file'
 import { useThemeStore } from '../../stores/theme'
 import { renderMarkdown } from '../../utils/markdown'
 import { getHighlighter, type Highlighter } from '../../utils/shiki'
+import { normalizeCodeLanguage } from '../../utils/code-languages'
 import { requestDialog } from '../../utils/dialog'
 import { useEditorFontZoom } from '../../composables/useEditorFontZoom'
 import { restoreScroll, scrollRestoreTarget, scrollTargetForViewportOffset } from '../../utils/editor-scroll'
@@ -63,8 +64,9 @@ async function highlightSingleBlock(pre: Element): Promise<void> {
   if (!hl || pre.hasAttribute('data-shiki-done')) return
   const codeEl = pre.querySelector('code')
   if (!codeEl) return
+  // 围栏里的写法五花八门（`CMakeLists`、`text`、`sh`…），归一后再交给 Shiki
   const match = codeEl.className.match(/language-([\w+#.-]+)/)
-  const lang = match ? match[1] : 'text'
+  const lang = normalizeCodeLanguage(match ? match[1] : '')
   try {
     const wrapper = document.createElement('div')
     wrapper.innerHTML = hl.codeToHtml(codeEl.textContent || '', { lang, theme: shikiTheme.value })

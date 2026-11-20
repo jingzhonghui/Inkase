@@ -410,6 +410,8 @@ export function useFolder(deps: FolderDeps) {
         })
         return await deps.openFile(result.data.path, { addToRecent: false, excludeFromRecent: true })
       }
+      // 失败原因（重名、无写权限…）要留给调用方展示，否则用户只看到「没反应」
+      deps.error.value = result.error || '新建文件失败'
       return false
     } catch {
       return false
@@ -634,6 +636,9 @@ export function useFolder(deps: FolderDeps) {
         pruneSelection()
         return true
       }
+      // 失败原因必须留给调用方：删除走的是系统回收站，网络盘 / 只读卷上会失败，
+      // 静默返回 false 会让用户以为删掉了，实际文件还在
+      deps.error.value = result.error || '删除失败'
       return false
     } catch {
       return false

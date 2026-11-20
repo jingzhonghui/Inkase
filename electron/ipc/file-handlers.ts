@@ -632,19 +632,26 @@ export function registerFileHandlers(): void {
     }
   )
 
-  // 删除文件/文件夹
+  /*
+   * 删除文件 / 文件夹 —— 移入**系统回收站**，不做永久删除。
+   *
+   * `shell.trashItem` 是跨平台的回收站入口（Windows 回收站 / macOS 废纸篓 /
+   * Linux 的 XDG trash），目录同样支持。
+   *
+   * **失败时绝不回退到 `fs.rm`**：用户按「删除」的预期是「还能捞回来」，
+   * 静默升级成永久删除是最坏的失败方式。宁可报错，让用户自己决定要不要
+   * 绕路手动清理（回收站不可用多见于网络盘、只读卷、回收站容量超限）。
+   */
   ipcMain.handle(IPC_CHANNELS.FILE.DELETE, async (_, { targetPath }: { targetPath: string }) => {
     try {
-      const stat = fs.statSync(targetPath)
-      if (stat.isDirectory()) {
-        fs.rmSync(targetPath, { recursive: true, force: true })
-      } else {
-        fs.unlinkSync(targetPath)
+      if (!fs.existsSync(targetPath)) {
+        return { success: false, error: '文件不存在，可能已被移动或删除' }
       }
+      await shell.trashItem(targetPath)
       return { success: true }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '未知错误'
-      return { success: false, error: errorMessage }
+      return { success: false, error: `移入回收站失败：${errorMessage}` }
     }
   })
 

@@ -158,6 +158,29 @@ export function restoreScroll(
 }
 
 /**
+ * 「把某段内容带进视口」需要给容器 `scrollTop` 加多少像素。
+ *
+ * 三个入参都在同一套视口坐标系里（`getBoundingClientRect` / ProseMirror `coordsAtPos`
+ * 给的正是它）：`rect` 是目标内容的上下边，`viewport` 是滚动容器可视区的上边与高度。
+ * 返回 0 表示已经看得见，不做无谓的滚动；否则只滚到「刚好带进来并留 margin 空隙」，
+ * 与 CodeMirror 的 `scrollIntoView` 一样尽量少动，不会把整屏甩走。
+ */
+export function scrollDeltaToReveal(
+  rect: { top: number; bottom: number },
+  viewport: { top: number; height: number },
+  margin = 24
+): number {
+  if (viewport.height <= 0) return 0
+  // 空隙不能超过半屏，否则上下两个条件会互相打架
+  const gap = Math.min(Math.max(margin, 0), viewport.height / 2)
+  const top = rect.top - viewport.top
+  const bottom = rect.bottom - viewport.top
+  if (top < gap) return top - gap
+  if (bottom > viewport.height - gap) return bottom - viewport.height + gap
+  return 0
+}
+
+/**
  * 恢复滚动位置：把 element 的**顶边**放回它在保存时的屏幕位置（offsetPx 为当时的
  * elementRect.top - containerRect.top，可为负）。
  *

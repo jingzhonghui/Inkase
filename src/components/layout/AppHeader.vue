@@ -26,7 +26,8 @@ import {
   formatShortcut,
   type CommandId
 } from '../../shortcuts/registry'
-import { requestDialog } from '../../utils/dialog'
+import { dialogState, requestDialog } from '../../utils/dialog'
+import { isPromptOpen } from '../../utils/prompt'
 import { findCodeLanguage, languageDisplayName } from '../../utils/editor-language'
 import SyncPanel from './SyncPanel.vue'
 import SettingsDialog from '../settings/SettingsDialog.vue'
@@ -997,7 +998,11 @@ function isAnyDialogOpen(): boolean {
     settingsOpen.value ||
     linkDialogOpen.value ||
     imageDialogOpen.value ||
-    aboutOpen.value
+    aboutOpen.value ||
+    // 重命名 / 新建文件这类输入框同样在拦截 Escape 与 Ctrl+W：
+    // 这时用户想关的是输入框，不该顺手把背后的文档关掉
+    isPromptOpen() ||
+    dialogState.visible
   )
 }
 

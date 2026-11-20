@@ -17,6 +17,25 @@ const SAMPLE_PDF = path.join(FIXTURES_DIR, 'sample.pdf')
 const SAMPLE_MDX = path.join(FIXTURES_DIR, 'sample.mdx')
 const signal = (): AbortSignal => new AbortController().signal
 
+/**
+ * 当前环境能否创建符号链接。
+ * Windows 上需要开发者模式或管理员权限，否则 `fs.symlinkSync` 直接 EPERM；
+ * 没有这个能力就构造不出「符号链接元数据」这个场景，相关用例应当跳过。
+ */
+const CAN_CREATE_SYMLINK = (() => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'inkase-symlink-probe-'))
+  try {
+    const target = path.join(dir, 'a.md')
+    fs.writeFileSync(target, 'body')
+    fs.symlinkSync(target, path.join(dir, 'b.md'))
+    return true
+  } catch {
+    return false
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})()
+
 function htmlResponse(html: string, status = 200, headers: Record<string, string> = {}): Response {
   return new Response(html, { status, headers: { 'content-type': 'text/html', ...headers } })
 }
@@ -189,12 +208,9 @@ describe('SourceAccessService local files', () => {
     expect((await service.readLocalFile(SAMPLE_PDF, signal())).content).toContain('PDF material sample')
   })
 
-  it.each(['folder', 'unsupported', 'symlink', 'realpath'])('fails closed for unsafe metadata: %s', async (kind) => {
+  it.each(['folder', 'unsupported', 'realpath'])('fails closed for unsafe metadata: %s', async (kind) => {
     const target = path.join(tmpDir, kind === 'unsupported' ? `${kind}.exe` : `${kind}.md`)
     if (kind === 'folder') fs.mkdirSync(target); else fs.writeFileSync(target, 'body')
-    if (kind === 'symlink') {
-      const link = path.join(tmpDir, 'link.md'); fs.symlinkSync(target, link); await expect(createService().inspectLocalFile(link)).rejects.toMatchObject({ code: 'SOURCE_POLICY_BLOCKED' }); return
-    }
     if (kind === 'realpath') {
       const real = path.join(tmpDir, 'other.md')
       const base = fs.promises
@@ -202,6 +218,16 @@ describe('SourceAccessService local files', () => {
       await expect(createService({ fileSystem: injected }).inspectLocalFile(target)).rejects.toMatchObject({ code: 'SOURCE_POLICY_BLOCKED' }); return
     }
     await expect(createService().inspectLocalFile(target)).rejects.toMatchObject({ code: 'SOURCE_INVALID' })
+  })
+
+  // 单独一条：Windows 未开启开发者模式、也不是管理员时创建符号链接会 EPERM，
+  // 这是环境限制而不是产品行为，没有构造条件就跳过，不把它算成失败。
+  it.skipIf(!CAN_CREATE_SYMLINK)('fails closed for unsafe metadata: symlink', async () => {
+    const target = path.join(tmpDir, 'symlink.md')
+    fs.writeFileSync(target, 'body')
+    const link = path.join(tmpDir, 'link.md')
+    fs.symlinkSync(target, link)
+    await expect(createService().inspectLocalFile(link)).rejects.toMatchObject({ code: 'SOURCE_POLICY_BLOCKED' })
   })
 
   it('rejects pre-open/post-open identity changes and reported reparse metadata', async () => {
