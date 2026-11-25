@@ -7,6 +7,7 @@ import {
   DEFAULT_EDITOR_FONT_FAMILY,
   DEFAULT_EDITOR_MONO_FONT_FAMILY,
   DEFAULT_EDITOR_LINE_HEIGHT,
+  DEFAULT_SHOW_EDITOR_TOOLBAR,
   MIN_UI_FONT_SIZE,
   MAX_UI_FONT_SIZE,
   MIN_EDITOR_FONT_SIZE,
@@ -209,8 +210,19 @@ describe('appearance store', () => {
       editorFontSize: 18,
       editorFontFamily: "'SimSun'",
       editorMonoFontFamily: "'Consolas'",
-      editorLineHeight: 1.6
+      editorLineHeight: 1.6,
+      showEditorToolbar: true
     })
+  })
+
+  it('persists the editor toolbar switch', () => {
+    const store = useAppearanceStore()
+
+    store.setShowEditorToolbar(false)
+
+    expect(store.showEditorToolbar).toBe(false)
+    const raw = (localStorage.setItem as unknown as ReturnType<typeof vi.fn>).mock.calls.at(-1)?.[1]
+    expect(JSON.parse(raw as string).showEditorToolbar).toBe(false)
   })
 
   it('applies css variables when values change', () => {
@@ -234,5 +246,7 @@ describe('appearance store', () => {
     expect(store.editorFontFamily).toBe(DEFAULT_EDITOR_FONT_FAMILY)
     expect(store.editorMonoFontFamily).toBe(DEFAULT_EDITOR_MONO_FONT_FAMILY)
     expect(store.editorLineHeight).toBe(DEFAULT_EDITOR_LINE_HEIGHT)
+    // 老配置里没有这个字段：必须回落默认「显示」，否则升级后工具栏会莫名消失
+    expect(store.showEditorToolbar).toBe(DEFAULT_SHOW_EDITOR_TOOLBAR)
   })
 })

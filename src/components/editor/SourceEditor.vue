@@ -15,6 +15,8 @@ import { highlightSelectionMatches } from '@codemirror/search'
 import { closeBrackets, closeBracketsKeymap, autocompletion, completionKeymap, type Completion } from '@codemirror/autocomplete'
 import { oneDark } from '@codemirror/theme-one-dark'
 import { findCodeLanguage } from '../../utils/editor-language'
+import { readFormatStateFromCodeMirror } from '../../utils/editor-format-state'
+import { publishEditorFormatState } from '../../types/editor-format-state'
 import { formatCode, isFormattable } from '../../utils/formatters'
 import { requestDialog } from '../../utils/dialog'
 import { useEditorFontZoom } from '../../composables/useEditorFontZoom'
@@ -294,6 +296,12 @@ function createExtensions(): Extension[] {
       if (update.selectionSet || update.docChanged) {
         updateCursorPosition(update.state)
         updateEditorSelectionSnapshot(update.state)
+      }
+      // `viewportChanged` 也要发：Markdown 语法树是随视口增量解析的，
+      // 刚打开文档时 `resolveInner` 只能拿到已解析的部分，
+      // 少了这一条会出现「明明在标题里，标题按钮却不亮」
+      if (update.selectionSet || update.docChanged || update.viewportChanged) {
+        scheduleFormatStatePublish()
       }
     }),
 
@@ -887,6 +895,28 @@ function updateEditorSelectionSnapshot(state: EditorState): void {
   fileStore.updateEditorSelection({ tabId, from, to, cursor: head, text })
 }
 
+// ────── 编辑器状态回传（供 Markdown 工具栏高亮） ──────
+/**
+ * 一帧内只发一次：连续打字时工具栏没必要每个字符都重算一遍高亮。
+ * 纯文本模式不参与——那边没有 Markdown 语义，`.md` 之外的标签也不显示工具栏。
+ */
+let formatStateScheduled = false
+
+function publishFormatState(): void {
+  const view = editorView.value
+  if (!view || props.plainText) return
+  publishEditorFormatState(readFormatStateFromCodeMirror(view.state))
+}
+
+function scheduleFormatStatePublish(): void {
+  if (props.plainText || formatStateScheduled) return
+  formatStateScheduled = true
+  requestAnimationFrame(() => {
+    formatStateScheduled = false
+    publishFormatState()
+  })
+}
+
 /**
  * 初始化编辑器
  */
@@ -910,6 +940,9 @@ function initEditor(): void {
   editorView.value = view
   updateCursorPosition(view.state)
   updateEditorSelectionSnapshot(view.state)
+  // 立刻发一次：切标签/切模式后工具栏要马上反映当前光标所在的格式，
+  // 等下一帧发会在这一瞬间留着上一篇文档的高亮
+  publishFormatState()
 
   if (props.plainText) loadPlainLanguage(view)
 }
@@ -1216,6 +1249,14 @@ function handleFormatEvent(e: Event): void {
     case 'strikethrough':
       wrapSelection(view, '~~', '~~')
       break
+    case 'code':
+      // 内联代码：源码模式没有 ProseMirror 的 mark，包里反引号即可。
+      // 选中内容含反引号时退化成「不包裹」，否则会产出无法解析的 markdown
+      if (view.state.doc.sliceString(view.state.selection.main.from, view.state.selection.main.to).includes('`')) {
+        break
+      }
+      wrapSelection(view, '`', '`')
+      break
     case 'unorderedList':
       prependLinePrefix(view, '- ')
       break
@@ -1246,15 +1287,17 @@ function handleHeadingEvent(e: Event): void {
   const { from } = view.state.selection.main
   const line = view.state.doc.lineAt(from)
 
-  // 移除已有标题标记
-  const existingMatch = line.text.match(/^(#{0,4})\s/)
+  // 移除已有标题标记。
+  // 上界必须是 6：Markdown 标题最多六级，写成 4 时「光标在 ##### 标题里再点五级标题」
+  // 匹配不到既有标记，会在前面再叠一层变成 `###### ##### 原文本`。
+  const existingMatch = line.text.match(/^(#{0,6})\s/)
   const currentLevel = existingMatch ? existingMatch[1].length : 0
 
   let newText: string
   if (level === 0) {
-    newText = line.text.replace(/^#{1,4}\s+/, '')
+    newText = line.text.replace(/^#{1,6}\s+/, '')
   } else if (currentLevel > 0) {
-    newText = line.text.replace(/^#{1,4}\s*/, '#'.repeat(level) + ' ')
+    newText = line.text.replace(/^#{1,6}\s*/, '#'.repeat(level) + ' ')
   } else {
     newText = '#'.repeat(level) + ' ' + line.text
   }
@@ -1303,7 +1346,9 @@ function handleCodeBlockEvent(e: Event): void {
   const view = editorView.value
   if (!view) return
 
-  const { language } = (e as CustomEvent).detail as { language?: string }
+  // `detail` 兜底成空对象：`new CustomEvent(name)` 的 detail 是 null，
+  // 直接解构会抛 TypeError，让「插入代码块」变成点了没反应
+  const { language } = ((e as CustomEvent).detail ?? {}) as { language?: string }
   const { from } = view.state.selection.main
   const lang = language || ''
   const insert = `\n\`\`\`${lang}\n\n\`\`\`\n`

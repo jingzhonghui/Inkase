@@ -71,4 +71,44 @@ describe('SourceEditor 代码格式化的右键菜单接入', () => {
     expect(menuLabels()).not.toContain('格式化文档')
     wrapper.unmount()
   })
+
+  /**
+   * 五级/六级标题曾经会被叠加成 `###### ##### 原文`：判定既有标记与剥离标记的
+   * 正则都写死成 `{1,4}`，遇到 5 个井号时匹配不上，于是「先剥再拼」退化成
+   * 「只拼不剥」。工具栏的标题下拉能选到 6 级，所以这条路径现在真的会走到。
+   */
+  it('把五级标题改成六级不会叠加井号', async () => {
+    const store = useFileStore()
+    store.createGeneratedDocument('deep', '##### 五级标题', 'markdown')
+    store.tabs[0].fileInfo = { path: 'deep.md', name: 'deep.md', modified: false, format: 'markdown' }
+    const wrapper = mount(SourceEditor, { attachTo: document.body })
+    await nextTick()
+
+    // 光标默认在文档开头，正是那一行
+    window.dispatchEvent(new CustomEvent('editor:heading', { detail: 6 }))
+
+    await waitFor(() => store.fileContent === '###### 五级标题')
+    expect(store.fileContent).toBe('###### 五级标题')
+    wrapper.unmount()
+  })
+
+  /**
+   * 工具栏最初把「代码块」派发成裸事件（`new CustomEvent('editor:codeBlock')`），
+   * 而处理器是 `const { language } = detail` —— 解构 `null` 抛 TypeError，
+   * 事件回调当场中断，用户看到的就是「点了没反应」。这里同时守住两端：
+   * 不带 detail 的事件也不能把处理器打崩。
+   */
+  it('收到不带 detail 的 editor:codeBlock 也能插入代码块', async () => {
+    const store = useFileStore()
+    store.createGeneratedDocument('code', 'hello', 'markdown')
+    store.tabs[0].fileInfo = { path: 'code.md', name: 'code.md', modified: false, format: 'markdown' }
+    const wrapper = mount(SourceEditor, { attachTo: document.body })
+    await nextTick()
+
+    window.dispatchEvent(new CustomEvent('editor:codeBlock'))
+
+    await waitFor(() => store.fileContent.includes('```'))
+    expect(store.fileContent).toContain('```')
+    wrapper.unmount()
+  })
 })

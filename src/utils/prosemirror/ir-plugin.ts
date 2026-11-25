@@ -16,6 +16,22 @@ const BLOCK_MARKER_TYPES = new Set(['blockquote', 'code_block'])
 const INLINE_MARKER_MARKS = new Set(['bold', 'italic', 'strikethrough', 'underline', 'code'])
 
 /**
+ * 行内标记对应的源码符号，以及多标记叠加时的嵌套顺序。
+ *
+ * 空选区按下加粗时，正文里还没有任何字符承载这个 mark，`**` 也就无处可画。
+ * 此时用一对 widget 装饰把符号临时画在光标两侧（见 collectPendingMarkDecorations），
+ * 顺序取 schema 的 mark 顺序，保证「加粗 + 斜体」叠出来是 `***` 而不是 `*` `**` 交错。
+ */
+const INLINE_MARKER_TEXT: Record<string, readonly [string, string]> = {
+  bold: ['**', '**'],
+  italic: ['*', '*'],
+  strikethrough: ['~~', '~~'],
+  underline: ['<u>', '</u>'],
+  code: ['`', '`']
+}
+const INLINE_MARKER_ORDER = ['bold', 'italic', 'strikethrough', 'underline', 'code'] as const
+
+/**
  * IR 模式插件：根据当前选区，仅对选区所在的块级节点与行内标记生成装饰，
  * 使源码标记「只在光标附近展开」。装饰集在每次 state 更新时自动重算。
  */
@@ -28,6 +44,7 @@ export function createIRPlugin(): Plugin {
         collectBlockDecorations(state, decorations)
         collectHeadingMarkerDecorations(state, decorations)
         collectMarkDecorations(state, decorations)
+        collectPendingMarkDecorations(state, decorations)
         collectLinkDecorations(state, decorations)
         collectTaskCheckboxDecorations(state, decorations)
         return decorations.length
@@ -126,6 +143,65 @@ function collectMarkDecorations(state: EditorState, decorations: Decoration[]): 
     if (node.isText) addAt(pos + 1)
     return true
   })
+}
+
+/**
+ * 光标处「待生效」的行内标记：空选区按下加粗/行内代码时，mark 只是挂在
+ * `state.storedMarks` 上（ProseMirror 的 mark 必须附着在文本节点上），正文里
+ * 一个字符都没有，看上去就是「点了没反应」。
+ *
+ * 这里在光标两侧各画一个 widget，把 `**` 这类符号摆出来：
+ *
+ * ```text
+ * **|**      ← 竖线是光标，直接打字就落在这对符号中间
+ * ```
+ *
+ * 打第一个字之后 mark 真的落到文本上，本组 widget 消失、由 collectMarkDecorations
+ * 展开的真标记接管，视觉上无缝衔接。光标处若本来已经有同类标记（在 `**加粗**`
+ * 里面点加粗），那对符号已由真标记画出，这里必须跳过，否则会叠成 `******`。
+ */
+function collectPendingMarkDecorations(state: EditorState, decorations: Decoration[]): void {
+  const { empty, from, $from } = state.selection
+  if (!empty) return
+  const stored = state.storedMarks
+  if (!stored || stored.length === 0) return
+  if (!$from.parent.isTextblock) return
+
+  const presentAtCaret = new Set($from.marks().map((mark) => mark.type.name))
+  const pending = INLINE_MARKER_ORDER.filter(
+    (name) =>
+      INLINE_MARKER_MARKS.has(name) &&
+      !presentAtCaret.has(name) &&
+      stored.some((mark) => mark.type.name === name)
+  )
+  if (pending.length === 0) return
+
+  for (const name of pending) {
+    const [open, close] = INLINE_MARKER_TEXT[name]
+    // 传函数而不是现成的 DOM：与任务勾选框一致，收集装饰阶段不碰 document，
+    // 否则这套逻辑在无 DOM 环境（单测、序列化路径）里会直接抛错。
+    decorations.push(
+      Decoration.widget(from, () => createPendingMarker(open), {
+        side: -1,
+        key: `pending-mark:${from}:${name}:open`
+      })
+    )
+    decorations.push(
+      Decoration.widget(from, () => createPendingMarker(close), {
+        side: 1,
+        key: `pending-mark:${from}:${name}:close`
+      })
+    )
+  }
+}
+
+/** 待生效标记的符号节点：不参与编辑、不接事件，只负责「看起来像源码」。 */
+function createPendingMarker(text: string): HTMLElement {
+  const span = document.createElement('span')
+  span.className = 'ir-pending-mark'
+  span.textContent = text
+  span.contentEditable = 'false'
+  return span
 }
 
 /**

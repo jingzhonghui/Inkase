@@ -49,6 +49,8 @@ import {
 import type { OutlineHeading } from '../../utils/prosemirror/outline'
 import { HorizontalRuleView } from '../../utils/prosemirror/horizontal-rule-view'
 import { findMatches, type SearchMatch } from '../../utils/prosemirror/search'
+import { readFormatStateFromProseMirror } from '../../utils/prosemirror/format-state'
+import { publishEditorFormatState } from '../../types/editor-format-state'
 import { useEditorFontZoom } from '../../composables/useEditorFontZoom'
 import { applyHeadingLevel } from '../../utils/prosemirror/heading-markers'
 import { NodeSelection, Selection, TextSelection } from 'prosemirror-state'
@@ -1019,6 +1021,31 @@ function createContextMenuPlugin(): ProseMirrorPlugin {
   })
 }
 
+// ────── 编辑器状态回传（供 Markdown 工具栏高亮） ──────
+/**
+ * 一帧内只发一次。
+ *
+ * 每次事务都发会让连续打字时工具栏跟着重渲染十几次；而高亮的粒度是「光标所在
+ * 处的格式」，一帧一次已经足够跟上视觉。rAF 回调里读的是**当时**的 state，
+ * 合并调度不会漏掉最后一次变化。
+ */
+let formatStateScheduled = false
+
+function publishFormatState(): void {
+  const view = viewRef.value
+  if (!view || view.isDestroyed) return
+  publishEditorFormatState(readFormatStateFromProseMirror(view.state))
+}
+
+function scheduleFormatStatePublish(): void {
+  if (formatStateScheduled) return
+  formatStateScheduled = true
+  requestAnimationFrame(() => {
+    formatStateScheduled = false
+    publishFormatState()
+  })
+}
+
 // ────── 序列化节流（避免每次按键都全文档序列化） ──────
 let serializeScheduled = false
 /**
@@ -1382,6 +1409,8 @@ function initEditor(): void {
       updateSavedPosition()
       updateCursorPositionFromProseMirror()
       if (selectionChanged) publishSelectionFromProseMirror()
+      // 标记类命令（加粗/斜体）不改选区，只改 marks，所以这里不看 selectionChanged
+      scheduleFormatStatePublish()
       nextTick(() => updateTableToolbar(view))
       if (!view.hasFocus() && !searchOpen.value) view.focus()
       if (tr.docChanged) {
@@ -1406,6 +1435,9 @@ function initEditor(): void {
   })
   restoreEditorPosition()
   publishOutline()
+  // 立即发一次：新建实例后工具栏要马上显示「光标在第一段」的真实状态，
+  // 等下一帧才发会在切标签的一瞬间留着上一篇文档的高亮。
+  publishFormatState()
 }
 
 /**
@@ -1721,6 +1753,8 @@ watch([activeTabId, fileContent], ([newTabId, newContent], [oldTabId]) => {
   })
   view.updateState(newState)
   isUpdatingFromStore = false
+  // 外部改动会把选区重置到文档开头，格式也可能整体变了
+  scheduleFormatStatePublish()
   // 换到另一篇文档后，之前的回写记录不再代表这篇文档的内容
   if (tabChanged) lastPushedMarkdown = null
   publishOutline()
@@ -1741,24 +1775,45 @@ watch(() => fileStore.currentFile?.path, (newPath, oldPath) => {
 
 // ========== 工具栏事件处理 ==========
 
-/** 手动 toggle mark，有选区时直接 addMark，无选区时 addStoredMark */
+/**
+ * 切换行内标记（加粗/斜体/删除线/行内代码）。
+ *
+ * 必须是真的「切换」：工具栏按钮跟 `Ctrl+B` 一样，按第二次要取消。
+ * 早先这个函数只会加不会去，点两下加粗等于什么都没发生。
+ *
+ * 非空选区用 `addMark` / `removeMark` 而不是替换成带单个标记的文本——
+ * 后者会把选区里原有的其它标记（斜体、链接、行内代码）一并抹掉，
+ * 在加粗的同时把斜体弄没。
+ */
 function toggleMarkInView(view: EditorView, markType: import('prosemirror-model').MarkType): void {
-  const { from, to } = view.state.selection
+  const { from, to, $from } = view.state.selection
+  const isActive =
+    from === to
+      ? (view.state.storedMarks ?? $from.marks()).some((mark) => mark.type === markType)
+      : view.state.doc.rangeHasMark(from, to, markType)
+
+  const tr = view.state.tr
   if (from === to) {
-    const tr = view.state.tr.addStoredMark(markType.create())
-    view.updateState(view.state.apply(tr))
+    if (isActive) tr.removeStoredMark(markType)
+    else tr.addStoredMark(markType.create())
+  } else if (isActive) {
+    tr.removeMark(from, to, markType)
   } else {
-    const text = view.state.doc.textBetween(from, to)
-    const mark = markType.create()
-    const markedText = view.state.schema.text(text, [mark])
-    const tr = view.state.tr.replaceWith(from, to, markedText)
-    view.updateState(view.state.apply(tr))
+    tr.addMark(from, to, markType.create())
   }
+
+  view.updateState(view.state.apply(tr))
+  // 绕开了 `dispatchTransaction`：空选区的 storedMark 与选区的加粗
+  // 都要立刻反映到工具栏上
+  scheduleFormatStatePublish()
   view.focus()
 }
 
 function applyAndSync(view: EditorView, tr: any): void {
   view.updateState(view.state.apply(tr))
+  // 工具栏命令全部经过这里，而 `updateState` 绕开了 `dispatchTransaction`，
+  // 所以格式回传只能在这补——否则点完「加粗」按钮自己不会亮起来。
+  scheduleFormatStatePublish()
 }
 
 /**
@@ -1837,6 +1892,9 @@ const format = (e as CustomEvent).detail as string
     case 'underline':
       toggleMarkInView(view, marks.underline)
       return
+    case 'code':
+      toggleMarkInView(view, marks.code)
+      return
     case 'unorderedList':
       wrapInList(nodes.bullet_list)(view.state, (tr) => applyAndSync(view, tr))
       break
@@ -1900,7 +1958,9 @@ function handleAttachmentEvent(e: Event): void {
 function handleCodeBlockEvent(e: Event): void {
   const view = viewRef.value
   if (!view) return
-  const { language } = (e as CustomEvent).detail as { language?: string }
+  // `detail` 兜底成空对象：`new CustomEvent(name)` 的 detail 是 null，
+  // 直接解构会抛 TypeError，让「插入代码块」变成点了没反应
+  const { language } = ((e as CustomEvent).detail ?? {}) as { language?: string }
   setBlockType(view.state.schema.nodes.code_block, { language: language || '' })(view.state, (tr) => applyAndSync(view, tr))
   view.focus()
 }
@@ -2556,6 +2616,16 @@ defineExpose({
 .ir-editor-wrapper :deep([data-mark="underline"]:has(.ir-active-mark)::after) { content: '</u>'; }
 .ir-editor-wrapper :deep([data-mark="code"]:has(.ir-active-mark)::before) { content: '`'; }
 .ir-editor-wrapper :deep([data-mark="code"]:has(.ir-active-mark)::after) { content: '`'; }
+/* 空选区按下行内格式时，光标两侧临时画出的待生效标记（见 ir-plugin 的
+ * collectPendingMarkDecorations）。正文里还没有字符能承载 mark，所以符号只能
+ * 挂在装饰上；一敲字就换真标记接管，两处样式保持一致以免跳色。 */
+.ir-editor-wrapper :deep(.ir-pending-mark) {
+  color: var(--color-text-tertiary);
+  opacity: 0.55;
+  user-select: none;
+  pointer-events: none;
+  white-space: pre;
+}
 /* 链接以字面文本 [文字](url) 存储，由 IR 折叠插件生成以下装饰：
  * - .md-link-text：链接文字 / 裸 URL，样式化为链接
  * - .md-link-mark：光标在链接区间内时展开显示的 [ ](url) 语法，浅色

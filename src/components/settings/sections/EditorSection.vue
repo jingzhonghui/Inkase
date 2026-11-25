@@ -22,6 +22,8 @@ const fontSize = defineModel<number>('fontSize', { required: true })
 const family = defineModel<string>('family', { required: true })
 const monoFamily = defineModel<string>('monoFamily', { required: true })
 const lineHeight = defineModel<number>('lineHeight', { required: true })
+/** Markdown 编辑工具栏是否显示（默认开） */
+const toolbarVisible = defineModel<boolean>('toolbarVisible', { required: true })
 
 function toSelectValue(value: string): string {
   if (!value) return ''
@@ -135,5 +137,17 @@ const lineHeightText = computed(() => lineHeight.value.toFixed(1))
       >
       <output>{{ lineHeightText }}</output>
     </span>
+  </SettingsRow>
+
+  <SettingsRow
+    title="显示编辑工具栏"
+    desc="Markdown 文档顶部那条格式按钮（标题、加粗、插图等），关掉可多出一点正文高度"
+    layout="inline"
+    clickable
+  >
+    <input
+      v-model="toolbarVisible"
+      type="checkbox"
+    >
   </SettingsRow>
 </template>

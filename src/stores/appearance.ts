@@ -19,6 +19,14 @@ export const MAX_EDITOR_LINE_HEIGHT = 2.2
 export const DEFAULT_EDITOR_FONT_FAMILY = ''
 export const DEFAULT_EDITOR_MONO_FONT_FAMILY = ''
 
+/**
+ * Markdown 编辑工具栏默认显示。
+ *
+ * 它是编辑区顶部的一条实体控件，会占掉 36px 版面；纯键盘用户不需要它，
+ * 所以给一个开关。默认开——这本来就是个「让人不用记语法」的功能。
+ */
+export const DEFAULT_SHOW_EDITOR_TOOLBAR = true
+
 /** 编辑器正文字体预设（sans），value 为合法的 CSS font-family 值 */
 export const EDITOR_FONT_FAMILY_PRESETS: Array<{ label: string; value: string }> = [
   { label: '跟随系统', value: '' },
@@ -53,6 +61,7 @@ interface AppearanceState {
   editorFontFamily: string
   editorMonoFontFamily: string
   editorLineHeight: number
+  showEditorToolbar: boolean
 }
 
 function clamp(value: number, min: number, max: number, fallback: number): number {
@@ -85,6 +94,7 @@ export const useAppearanceStore = defineStore('appearance', () => {
   const editorFontFamily = ref<string>(DEFAULT_EDITOR_FONT_FAMILY)
   const editorMonoFontFamily = ref<string>(DEFAULT_EDITOR_MONO_FONT_FAMILY)
   const editorLineHeight = ref<number>(DEFAULT_EDITOR_LINE_HEIGHT)
+  const showEditorToolbar = ref<boolean>(DEFAULT_SHOW_EDITOR_TOOLBAR)
 
   /** 将当前设置写入文档根节点的 CSS 变量（空字体值移除变量以恢复默认） */
   function applyToDocument(): void {
@@ -112,7 +122,8 @@ export const useAppearanceStore = defineStore('appearance', () => {
         editorFontSize: editorFontSize.value,
         editorFontFamily: editorFontFamily.value,
         editorMonoFontFamily: editorMonoFontFamily.value,
-        editorLineHeight: editorLineHeight.value
+        editorLineHeight: editorLineHeight.value,
+        showEditorToolbar: showEditorToolbar.value
       }
       localStorage.setItem(APPEARANCE_STORAGE_KEY, JSON.stringify(state))
     } catch {
@@ -153,6 +164,11 @@ export const useAppearanceStore = defineStore('appearance', () => {
           DEFAULT_EDITOR_LINE_HEIGHT
         )
       }
+      // 只认真正的布尔值：早期版本没有这个字段，读出来是 undefined，
+      // 不能把它当成 false（否则老用户的工具栏会莫名消失）
+      if (typeof parsed.showEditorToolbar === 'boolean') {
+        showEditorToolbar.value = parsed.showEditorToolbar
+      }
     } catch {
       // 忽略解析错误
     }
@@ -188,6 +204,11 @@ export const useAppearanceStore = defineStore('appearance', () => {
     saveAppearance()
   }
 
+  function setShowEditorToolbar(value: boolean): void {
+    showEditorToolbar.value = value
+    saveAppearance()
+  }
+
   function initAppearance(): void {
     loadAppearance()
     applyToDocument()
@@ -199,11 +220,13 @@ export const useAppearanceStore = defineStore('appearance', () => {
     editorFontFamily,
     editorMonoFontFamily,
     editorLineHeight,
+    showEditorToolbar,
     setUiFontSize,
     setEditorFontSize,
     setEditorFontFamily,
     setEditorMonoFontFamily,
     setEditorLineHeight,
+    setShowEditorToolbar,
     initAppearance
   }
 })

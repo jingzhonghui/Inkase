@@ -6,11 +6,14 @@ import { useAiStore } from '../../stores/ai'
 import { useGraphStore } from '../../stores/graph'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useZoomStore } from '../../stores/zoom'
+import { useAppearanceStore } from '../../stores/appearance'
+import { isEditableMarkdownFormat } from '../../types/mdx'
 import AiPanel from '../ai/AiPanel.vue'
 import WorkspaceTopBar from '../layout/WorkspaceTopBar.vue'
 import SourceEditor from './SourceEditor.vue'
 import IrEditor from './IrEditor.vue'
 import PreviewPanel from './PreviewPanel.vue'
+import MarkdownToolbar from './MarkdownToolbar.vue'
 import ImageViewer from './ImageViewer.vue'
 import PdfViewer from './PdfViewer.vue'
 import HtmlPreview from './HtmlPreview.vue'
@@ -41,6 +44,7 @@ const aiStore = useAiStore()
 const graphStore = useGraphStore()
 const workspaceStore = useWorkspaceStore()
 const zoomStore = useZoomStore()
+const appearanceStore = useAppearanceStore()
 defineProps<{ aiReady?: boolean }>()
 const emit = defineEmits<{ openAiSettings: [] }>()
 
@@ -98,6 +102,24 @@ const isPlainTextTab = computed(() => fileStore.effectiveEditorMode === 'plain')
 const isHtmlTab = computed(() => fileStore.isHtmlFile)
 const isHtmlPreviewOn = computed(() => isHtmlTab.value && fileStore.htmlPreviewActive)
 
+/**
+ * Markdown 编辑工具栏的显示条件：有文档、不在工作台、且确实是 Markdown。
+ *
+ * 用 `format` 而不是后缀正则：`.mdx` 与 `.md` 的 format 都是可编辑 Markdown，
+ * `.txt` / `.sh` / `.html` 一律是纯文本（`fileStore.effectiveEditorMode` 也是
+ * 按同一份判定落到 `plain`），所以这一条同时把「纯文本不该出现格式按钮」
+ * 覆盖掉了，不必再判 `isPlainTextTab`。
+ *
+ * 分屏模式也显示：那里左边仍是可编辑的源码，工具栏就在它上方横跨两栏。
+ */
+const showMarkdownToolbar = computed(
+  () =>
+    hasOpenFile.value &&
+    !workspaceStore.active &&
+    appearanceStore.showEditorToolbar &&
+    isEditableMarkdownFormat(fileStore.activeTab?.fileInfo?.format)
+)
+
 // 组件引用
 const sourceEditorRef = ref<InstanceType<typeof SourceEditor>>()
 const previewRef = ref<InstanceType<typeof PreviewPanel>>()
@@ -141,6 +163,9 @@ function onPreviewScroll(ratio: number): void {
       class="document-view"
       :style="{ '--editor-zoom': editorZoom }"
     >
+      <!-- Markdown 格式工具栏：只对 md / mdx 生效，分屏模式下横跨两栏 -->
+      <MarkdownToolbar v-if="showMarkdownToolbar" />
+
       <!-- HTML 预览切换悬浮按钮（仅 HTML 标签页显示，独立于 Markdown 模式体系） -->
       <button
         v-if="isHtmlTab"

@@ -99,6 +99,7 @@ const draft = ref({
   editorFontFamily: appearanceStore.editorFontFamily,
   editorMonoFontFamily: appearanceStore.editorMonoFontFamily,
   editorLineHeight: appearanceStore.editorLineHeight,
+  showEditorToolbar: appearanceStore.showEditorToolbar,
   theme: themeStore.theme as ThemeType,
   /** 快捷键也走草稿：录制期间只改这里，点「保存」才落盘生效 */
   overrides: { ...getOverrides() }
@@ -132,6 +133,7 @@ async function save(): Promise<void> {
   appearanceStore.setEditorFontFamily(draft.value.editorFontFamily)
   appearanceStore.setEditorMonoFontFamily(draft.value.editorMonoFontFamily)
   appearanceStore.setEditorLineHeight(draft.value.editorLineHeight)
+  appearanceStore.setShowEditorToolbar(draft.value.showEditorToolbar)
   applyOverrides(draft.value.overrides)
 
   const aiSaved = await (aiSectionRef.value?.save() ?? Promise.resolve(true))
@@ -280,6 +282,7 @@ onUnmounted(() => {
             v-model:family="draft.editorFontFamily"
             v-model:mono-family="draft.editorMonoFontFamily"
             v-model:line-height="draft.editorLineHeight"
+            v-model:toolbar-visible="draft.showEditorToolbar"
           />
           <ShortcutsSection
             v-else-if="activeSection === 'shortcuts'"
