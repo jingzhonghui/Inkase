@@ -478,6 +478,43 @@ describe('file store', () => {
       expect(store.canSwitchEditorMode).toBe(true)
     })
 
+    it('treats format:markdown text files as non-Markdown documents unless the suffix says so', async () => {
+      const store = useFileStore()
+      // 没有任何标签时按 Markdown 处理（新建文档一律 .mdx）
+      expect(store.isMarkdownDocument).toBe(true)
+
+      // 主进程对 .sh/.txt/.json 也返回 format: 'markdown'，仅凭它不能当 Markdown 文档
+      for (const name of ['run.sh', 'notes.txt', 'data.json', 'Makefile', '.gitignore']) {
+        electronAPI.openFile.mockResolvedValue({
+          success: true,
+          data: { document: makeDoc(name, 'content'), filePath: `C:/docs/${name}`, format: 'markdown' }
+        })
+        await store.openFile(`C:/docs/${name}`)
+        expect(store.isMarkdownDocument).toBe(false)
+      }
+
+      for (const [name, format] of [
+        ['doc.md', 'markdown'],
+        ['doc.markdown', 'markdown'],
+        ['doc.mdx', 'mdx']
+      ] as const) {
+        electronAPI.openFile.mockResolvedValue({
+          success: true,
+          data: { document: makeDoc(name, '# hi'), filePath: `C:/docs/${name}`, format }
+        })
+        await store.openFile(`C:/docs/${name}`)
+        expect(store.isMarkdownDocument).toBe(true)
+      }
+
+      // 图片标签同样不是 Markdown 文档
+      electronAPI.openFile.mockResolvedValue({
+        success: true,
+        data: { document: makeDoc('pic', ''), filePath: 'C:/docs/pic.png', format: 'image', imageDataUrl: 'data:image/png;base64,AAA' }
+      })
+      await store.openFile('C:/docs/pic.png')
+      expect(store.isMarkdownDocument).toBe(false)
+    })
+
     it('forces plain mode for non-markdown text files and follows editorMode for markdown files', async () => {
       const store = useFileStore()
       store.setEditorMode('split')

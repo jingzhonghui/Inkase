@@ -7,7 +7,6 @@ import { useGraphStore } from '../../stores/graph'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useZoomStore } from '../../stores/zoom'
 import { useAppearanceStore } from '../../stores/appearance'
-import { isEditableMarkdownFormat } from '../../types/mdx'
 import AiPanel from '../ai/AiPanel.vue'
 import WorkspaceTopBar from '../layout/WorkspaceTopBar.vue'
 import SourceEditor from './SourceEditor.vue'
@@ -103,12 +102,12 @@ const isHtmlTab = computed(() => fileStore.isHtmlFile)
 const isHtmlPreviewOn = computed(() => isHtmlTab.value && fileStore.htmlPreviewActive)
 
 /**
- * Markdown 编辑工具栏的显示条件：有文档、不在工作台、且确实是 Markdown。
+ * Markdown 编辑工具栏的显示条件：有文档、不在工作台、且确实是 Markdown 文档。
  *
- * 用 `format` 而不是后缀正则：`.mdx` 与 `.md` 的 format 都是可编辑 Markdown，
- * `.txt` / `.sh` / `.html` 一律是纯文本（`fileStore.effectiveEditorMode` 也是
- * 按同一份判定落到 `plain`），所以这一条同时把「纯文本不该出现格式按钮」
- * 覆盖掉了，不必再判 `isPlainTextTab`。
+ * 判据是 `fileStore.isMarkdownDocument`，**不要**换成 `isEditableMarkdownFormat(format)`：
+ * 主进程把 `.sh` / `.txt` / `.json` 这类纯文本也标成 `format: 'markdown'`（打开时
+ * 只剩那一条「其余一律按文本」的兜底），只看 format 会让格式工具栏挂到脚本文件上。
+ * 真正的区分是文件名后缀，编辑模式切换用的也是同一份判定，两处不该各判一次。
  *
  * 分屏模式也显示：那里左边仍是可编辑的源码，工具栏就在它上方横跨两栏。
  */
@@ -117,7 +116,7 @@ const showMarkdownToolbar = computed(
     hasOpenFile.value &&
     !workspaceStore.active &&
     appearanceStore.showEditorToolbar &&
-    isEditableMarkdownFormat(fileStore.activeTab?.fileInfo?.format)
+    fileStore.isMarkdownDocument
 )
 
 // 组件引用

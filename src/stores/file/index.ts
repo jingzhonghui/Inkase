@@ -13,7 +13,7 @@ import { extractMindMapOutline } from '../../../shared/mindmap/outline'
 import { parseMindMap, countMindMapText, serializeMindMap } from '../../utils/mindmap/schema'
 import { getMindMapImageBuilder, type MindMapImageFormat } from '../../utils/mindmap/export-bridge'
 import type { DocumentFormat, MdxDocument } from '../../types/mdx'
-import { createMdxDocument } from '../../types/mdx'
+import { createMdxDocument, isMarkdownFileName } from '../../types/mdx'
 import { loadSessionState, saveSessionState } from '../session'
 import { useAiStore } from '../ai'
 import { useWorkspaceStore } from '../workspace'
@@ -27,9 +27,6 @@ import { useFolder } from './folder'
 import { useClipboard } from './clipboard'
 import { usePdf } from './pdf'
 import { createExternalWatch } from './external-watch'
-
-/** Markdown 文件后缀白名单：仅这些文件走 Markdown 编辑模式（IR/源码/分屏），其余文本文件一律纯文本 */
-const MARKDOWN_FILE_RE = /\.(md|mdx|markdown)$/i
 
 /** HTML 文件后缀：走独立的「源码/预览」切换，不参与 Markdown 编辑模式 */
 const HTML_FILE_RE = /\.html?$/i
@@ -142,17 +139,25 @@ export const useFileStore = defineStore('file', () => {
     persistSession()
   }
 
+  /**
+   * 当前标签是不是 Markdown 文档 —— 编辑模式切换与格式工具栏共用这一条判定。
+   *
+   * **判据只能是文件名后缀，不能是 `fileInfo.format`**：主进程打开文件时只有 `.mdx`
+   * （容器）、图片、PDF、导图、图表带各自的 format，**其余一切文本文件（`.sh`、
+   * `.txt`、`.json`、`.html`…）走同一条兜底，统一标成 `format: 'markdown'`**。
+   * 所以 format 只说明「这是一份可编辑文本」，拿它当 Markdown 判据会让格式工具栏
+   * 挂到脚本文件上（早先的 bug）；反过来 `format: 'mdx'` 也不能盖过后缀，否则
+   * 名字与格式不一致的标签会被当成 Markdown。
+   */
+  const isMarkdownDocument = computed(() => isMarkdownFileName(activeTab.value?.fileInfo?.name))
+
   /** 是否可切换编辑模式：仅 Markdown 文件支持（图片、代码/纯文本等不可切换） */
-  const canSwitchEditorMode = computed(() => {
-    const name = activeTab.value?.fileInfo?.name
-    return !name || MARKDOWN_FILE_RE.test(name)
-  })
+  const canSwitchEditorMode = computed(() => isMarkdownDocument.value)
 
   /** 非 Markdown 文本文件（.sh/.conf/.txt 等）一律纯文本模式，不参与 Markdown 编辑模式切换 */
-  const effectiveEditorMode = computed<EditorMode>(() => {
-    const name = activeTab.value?.fileInfo?.name
-    return !name || MARKDOWN_FILE_RE.test(name) ? editorMode.value : 'plain'
-  })
+  const effectiveEditorMode = computed<EditorMode>(() =>
+    isMarkdownDocument.value ? editorMode.value : 'plain'
+  )
 
   /** 当前激活标签是否为 PDF 预览（PDF 为查看模式，不属于任何编辑模式） */
   const isPdfActiveTab = computed(() => activeTab.value?.fileInfo?.format === 'pdf')
@@ -1684,6 +1689,8 @@ export const useFileStore = defineStore('file', () => {
     activeTab: tabState.activeTab,
     canSwitchEditorMode,
     effectiveEditorMode,
+    // Markdown 文档判定：格式工具栏与编辑模式切换共用，避免「纯文本也算 Markdown」
+    isMarkdownDocument,
 
     // 向后兼容的状态（computed proxy）
     currentFile: tabState.currentFile,

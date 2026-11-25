@@ -113,6 +113,22 @@ export function isEditableTextFormat(format?: DocumentFormat | null): boolean {
   return isEditableMarkdownFormat(format) || isMindMapFormat(format) || isDiagramFormat(format)
 }
 
+/**
+ * 文件名后缀层面的 Markdown 判定：只有 `.md` / `.mdx` / `.markdown` 算。
+ *
+ * **为什么不只看 `DocumentFormat`**：主进程打开文件时只有 `.mdx`（容器）、图片、PDF、
+ * 导图、图表有各自的 `format`，**其余一切文本文件——`.sh`、`.txt`、`.json`、`.html`、
+ * `.gitignore`——都走同一条兜底，标成 `format: 'markdown'`**。所以「format 是 markdown」
+ * 只说明「这是一份可编辑文本」，并不说明它是 Markdown 文档；拿它当 Markdown 判据会把
+ * 格式工具栏挂到脚本文件上。真正的区分在文件名后缀这一层。
+ *
+ * 没有文件名时按 Markdown 处理：新建文档一律是 `.mdx`（见 store 的 `未命名.mdx`）。
+ */
+export function isMarkdownFileName(name?: string | null): boolean {
+  if (!name) return true
+  return /\.(md|mdx|markdown)$/i.test(name)
+}
+
 /** MDX 文件操作结果 */
 export interface MdxResult<T = unknown> {
   success: boolean
