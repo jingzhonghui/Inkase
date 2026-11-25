@@ -5,27 +5,44 @@ import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { useEditorFontZoom } from '../useEditorFontZoom'
 import { useAppearanceStore, DEFAULT_EDITOR_FONT_SIZE } from '../../stores/appearance'
+import { useZoomStore } from '../../stores/zoom'
+
+/**
+ * 编辑区 Ctrl+滚轮缩放
+ *
+ * 行为已从「改全局字号」改成「步进当前标签页的正文缩放倍率」：
+ * 100% 仍等于设置中心里的字号，但滚轮不再改写那个设置，也不会波及别的标签。
+ */
+
+const activeTabId = ref<string | null>('tab-1')
+
+// 真实 store 里 `activeTabId` 是被 pinia 解包后的字符串，mock 必须保持一致
+vi.mock('../../stores/file', () => ({
+  useFileStore: () => ({
+    get activeTabId(): string | null {
+      return activeTabId.value
+    }
+  })
+}))
 
 function createWheelEvent(init: { ctrlKey: boolean; deltaY: number }): WheelEvent {
-  const event = new WheelEvent('wheel', {
+  return new WheelEvent('wheel', {
     ctrlKey: init.ctrlKey,
     deltaY: init.deltaY,
     bubbles: true,
     cancelable: true
   })
-  return event
 }
 
 async function mountHost() {
   const target = ref<HTMLElement | null>(null)
   const host = defineComponent({
     setup() {
-      const store = useAppearanceStore()
       const { attach } = useEditorFontZoom()
       onMounted(() => {
         if (target.value) attach(target.value)
       })
-      return { target, store }
+      return { target }
     },
     template: '<div><div ref="target" data-test="target" /></div>'
   })
@@ -37,25 +54,47 @@ async function mountHost() {
 describe('useEditorFontZoom', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
+    activeTabId.value = 'tab-1'
   })
 
-  it('increases font size on ctrl+wheel up', async () => {
+  it('ctrl+wheel up 放大当前标签的正文倍率（每档 25%）', async () => {
+    const { wrapper, el } = await mountHost()
+
+    el.dispatchEvent(createWheelEvent({ ctrlKey: true, deltaY: -100 }))
+
+    const zoomStore = useZoomStore()
+    expect(zoomStore.valueOf('tab-1')).toBe(1.25)
+    wrapper.unmount()
+  })
+
+  it('ctrl+wheel down 缩小当前标签的正文倍率', async () => {
+    const { wrapper, el } = await mountHost()
+
+    el.dispatchEvent(createWheelEvent({ ctrlKey: true, deltaY: 100 }))
+
+    const zoomStore = useZoomStore()
+    expect(zoomStore.valueOf('tab-1')).toBe(0.75)
+    wrapper.unmount()
+  })
+
+  it('只影响当前标签，别的标签仍是 100%', async () => {
+    const { wrapper, el } = await mountHost()
+
+    el.dispatchEvent(createWheelEvent({ ctrlKey: true, deltaY: -100 }))
+
+    const zoomStore = useZoomStore()
+    expect(zoomStore.valueOf('tab-1')).toBe(1.25)
+    expect(zoomStore.valueOf('tab-2')).toBe(1)
+    wrapper.unmount()
+  })
+
+  it('不再改写设置里的字号（那是缩放的基准，不是缩放本身）', async () => {
     const { wrapper, el } = await mountHost()
 
     el.dispatchEvent(createWheelEvent({ ctrlKey: true, deltaY: -100 }))
 
     const store = useAppearanceStore()
-    expect(store.editorFontSize).toBe(DEFAULT_EDITOR_FONT_SIZE + 1)
-    wrapper.unmount()
-  })
-
-  it('decreases font size on ctrl+wheel down', async () => {
-    const { wrapper, el } = await mountHost()
-
-    el.dispatchEvent(createWheelEvent({ ctrlKey: true, deltaY: 100 }))
-
-    const store = useAppearanceStore()
-    expect(store.editorFontSize).toBe(DEFAULT_EDITOR_FONT_SIZE - 1)
+    expect(store.editorFontSize).toBe(DEFAULT_EDITOR_FONT_SIZE)
     wrapper.unmount()
   })
 
@@ -64,8 +103,8 @@ describe('useEditorFontZoom', () => {
 
     el.dispatchEvent(createWheelEvent({ ctrlKey: false, deltaY: -100 }))
 
-    const store = useAppearanceStore()
-    expect(store.editorFontSize).toBe(DEFAULT_EDITOR_FONT_SIZE)
+    const zoomStore = useZoomStore()
+    expect(zoomStore.valueOf('tab-1')).toBe(1)
     wrapper.unmount()
   })
 
@@ -82,17 +121,18 @@ describe('useEditorFontZoom', () => {
 
   it('clamps at bounds after repeated zooming', async () => {
     const { wrapper, el } = await mountHost()
-    const store = useAppearanceStore()
+    const zoomStore = useZoomStore()
 
     for (let i = 0; i < 30; i++) {
       el.dispatchEvent(createWheelEvent({ ctrlKey: true, deltaY: -100 }))
     }
-    expect(store.editorFontSize).toBe(24)
+    // 文本缩放的上下限是 300% / 50%
+    expect(zoomStore.valueOf('tab-1')).toBe(3)
 
     for (let i = 0; i < 30; i++) {
       el.dispatchEvent(createWheelEvent({ ctrlKey: true, deltaY: 100 }))
     }
-    expect(store.editorFontSize).toBe(12)
+    expect(zoomStore.valueOf('tab-1')).toBe(0.5)
     wrapper.unmount()
   })
 
@@ -100,8 +140,8 @@ describe('useEditorFontZoom', () => {
     const { wrapper, el } = await mountHost()
     wrapper.unmount()
 
-    const store = useAppearanceStore()
+    const zoomStore = useZoomStore()
     el.dispatchEvent(createWheelEvent({ ctrlKey: true, deltaY: -100 }))
-    expect(store.editorFontSize).toBe(DEFAULT_EDITOR_FONT_SIZE)
+    expect(zoomStore.valueOf('tab-1')).toBe(1)
   })
 })

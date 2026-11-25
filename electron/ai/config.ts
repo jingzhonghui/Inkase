@@ -18,6 +18,7 @@ import {
   normalizeAiApiFormat,
   type AiApiFormat
 } from '../../shared/ai/api-format'
+import { normalizeAiTemperature } from '../../shared/ai/defaults'
 
 interface StoredAiConfig extends Omit<AiConfigInput, 'apiKey'> {
   /**
@@ -117,7 +118,9 @@ export class AiConfigService {
       // 旧配置没有这个字段，归一后落回 `openai-compatible`：升级不该改变任何人的连接方式
       apiFormat: normalizeAiApiFormat(input.apiFormat),
       model: input.model,
-      temperature: input.temperature,
+      // 温度是「用户可以不填、代码必须有值」的参数：缺省（或越界、非数字）时
+      // 落回默认值，不能把 NaN 写进配置，也不能让调用方拿到 undefined
+      temperature: normalizeAiTemperature(input.temperature),
       maxOutputTokens: input.maxOutputTokens,
       contextWindow: input.contextWindow,
       maxSteps: input.maxSteps,
@@ -190,7 +193,9 @@ export class AiConfigService {
       apiFormat: normalizeAiApiFormat(stored.apiFormat),
       model: stored.model,
       apiKey,
-      temperature: stored.temperature,
+      // 手改配置文件、旧版本留下的 null 都可能在运行时冒出来；这里是递进模型的
+      // 最后一道关口，必须给出一个确定的数字
+      temperature: normalizeAiTemperature(stored.temperature),
       maxOutputTokens: stored.maxOutputTokens,
       contextWindow: stored.contextWindow,
       maxSteps: stored.maxSteps,
@@ -321,6 +326,10 @@ export class AiConfigService {
     )
     return {
       ...rest,
+      // `...rest` 会把磁盘上的原值透传出来，缺字段时是 undefined（从未保存过配置、
+      // 老配置没有温度、文件损坏被 read() 兜成 {}）。视图出口必须归一：渲染层
+      // 的 `Number(undefined)` 会变成 NaN，再被主进程 schema 拒掉
+      temperature: normalizeAiTemperature(stored.temperature),
       apiFormat,
       models,
       permissionMode,

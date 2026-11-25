@@ -5,6 +5,7 @@ import { useFileStore } from '../../stores/file'
 import { useAiStore } from '../../stores/ai'
 import { useGraphStore } from '../../stores/graph'
 import { useWorkspaceStore } from '../../stores/workspace'
+import { useZoomStore } from '../../stores/zoom'
 import AiPanel from '../ai/AiPanel.vue'
 import WorkspaceTopBar from '../layout/WorkspaceTopBar.vue'
 import SourceEditor from './SourceEditor.vue'
@@ -39,8 +40,20 @@ const fileStore = useFileStore()
 const aiStore = useAiStore()
 const graphStore = useGraphStore()
 const workspaceStore = useWorkspaceStore()
+const zoomStore = useZoomStore()
 defineProps<{ aiReady?: boolean }>()
 const emit = defineEmits<{ openAiSettings: [] }>()
+
+/**
+ * 正文缩放倍率（按标签页）→ CSS 变量 `--editor-zoom`。
+ *
+ * 挂在 `.document-view` 上，源码 / 即时渲染 / 预览三处都是它的后代。
+ * 工具栏（`ToolBar.vue`）也读 `--editor-font-size`，但**不**乘这个倍率：
+ * 那是界面自身的字号，不该跟着正文一起放大。
+ *
+ * 显式转成字符串：自定义属性不参与 `px` 自动补全，给数字容易在样式层被改写。
+ */
+const editorZoom = computed(() => String(zoomStore.valueOf(fileStore.activeTabId)))
 
 // ===== 工作台与文档视图的切换规则 =====
 // 1. 关了最后一个文档 → 回到工作台（这正是「常驻」的意义：有地方可回）
@@ -126,6 +139,7 @@ function onPreviewScroll(ratio: number): void {
       v-if="hasOpenFile"
       v-show="!workspaceStore.active"
       class="document-view"
+      :style="{ '--editor-zoom': editorZoom }"
     >
       <!-- HTML 预览切换悬浮按钮（仅 HTML 标签页显示，独立于 Markdown 模式体系） -->
       <button

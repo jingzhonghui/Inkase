@@ -1,12 +1,35 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch, type Component } from 'vue'
 import { IconCode, IconColumns, IconFileText, IconFileTypePdf, IconSitemap } from '@tabler/icons-vue'
 import { useFileStore, type EditorMode } from '../../stores/file'
+import { useWorkspaceStore } from '../../stores/workspace'
 import { findCodeLanguage, languageDisplayName } from '../../utils/editor-language'
+import { resolveZoomProfile, useZoomStore } from '../../stores/zoom'
 import Tooltip from '../common/Tooltip.vue'
+import ZoomControl from './ZoomControl.vue'
 
 const fileStore = useFileStore()
+const workspaceStore = useWorkspaceStore()
+const zoomStore = useZoomStore()
 const appVersion = ref('')
+
+/**
+ * 三种 Markdown 编辑模式。
+ *
+ * 状态栏给三个并列按钮：点哪个就切到哪个，不必像旧版单按钮那样循环。
+ * 顺序与「视图 → 编辑器模式」菜单一致（即时渲染 / 源码编辑 / 分屏预览）；
+ * 快捷键 Ctrl+/ 仍是循环切换（见 shortcuts/registry.ts 的 `editor.toggle-mode`）。
+ */
+const MODE_OPTIONS: ReadonlyArray<{
+  value: Exclude<EditorMode, 'plain'>
+  label: string
+  title: string
+  icon: Component
+}> = [
+  { value: 'ir', label: '即时渲染', title: '即时渲染（Ctrl+/ 循环切换）', icon: IconFileText },
+  { value: 'source', label: '源码编辑', title: '源码编辑（Ctrl+/ 循环切换）', icon: IconCode },
+  { value: 'split', label: '分屏预览', title: '分屏预览（Ctrl+/ 循环切换）', icon: IconColumns }
+]
 
 /** 当前生效的编辑模式：非 .md/.mdx 文件（如 .txt）实际按源码编辑显示 */
 const effectiveMode = computed<EditorMode>(() =>
@@ -54,17 +77,6 @@ const saveStatusClass = computed(() => {
 })
 
 /**
- * 切换编辑模式
- * 顺序：分屏预览 -> 源码编辑 -> 即时渲染 -> 分屏预览
- */
-function toggleEditorMode(): void {
-  const modes: EditorMode[] = ['split', 'source', 'ir']
-  const currentIndex = modes.indexOf(fileStore.editorMode)
-  const nextIndex = (currentIndex + 1) % modes.length
-  fileStore.setEditorMode(modes[nextIndex])
-}
-
-/**
  * 获取模式图标
  */
 const modeIcon = computed(() => {
@@ -105,9 +117,58 @@ const modeLabel = computed(() => {
 })
 
 /**
- * 获取模式提示文字
+ * 不可切换的文件（PDF / 导图 / 纯文本）只展示当前形态，
+ * 提示语不再写「点击切换」——那个按钮在这种文件上是 disabled 的。
  */
-const modeTooltip = computed(() => `${modeLabel.value} (点击切换)`)
+const modeTooltip = computed(() => modeLabel.value)
+
+/**
+ * 右下角的缩放控件：能力按「当前标签的格式」查表，数值按 tabId 从 zoom store 取。
+ * 不支持缩放的视图（.drawio 图表、HTML 预览）返回 null，整组不渲染。
+ *
+ * 两道前置判断都不能少，它们不是「格式」问题而是「当前有没有文档视图」的问题：
+ * - **工作台在前台**（图谱 / AI）：它不是文档视图，没有任何缩放语义。切到工作台时
+ *   `activeTabId` 仍停留在上一个文件上（工作台与文件标签是并列的前台状态，不是同一个
+ *   列表），不挡这一层就会按那个文件的格式冒出一个失效的读数；
+ * - **没有活动标签**（欢迎页）：同理，没有可缩放的东西。
+ */
+const zoomProfile = computed(() => {
+  if (workspaceStore.active) return null
+  if (fileStore.activeTabId === null) return null
+  return resolveZoomProfile({
+    format: fileStore.activeTab?.fileInfo?.format,
+    isHtmlFile: fileStore.isHtmlFile,
+    htmlPreviewActive: fileStore.htmlPreviewActive
+  })
+})
+
+const zoomTabId = computed(() => fileStore.activeTabId)
+const zoomValue = computed(() => zoomStore.valueOf(zoomTabId.value))
+const zoomCanFit = computed(() => zoomStore.hasFit(zoomTabId.value))
+
+function onZoomStep(direction: 1 | -1): void {
+  const profile = zoomProfile.value
+  if (!profile) return
+  zoomStore.step(zoomTabId.value, profile, direction)
+}
+
+function onZoomSet(value: number): void {
+  const profile = zoomProfile.value
+  if (!profile) return
+  zoomStore.set(zoomTabId.value, value, profile)
+}
+
+function onZoomFit(): void {
+  zoomStore.requestFit(zoomTabId.value)
+}
+
+// 标签关闭后它的缩放倍率没有意义了。tabId 是自增的，重开不会复用旧值，
+// 但残留的键会一直躺在 store 里，顺手清掉。
+watch(
+  () => fileStore.tabs.map((tab) => tab.id),
+  (ids) => zoomStore.prune(ids),
+  { immediate: true }
+)
 </script>
 
 <template>
@@ -123,13 +184,36 @@ const modeTooltip = computed(() => `${modeLabel.value} (点击切换)`)
     </div>
 
     <div class="status-right">
-      <!-- 编辑模式切换按钮 -->
-      <Tooltip :content="modeTooltip">
+      <!-- 编辑模式：可切换时给三个并列按钮，点哪个切哪个；其余文件类型维持只读标签 -->
+      <div
+        v-if="fileStore.canSwitchEditorMode"
+        class="mode-switch"
+        role="group"
+        aria-label="编辑模式"
+      >
+        <button
+          v-for="option in MODE_OPTIONS"
+          :key="option.value"
+          class="mode-switch-btn"
+          :class="[option.value, { active: effectiveMode === option.value }]"
+          :title="option.title"
+          :aria-label="option.label"
+          :aria-pressed="effectiveMode === option.value"
+          @click="fileStore.setEditorMode(option.value)"
+        >
+          <component :is="option.icon" />
+          <span class="mode-label">{{ option.label }}</span>
+        </button>
+      </div>
+      <!-- 不可切换（PDF / 思维导图 / 纯文本）：展示当前形态，不再提供切换 -->
+      <Tooltip
+        v-else
+        :content="modeTooltip"
+      >
         <button
           class="mode-toggle-btn"
           :class="effectiveMode"
-          :disabled="!fileStore.canSwitchEditorMode"
-          @click="toggleEditorMode"
+          disabled
         >
           <!-- 分屏预览图标 -->
           <IconColumns v-if="modeIcon === 'split'" />
@@ -156,6 +240,19 @@ const modeTooltip = computed(() => `${modeLabel.value} (点击切换)`)
       <template v-if="appVersion">
         <span class="status-separator">|</span>
         <span class="status-item">{{ appLabel }}</span>
+      </template>
+
+      <!-- 缩放读数固定在右下角：支持缩放的文件才渲染，其余类型整组隐藏 -->
+      <template v-if="zoomProfile">
+        <span class="status-separator">|</span>
+        <ZoomControl
+          :profile="zoomProfile"
+          :value="zoomValue"
+          :can-fit="zoomCanFit"
+          @step="onZoomStep"
+          @set="onZoomSet"
+          @fit="onZoomFit"
+        />
       </template>
     </div>
   </footer>
@@ -207,7 +304,67 @@ const modeTooltip = computed(() => `${modeLabel.value} (点击切换)`)
   color: var(--color-text-tertiary);
 }
 
-/* 模式切换按钮 */
+/* 模式切换：三个并列按钮组成的分段控件。
+   选中靠整块圆角高亮表示，按钮之间不画分隔线 */
+.mode-switch {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background-color: var(--color-bg-primary);
+}
+
+.mode-switch-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  font-size: calc(var(--ui-font-size) - 1px);
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  background-color: transparent;
+  border: 0;
+  /* 圆角在这里：选中时整块背景左右两端都是圆角，不会被容器裁成直角 */
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.mode-switch-btn svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+}
+
+.mode-switch-btn:hover {
+  color: var(--color-text);
+  background-color: var(--color-bg-secondary);
+}
+
+/* 选中态：圆角高亮块 */
+.mode-switch-btn.active {
+  font-weight: 600;
+}
+
+.mode-switch-btn.active.split {
+  color: #8b5cf6;
+  background-color: rgba(139, 92, 246, 0.16);
+}
+
+.mode-switch-btn.active.source {
+  color: #10b981;
+  background-color: rgba(16, 185, 129, 0.16);
+}
+
+.mode-switch-btn.active.ir {
+  color: #f59e0b;
+  background-color: rgba(245, 158, 11, 0.16);
+}
+
+/* 模式切换按钮（不可切换文件上的只读标签） */
 .mode-toggle-btn {
   display: flex;
   align-items: center;

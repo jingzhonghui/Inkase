@@ -6,19 +6,21 @@
  * 按钮一律 `@mousedown.prevent`：不让按钮抢走画布焦点，
  * 否则点完缩放再按 Tab/Enter 就没有反应了。
  *
+ * 缩放读数与 +/- 不在这里：它跟其他视图一样统一放在底部状态栏右下角
+ * （见 `components/layout/ZoomControl.vue`）。这里只保留「适应画布」这类
+ * 与视图自身尺寸强相关的动作。
+ *
  * 两种形态（`variant`）：
- * - `floating`：浮在画布右下角（默认，画布大、控件少的场合）；
+ * - `floating`：浮在画布右下角（画布大、控件少的场合）；
  * - `panel`：嵌进右侧属性栏的「画布」标签页，改为带分组标题的竖排按钮，
  *   不再定位、不再投影——面板里没有「浮在某块内容上」的概念。
  * 形态只是样式差异，事件与按钮语义完全一致。
  */
 import { computed } from 'vue'
-import { formatZoomPercent } from '../../utils/mindmap/viewport'
 import type { MindMapLayoutDirection } from '../../types/mindmap'
 
 const props = withDefaults(
   defineProps<{
-    zoom: number
     rainbow: boolean
     direction: MindMapLayoutDirection
     /** 展示形态：浮在画布上 / 嵌进属性栏 */
@@ -28,9 +30,6 @@ const props = withDefaults(
 )
 
 const emit = defineEmits<{
-  (event: 'zoom-in'): void
-  (event: 'zoom-out'): void
-  (event: 'zoom-reset'): void
   (event: 'fit'): void
   (event: 'center'): void
   (event: 'collapse-all'): void
@@ -41,7 +40,6 @@ const emit = defineEmits<{
   (event: 'export-image', format: 'png' | 'svg'): void
 }>()
 
-const zoomText = computed(() => formatZoomPercent(props.zoom))
 const isPanel = computed(() => props.variant === 'panel')
 
 const directions: { value: MindMapLayoutDirection; label: string; title: string }[] = [
@@ -60,35 +58,6 @@ const directions: { value: MindMapLayoutDirection; label: string; title: string 
     @mousedown.prevent
     @contextmenu.prevent
   >
-    <div class="mind-map-controls-group">
-      <!-- 分组标题只在属性栏里显示；浮在画布上时按钮本身就够清楚 -->
-      <span class="mind-map-controls-label">缩放</span>
-      <button
-        type="button"
-        class="mind-map-control"
-        title="缩小（Ctrl+滚轮也可缩放）"
-        @click="emit('zoom-out')"
-      >
-        −
-      </button>
-      <button
-        type="button"
-        class="mind-map-control is-readout"
-        title="恢复到 100%"
-        @click="emit('zoom-reset')"
-      >
-        {{ zoomText }}
-      </button>
-      <button
-        type="button"
-        class="mind-map-control"
-        title="放大"
-        @click="emit('zoom-in')"
-      >
-        ＋
-      </button>
-    </div>
-
     <div class="mind-map-controls-group">
       <span class="mind-map-controls-label">视图</span>
       <button
@@ -242,11 +211,6 @@ const directions: { value: MindMapLayoutDirection; label: string; title: string 
 .mind-map-control.is-active {
   background-color: var(--color-primary-light);
   color: var(--color-primary);
-}
-
-.mind-map-control.is-readout {
-  min-width: 46px;
-  font-variant-numeric: tabular-nums;
 }
 
 /* ---------- 属性栏里的形态：竖排分组，不再浮在内容上 ---------- */

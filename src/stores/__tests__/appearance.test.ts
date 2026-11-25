@@ -188,32 +188,9 @@ describe('appearance store', () => {
     expect(store.editorFontFamily).toBe("'SimSun'")
   })
 
-  it('zooms editor font size by ±1 within bounds', () => {
+  it('ignores invalid font sizes', () => {
     const store = useAppearanceStore()
-
-    store.zoomEditorFontSize(1)
-    expect(store.editorFontSize).toBe(DEFAULT_EDITOR_FONT_SIZE + 1)
-    store.zoomEditorFontSize(-1)
-    expect(store.editorFontSize).toBe(DEFAULT_EDITOR_FONT_SIZE)
-
-    // 超大 delta 也只按一次滚动步进 ±1
-    store.zoomEditorFontSize(-999)
-    expect(store.editorFontSize).toBe(DEFAULT_EDITOR_FONT_SIZE - 1)
-
-    // 连续缩放触底/触顶后被夹紧
-    for (let i = 0; i < 30; i++) store.zoomEditorFontSize(-1)
-    expect(store.editorFontSize).toBe(MIN_EDITOR_FONT_SIZE)
-    store.zoomEditorFontSize(999)
-    expect(store.editorFontSize).toBe(MIN_EDITOR_FONT_SIZE + 1)
-    for (let i = 0; i < 30; i++) store.zoomEditorFontSize(1)
-    expect(store.editorFontSize).toBe(MAX_EDITOR_FONT_SIZE)
-  })
-
-  it('ignores invalid zoom deltas', () => {
-    const store = useAppearanceStore()
-
-    store.zoomEditorFontSize(Number.NaN)
-    store.zoomEditorFontSize(0)
+    store.setEditorFontSize(Number.NaN)
     expect(store.editorFontSize).toBe(DEFAULT_EDITOR_FONT_SIZE)
   })
 

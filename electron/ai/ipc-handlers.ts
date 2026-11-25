@@ -26,6 +26,7 @@ import type {
 } from '../../shared/ai/types'
 import { MAX_AI_MODEL_ID_LENGTH, MAX_AI_MODELS } from '../../shared/ai/types'
 import { aiRunInputSchema, approvalResolutionSchema, runIdSchema } from '../../shared/ai/contracts'
+import { DEFAULT_AI_TEMPERATURE } from '../../shared/ai/defaults'
 import { z } from 'zod'
 
 const { AI } = IPC_CHANNELS
@@ -42,7 +43,13 @@ const aiConfigInputSchema = z.object({
   /** 可选模型目录；缺省表示「本次不改变」，显式空数组表示清空 */
   models: z.array(aiModelIdSchema).max(MAX_AI_MODELS).optional(),
   apiKey: z.string().optional(),
-  temperature: z.number().min(0).max(2),
+  /**
+   * 温度：用户可以不填（设置页留空 / 从未配置过），缺省时补默认值。
+   *
+   * 它必须落在一个数字上，而不是"不传给模型"：各服务商的默认温度并不一致，
+   * 不补值会让换 Provider 就换一种输出风格。范围校验仍然保留，越界值照旧拒绝。
+   */
+  temperature: z.number().min(0).max(2).default(DEFAULT_AI_TEMPERATURE),
   maxOutputTokens: z.number().int().positive().optional(),
   contextWindow: z.number().int().positive().optional(),
   maxSteps: z.number().int().positive().max(200).optional(),
@@ -102,7 +109,53 @@ function getConfigService(): AiConfigService {
   return configService
 }
 
+/**
+ * 配置项的展示名：Zod 的 issue 只带字段名，直接回显会变成一串 JSON。
+ */
+const AI_CONFIG_FIELD_LABELS: Record<string, string> = {
+  baseUrl: 'API 地址',
+  apiFormat: '接口格式',
+  model: '模型',
+  models: '模型列表',
+  apiKey: 'API Key',
+  temperature: '温度',
+  maxOutputTokens: '最大输出',
+  contextWindow: '上下文窗口',
+  maxSteps: '最大工具步骤',
+  maxReadBytes: '单次读取上限',
+  idleTimeoutMs: '空闲超时',
+  permissionMode: '权限模式'
+}
+
+/**
+ * 少数字段的提示语能比「取值不合法」说得更具体，单独给一句。
+ * 温度是本次事故的当事字段：`Number(undefined)` 得到的 NaN 就拦在这里。
+ */
+const AI_CONFIG_FIELD_HINTS: Record<string, string> = {
+  temperature: '温度必须是 0–2 之间的数字'
+}
+
+/**
+ * 把 Zod 的 issue 数组翻译成给人看的一句话。
+ *
+ * 早先这里直接返回 `error.message`，而 Zod 4 的 message 就是 issues 的 JSON
+ * 字符串——用户看到的是 `[{"expected":"number","code":"invalid_type",…}]`，
+ * 既不知道是哪一项出了问题，也不知道该怎么改。
+ */
+function describeConfigIssues(error: z.ZodError): string {
+  const parts = error.issues.slice(0, 3).map((issue) => {
+    const field = issue.path.length > 0 ? String(issue.path[0]) : ''
+    const hint = AI_CONFIG_FIELD_HINTS[field]
+    if (hint) return hint
+    const label = AI_CONFIG_FIELD_LABELS[field] ?? '配置项'
+    const detail = issue.code === 'unrecognized_keys' ? '存在未知字段' : '取值不合法'
+    return `${label}：${detail}`
+  })
+  return `配置无效：${parts.join('；')}`
+}
+
 function errorMessage(error: unknown): string {
+  if (error instanceof z.ZodError) return describeConfigIssues(error)
   return error instanceof Error ? error.message : '未知错误'
 }
 
@@ -243,7 +296,11 @@ export function registerAiHandlers(_getWindow: () => BrowserWindow | null): () =
       }, result)
       return toResult(result)
     } catch (error) {
-      return { success: false, error: mapProviderError(error).message }
+      return {
+        success: false,
+        // ZodError 属于「参数不合法」，要给人看的中文提示；其余才是 Provider 侧的失败
+        error: error instanceof z.ZodError ? errorMessage(error) : mapProviderError(error).message
+      }
     }
   })
 

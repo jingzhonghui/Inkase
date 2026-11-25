@@ -3,10 +3,8 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist'
 import { useFileStore } from '../../stores/file'
 import { useOutlineStore } from '../../stores/outline'
-import Tooltip from '../common/Tooltip.vue'
 import {
   activeOutlineIndex,
-  clampScale,
   fitWidthScale,
   flattenOutline,
   pageAtScroll,
@@ -16,6 +14,7 @@ import {
   type OutlineNode,
   type PageLayout
 } from '../../utils/pdf-viewer'
+import { PDF_ZOOM_PROFILE, useZoomStore } from '../../stores/zoom'
 
 // pdfjs 依赖 DOMMatrix 等浏览器 API，且体积较大，按需惰性加载（jsdom 测试环境无法在模块顶层加载）
 type PdfjsModule = typeof import('pdfjs-dist')
@@ -38,20 +37,28 @@ async function ensurePdfjs(): Promise<PdfjsModule> {
 
 const fileStore = useFileStore()
 const outlineStore = useOutlineStore()
+const zoomStore = useZoomStore()
 
 const activeTab = computed(() => fileStore.activeTab)
 const fileName = computed(() => activeTab.value?.fileInfo?.name ?? '')
+const tabId = computed(() => fileStore.activeTabId)
 
 const STAGE_PADDING = 24
 const containerRef = ref<HTMLElement | null>(null)
 const pageCount = ref(0)
 const currentPage = ref(1)
-const scale = ref(1)
+/**
+ * 缩放倍率住在 zoom store 里（按标签页）。
+ * 状态栏右侧的读数是同一份值——PDF 的工具栏不再单独显示百分比。
+ */
+const scale = computed<number>({
+  get: () => zoomStore.valueOf(tabId.value),
+  set: (value) => zoomStore.set(tabId.value, value, PDF_ZOOM_PROFILE)
+})
 const pageWidth = ref(612)
 const loading = ref(true)
 const loadError = ref('')
 
-const scalePercent = computed(() => `${Math.round(scale.value * 100)}%`)
 const pageInput = ref('')
 const pageInputEl = ref<HTMLInputElement | null>(null)
 
@@ -83,6 +90,8 @@ let pages: RenderedPage[] = []
 let renderGeneration = 0
 let resizeObserver: ResizeObserver | null = null
 let scrollTimer: number | null = null
+/** 注销「适应宽度」动作 */
+let disposeFit: (() => void) | null = null
 
 async function loadPdf(): Promise<void> {
   renderGeneration++
@@ -125,9 +134,9 @@ async function loadPdf(): Promise<void> {
     pageWidth.value = baseViewport.width
     basePageSize.value = { width: baseViewport.width, height: baseViewport.height }
 
-    // 初始缩放：适应宽度
+    // 初始缩放：本标签还没缩放记录时按「适应宽度」；已有记录（切走再切回）沿用
     const el = containerRef.value
-    if (el && el.clientWidth > 0) {
+    if (zoomStore.raw(tabId.value) === undefined && el && el.clientWidth > 0) {
       scale.value = fitWidthScale(el.clientWidth, pageWidth.value, STAGE_PADDING * 2)
     }
     loading.value = false
@@ -303,29 +312,23 @@ function rerenderAll(): void {
   })
 }
 
-function zoomIn(): void {
-  scale.value = clampScale(scale.value + 0.25)
+/** 缩放变化统一在这里重绘：滚轮、状态栏右下角的 +/- 与下拉都走同一条路 */
+watch(scale, () => {
   rerenderAll()
-}
-
-function zoomOut(): void {
-  scale.value = clampScale(scale.value - 0.25)
-  rerenderAll()
-}
+})
 
 /** Ctrl+滚轮缩放（与图片查看器一致） */
 function onStageWheel(event: WheelEvent): void {
   if (!event.ctrlKey) return
   event.preventDefault()
-  scale.value = clampScale(scale.value + (event.deltaY < 0 ? 0.25 : -0.25))
-  rerenderAll()
+  zoomStore.step(tabId.value, PDF_ZOOM_PROFILE, event.deltaY < 0 ? 1 : -1)
 }
 
+/** 适应宽度：PDF 打开时的默认档，也是状态栏下拉里的「适应宽度」 */
 function fitWidth(): void {
   const el = containerRef.value
   if (!el) return
   scale.value = fitWidthScale(el.clientWidth, pageWidth.value, STAGE_PADDING * 2)
-  rerenderAll()
 }
 
 function goToPage(): void {
@@ -372,6 +375,8 @@ resizeObserver = new ResizeObserver(() => {
 onMounted(() => {
   containerRef.value?.addEventListener('wheel', onStageWheel, { passive: false })
   window.addEventListener('inkase:outline-jump', handleOutlineJump)
+  // 状态栏下拉里的「适应宽度」
+  disposeFit = zoomStore.registerFit(tabId.value, fitWidth)
 })
 
 watch(
@@ -386,6 +391,8 @@ onUnmounted(() => {
   renderGeneration++
   containerRef.value?.removeEventListener('wheel', onStageWheel)
   window.removeEventListener('inkase:outline-jump', handleOutlineJump)
+  disposeFit?.()
+  disposeFit = null
   resizeObserver?.disconnect()
   resizeObserver = null
   if (scrollTimer !== null) window.clearTimeout(scrollTimer)
@@ -410,35 +417,6 @@ onUnmounted(() => {
             @keydown="onPageInputEnter"
           >
           <span class="pdf-page-total">/ {{ pageCount }}</span>
-        </div>
-        <div class="pdf-zoom-controls">
-          <Tooltip content="缩小">
-            <button
-              class="pdf-btn"
-              :disabled="loading || !!loadError"
-              @click="zoomOut"
-            >
-              −
-            </button>
-          </Tooltip>
-          <Tooltip content="适应宽度">
-            <button
-              class="pdf-btn pdf-scale-reset"
-              :disabled="loading || !!loadError"
-              @click="fitWidth"
-            >
-              {{ scalePercent }}
-            </button>
-          </Tooltip>
-          <Tooltip content="放大">
-            <button
-              class="pdf-btn"
-              :disabled="loading || !!loadError"
-              @click="zoomIn"
-            >
-              +
-            </button>
-          </Tooltip>
         </div>
       </div>
     </div>
@@ -538,45 +516,6 @@ onUnmounted(() => {
 .pdf-page-total {
   font-size: calc(var(--ui-font-size) - 1px);
   color: var(--color-text-tertiary);
-}
-
-.pdf-zoom-controls {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.pdf-btn {
-  min-width: 24px;
-  height: 24px;
-  padding: 0 6px;
-  font-size: calc(var(--ui-font-size) + 1px);
-  line-height: 1;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: var(--color-bg-primary);
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.pdf-btn:hover:not(:disabled) {
-  border-color: var(--color-border-hover);
-  background: var(--color-bg-secondary);
-}
-
-.pdf-btn:active:not(:disabled) {
-  border-color: var(--color-primary);
-}
-
-.pdf-btn:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-.pdf-scale-reset {
-  font-size: calc(var(--ui-font-size) - 1px);
-  min-width: 44px;
 }
 
 .pdf-body {

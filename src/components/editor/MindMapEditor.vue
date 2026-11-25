@@ -45,6 +45,7 @@ import type { MindElixirInstance } from 'mind-elixir'
 import 'mind-elixir/style.css'
 import { useFileStore } from '../../stores/file'
 import { useThemeStore } from '../../stores/theme'
+import { MINDMAP_ZOOM_PROFILE, stepZoom, useZoomStore } from '../../stores/zoom'
 import {
   MINDMAP_FILE_SCHEMA,
   MINDMAP_VERSION,
@@ -85,7 +86,6 @@ import {
 } from '../../utils/mindmap/drag'
 import {
   nextPageSize,
-  nextZoomScale,
   MINDMAP_PAGE_MIN,
   MINDMAP_ZOOM_MAX,
   MINDMAP_ZOOM_MIN
@@ -207,8 +207,16 @@ const richError = ref('')
 const richInputRef = ref<HTMLInputElement | null>(null)
 let richTopic: MindMapTopicElement | null = null
 
-/** 画布视图状态 */
-const zoom = ref(1)
+/**
+ * 画布视图状态
+ *
+ * 缩放倍率住在 zoom store 里（按标签页），状态栏右下角的读数与它同一份值。
+ * 渲染库自己还有一份 `mind.scaleVal`，两者靠 `updateZoom` 与下面的 watch 双向同步。
+ */
+const zoomStore = useZoomStore()
+const zoomTabId = computed(() => fileStore.activeTabId)
+/** 注销状态栏下拉里的「适应画布」动作 */
+let disposeFit: (() => void) | null = null
 const rainbow = ref(true)
 const layoutDirection = ref<MindMapLayoutDirection>('side')
 
@@ -796,10 +804,10 @@ async function exportImage(format: MindMapImageFormat): Promise<void> {
 
 /* ------------------------------ 视图同步 ------------------------------ */
 
-/** 把渲染库当前的缩放同步到控制条 */
+/** 把渲染库当前的缩放同步到 store（状态栏读数据此显示） */
 function updateZoom(): void {
   if (!mind) return
-  zoom.value = mind.scaleVal
+  zoomStore.set(zoomTabId.value, mind.scaleVal, MINDMAP_ZOOM_PROFILE)
 }
 
 function cancelLayoutFrame(): void {
@@ -887,7 +895,8 @@ function onCanvasWheel(event: WheelEvent): void {
   if (!mind) return
   if (!(event.ctrlKey || event.metaKey)) return
   event.preventDefault()
-  const next = nextZoomScale(mind.scaleVal, event.deltaY < 0 ? 'in' : 'out')
+  // 以光标为锚点缩放，必须直接调渲染库；store 只由 updateZoom 回写
+  const next = stepZoom(MINDMAP_ZOOM_PROFILE, mind.scaleVal, event.deltaY < 0 ? 1 : -1)
   if (next === mind.scaleVal) return
   try {
     mind.scale(next, { x: event.clientX, y: event.clientY })
@@ -1110,19 +1119,21 @@ function applyZoom(next: number): void {
   focusCanvas()
 }
 
-function zoomIn(): void {
-  if (!mind) return
-  applyZoom(nextZoomScale(mind.scaleVal, 'in'))
-}
-
-function zoomOut(): void {
-  if (!mind) return
-  applyZoom(nextZoomScale(mind.scaleVal, 'out'))
-}
-
-function zoomReset(): void {
-  applyZoom(1)
-}
+/**
+ * 状态栏改缩放 → 落到渲染库。
+ *
+ * 必须比对当前值再动手：`updateZoom` 会把渲染库的值写回 store，若这里无条件
+ * 再 apply 一次就成了「store 变 → 渲染库变 → store 变」的回环。差值判断同时
+ * 挡住渲染库自己四舍五入造成的抖动。
+ */
+watch(
+  () => zoomStore.valueOf(zoomTabId.value),
+  (next) => {
+    if (!mind) return
+    if (Math.abs(mind.scaleVal - next) < 0.01) return
+    applyZoom(next)
+  }
+)
 
 /**
  * 适应画布：按「内容当前屏幕尺寸 / 视口尺寸」换算目标缩放。
@@ -2294,6 +2305,11 @@ onMounted(() => {
     return
   }
   mountInstance(parsed.document)
+  // 状态栏下拉里的「适应画布」
+  disposeFit = zoomStore.registerFit(zoomTabId.value, fitToCanvas)
+  // 切走再切回：沿用该标签上次的缩放（没有记录时渲染库默认 1）
+  const saved = zoomStore.raw(zoomTabId.value)
+  if (saved !== undefined && mind) applyZoom(saved)
   // 打开就修复过（空文件、重复 id、非法颜色…）时提示一次，别静默改用户文件
   repairNotes.value = parsed.repaired.slice()
 })
@@ -2311,6 +2327,8 @@ onBeforeUnmount(() => {
   el?.removeEventListener('wheel', hideCardMenu)
   finishGesture()
   cancelLayoutFrame()
+  disposeFit?.()
+  disposeFit = null
   // 画布即将销毁，标记没有必要留着；同时把查找状态清空，避免下次挂载残留
   clearSearchMarks()
   searchMatches.value = []
@@ -2780,13 +2798,9 @@ const fallbackPlaceholder = `{
           <!-- 视图控制放在属性栏的「画布」标签页里，不再浮在画布右下角挡内容 -->
           <template #controls>
             <MindMapControlBar
-              :zoom="zoom"
               :rainbow="rainbow"
               :direction="layoutDirection"
               variant="panel"
-              @zoom-in="zoomIn"
-              @zoom-out="zoomOut"
-              @zoom-reset="zoomReset"
               @fit="fitToCanvas"
               @center="centerCanvas"
               @collapse-all="collapseAll"

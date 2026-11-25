@@ -126,6 +126,39 @@ describe('AI settings', () => {
     expect(electronAPI.setAiConfig.mock.calls[0][0]).toMatchObject({ contextWindow: 64000 })
   })
 
+  /*
+   * 温度是「用户可以不填、程序必须有值」的参数。这两条守的是：
+   * 1) 后端视图万一没带 temperature（老版本/空配置），表单也不能把它变成空；
+   * 2) 用户清空输入框时，提交给主进程的是默认值而不是 NaN。
+   */
+  it('后端视图缺温度时，表单仍落在默认值上', async () => {
+    electronAPI.getAiConfig.mockResolvedValue({
+      success: true,
+      data: { baseUrl: 'https://provider.example/v1', model: 'writer-pro', hasApiKey: true }
+    })
+    electronAPI.setAiConfig.mockResolvedValue({ success: true, data: { hasApiKey: true } })
+
+    const wrapper = mountSection()
+    // 等回填真正落地（模型名出现），再看温度框
+    await vi.waitFor(() =>
+      expect((wrapper.get('[data-testid="ai-model"]').element as HTMLInputElement).value).toBe('writer-pro')
+    )
+    expect((wrapper.get('[data-testid="ai-temperature"]').element as HTMLInputElement).value).toBe('0.3')
+  })
+
+  it('清空温度后保存，提交的是默认值而不是 NaN', async () => {
+    electronAPI.setAiConfig.mockResolvedValue({ success: true, data: { hasApiKey: true } })
+    const wrapper = await mountLoaded()
+
+    await wrapper.get('[data-testid="ai-temperature"]').setValue('')
+    await saveSection(wrapper)
+    await vi.waitFor(() => expect(electronAPI.setAiConfig).toHaveBeenCalledOnce())
+
+    const payload = electronAPI.setAiConfig.mock.calls[0][0] as { temperature: unknown }
+    expect(payload.temperature).toBe(0.3)
+    expect(Number.isFinite(payload.temperature as number)).toBe(true)
+  })
+
   it('shows text and tool capability results separately and rejects a no-tools model as ready', async () => {
     electronAPI.testAiConfig.mockResolvedValue({
       success: true,

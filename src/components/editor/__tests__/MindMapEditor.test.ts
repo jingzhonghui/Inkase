@@ -3,6 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { nextTick, reactive } from 'vue'
+import { createPinia, setActivePinia } from 'pinia'
 
 /**
  * MindMapEditor 冒烟测试
@@ -46,6 +47,8 @@ import MindMapEditor from '../MindMapEditor.vue'
 
 describe('MindMapEditor', () => {
   beforeEach(() => {
+    // 组件 setup 里会构造 zoom store（缩放读数统一在状态栏），需要一个活动 Pinia
+    setActivePinia(createPinia())
     fileState.fileContent = ''
     fileState.activeTabId = 't1'
     fileState.error = null
@@ -436,10 +439,11 @@ describe('MindMapEditor', () => {
     await canvasTab!.trigger('click')
     await nextTick()
 
-    // 切到「画布」页后控制条出现在属性栏里，且带缩放读数
+    // 切到「画布」页后控制条出现在属性栏里；缩放读数已统一搬到状态栏，这里只剩视图/折叠等
     const insideInspector = wrapper.find('.mind-map-inspector .mind-map-controls')
     expect(insideInspector.exists()).toBe(true)
-    expect(insideInspector.text()).toContain('100%')
+    expect(insideInspector.text()).toContain('适应')
+    expect(insideInspector.text()).not.toContain('100%')
     // 嵌进面板后不再使用浮层定位
     expect(insideInspector.classes()).toContain('is-panel')
 

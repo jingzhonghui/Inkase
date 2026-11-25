@@ -12,6 +12,7 @@ import {
   normalizeAiApiFormat,
   type AiApiFormat
 } from '../../../../shared/ai/api-format'
+import { normalizeAiTemperature } from '../../../../shared/ai/defaults'
 import type {
   AiConfigInput,
   AiConfigView,
@@ -113,7 +114,7 @@ function input(includeEmptyKey = false): AiConfigInput {
     model: form.model.trim(),
     // 目录跟着一起存：只改温度这类保存也要把已勾选的模型带上，否则面板下拉会被清空
     models: [...form.models],
-    temperature: Number(form.temperature),
+    temperature: normalizeAiTemperature(form.temperature),
     maxOutputTokens: form.maxOutputTokens,
     contextWindow: form.contextWindow,
     maxSteps: form.maxSteps,
@@ -142,7 +143,9 @@ function fillForm(data: AiConfigView): void {
   form.apiFormat = normalizeAiApiFormat(data.apiFormat)
   form.model = data.model
   form.models = Array.isArray(data.models) ? [...data.models] : []
-  form.temperature = data.temperature
+  // 温度在主进程视图里一定是数字（toView 已归一）；这里再兜一层，
+  // 是因为「保存」不该依赖后端是否按时升级，NaN 也不能跨进程边界
+  form.temperature = normalizeAiTemperature(data.temperature)
   form.maxOutputTokens = data.maxOutputTokens
   form.contextWindow = data.contextWindow
   form.maxSteps = data.maxSteps
@@ -456,15 +459,17 @@ defineExpose({ save })
 
     <SettingsRow
       title="温度"
-      desc="0 更稳定、2 更发散"
+      desc="0 更稳定、2 更发散，留空按 0.3 处理"
     >
       <input
         v-model.number="form.temperature"
         class="settings-number"
+        data-testid="ai-temperature"
         type="number"
         min="0"
         max="2"
         step="0.1"
+        placeholder="默认 0.3"
       >
     </SettingsRow>
 

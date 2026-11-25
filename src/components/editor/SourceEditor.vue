@@ -797,7 +797,8 @@ function getThemeExtension(): Extension {
  */
 const editorStyles = EditorView.theme({
   '&': {
-    fontSize: 'calc(var(--editor-font-size, 16px) - 2px)',
+    // `--editor-zoom` 是当前标签的正文缩放倍率（100% = 设置里的字号）
+    fontSize: 'calc(var(--editor-font-size, 16px) * var(--editor-zoom, 1) - 2px)',
     fontFamily: 'var(--editor-mono-font-family, var(--font-mono))'
   },
   '.cm-content': {

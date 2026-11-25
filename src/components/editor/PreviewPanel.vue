@@ -581,7 +581,7 @@ defineExpose({
 .preview-content {
   padding: 24px 32px;
   font-family: var(--editor-font-family, var(--font-sans));
-  font-size: calc(var(--editor-font-size, 16px) - 1px);
+  font-size: calc(var(--editor-font-size, 16px) * var(--editor-zoom, 1) - 1px);
   line-height: var(--editor-line-height, 1.8);
   color: var(--color-text);
   max-width: 100%;

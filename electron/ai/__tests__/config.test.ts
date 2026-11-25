@@ -235,6 +235,40 @@ describe('AiConfigService', () => {
     expect(runtime.idleTimeoutMs).toBeUndefined()
   })
 
+  it('视图给缺省的温度补默认值，而不是留 undefined', () => {
+    // 从未保存过配置：read() 返回 {}，toView 不能把 temperature 漏出去
+    expect(new AiConfigService(configPath).getView().temperature).toBe(0.3)
+
+    const write = (temperature: unknown): number => {
+      fs.writeFileSync(configPath, JSON.stringify({
+        baseUrl: 'https://api.example.com/v1', model: 'demo', temperature
+      }))
+      return new AiConfigService(configPath).getView().temperature
+    }
+
+    // 老配置 / 手改坏的文件：缺失、null、非数字都落回默认值
+    expect(write(undefined)).toBe(0.3)
+    expect(write(null)).toBe(0.3)
+    expect(write('hot')).toBe(0.3)
+    // 越界值夹回区间：谁都不能把 9 带进模型请求
+    expect(write(9)).toBe(2)
+    expect(write(-1)).toBe(0)
+  })
+
+  it('运行期配置同样保证温度是数字（手改 JSON 也不会漏 NaN）', () => {
+    const service = new AiConfigService(configPath)
+    service.save({
+      baseUrl: 'https://api.example.com/v1', model: 'demo', apiKey: 'secret', temperature: 0.7
+    })
+
+    // 绕过 save 把文件写坏，模拟手工编辑/旧版本遗留
+    const raw = JSON.parse(fs.readFileSync(configPath, 'utf8'))
+    raw.temperature = null
+    fs.writeFileSync(configPath, JSON.stringify(raw))
+
+    expect(new AiConfigService(configPath).getRuntimeConfig().temperature).toBe(0.3)
+  })
+
   it('persists the permission mode and defaults to standard', () => {
     const service = new AiConfigService(configPath)
     service.save({

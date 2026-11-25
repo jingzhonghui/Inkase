@@ -9,32 +9,14 @@
 export const MINDMAP_ZOOM_MIN = 0.2
 /** 缩放上限：导图放大到 300% 已经够用，再大只会让人迷路 */
 export const MINDMAP_ZOOM_MAX = 3
-/** 每档缩放倍率 */
-export const MINDMAP_ZOOM_STEP = 1.2
 
 /**
- * 计算下一档缩放。
- * 以倍率递增而不是加减固定值，缩放感受在 20%~300% 区间内保持一致。
+ * 注：缩放的**步进与格式化**不在这里。
+ *
+ * 导图、图片、PDF 与正文的缩放读数统一在底部状态栏显示，步进策略也因此收在
+ * `stores/zoom.ts`（`stepZoom` / `formatZoomPercent`）一处，避免同一套逻辑
+ * 「按钮走乘法、状态栏走减法」这种两处各说各话。这里只保留画布尺寸相关的纯函数。
  */
-export function nextZoomScale(
-  current: number,
-  direction: 'in' | 'out',
-  options: { step?: number; min?: number; max?: number } = {}
-): number {
-  const step = options.step ?? MINDMAP_ZOOM_STEP
-  const min = options.min ?? MINDMAP_ZOOM_MIN
-  const max = options.max ?? MINDMAP_ZOOM_MAX
-  const safeCurrent = Number.isFinite(current) && current > 0 ? current : 1
-  const raw = direction === 'in' ? safeCurrent * step : safeCurrent / step
-  // 四舍五入到 1%，避免连续缩放累积出一串浮点噪声（显示成 128.00000001%）
-  return Math.min(max, Math.max(min, Math.round(raw * 100) / 100))
-}
-
-/** 缩放值 → 展示用的百分比文本 */
-export function formatZoomPercent(scale: number): string {
-  const safe = Number.isFinite(scale) && scale > 0 ? scale : 1
-  return `${Math.round(safe * 100)}%`
-}
 
 /** 画布「纸」的最小边长（px） */
 export const MINDMAP_PAGE_MIN = 2000

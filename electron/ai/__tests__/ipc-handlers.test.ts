@@ -277,6 +277,35 @@ describe('registerAiHandlers', () => {
     expect((result as { error?: string }).error).toBeTruthy()
   })
 
+  it('config:set 缺省温度时补默认值，不报 NaN', async () => {
+    registerAiHandlers(() => null)
+    const setHandler = electronMocks.handlers.get(AI.CONFIG.SET)!
+    const getHandler = electronMocks.handlers.get(AI.CONFIG.GET)!
+
+    // 全新机器第一次保存：渲染层没带温度（旧版本会把 Number(undefined) 发成 NaN）
+    const input = makeConfigInput()
+    delete input.temperature
+    const result = await setHandler({}, input)
+
+    expect(result).toMatchObject({ success: true })
+    const view = (await getHandler({})) as { data?: { temperature?: number } }
+    expect(view.data?.temperature).toBe(0.3)
+  })
+
+  it('温度不是数字时返回可读提示，不再回显 Zod 的 issues JSON', async () => {
+    registerAiHandlers(() => null)
+    const setHandler = electronMocks.handlers.get(AI.CONFIG.SET)!
+
+    const result = (await setHandler({}, makeConfigInput({ temperature: Number.NaN }))) as {
+      success: boolean
+      error?: string
+    }
+
+    expect(result.success).toBe(false)
+    expect(result.error).toBe('配置无效：温度必须是 0–2 之间的数字')
+    expect(result.error).not.toContain('invalid_type')
+  })
+
   it('config:set 保存后 config:get 返回已保存配置（不含明文 Key）', async () => {
     registerAiHandlers(() => null)
     const setHandler = electronMocks.handlers.get(AI.CONFIG.SET)!

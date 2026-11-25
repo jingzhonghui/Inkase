@@ -12,7 +12,7 @@ import MindMapControlBar from '../MindMapControlBar.vue'
 describe('MindMapControlBar', () => {
   function mountBar(overrides: Record<string, unknown> = {}) {
     return mount(MindMapControlBar, {
-      props: { zoom: 1, rainbow: true, direction: 'side', ...overrides }
+      props: { rainbow: true, direction: 'side', ...overrides }
     })
   }
 
@@ -22,20 +22,12 @@ describe('MindMapControlBar', () => {
     return button
   }
 
-  it('展示当前缩放百分比', () => {
-    expect(mountBar().text()).toContain('100%')
-    expect(mountBar({ zoom: 0.85 }).text()).toContain('85%')
-  })
-
-  it('缩放按钮分别发出 zoom-out / zoom-in / zoom-reset', async () => {
+  it('缩放读数与 +/- 已搬到状态栏，控制条里不再有它们', () => {
     const wrapper = mountBar()
-    await buttonOf(wrapper, '−').trigger('click')
-    await buttonOf(wrapper, '＋').trigger('click')
-    await buttonOf(wrapper, '100%').trigger('click')
-
-    expect(wrapper.emitted('zoom-out')).toHaveLength(1)
-    expect(wrapper.emitted('zoom-in')).toHaveLength(1)
-    expect(wrapper.emitted('zoom-reset')).toHaveLength(1)
+    // 百分比读数统一在底部状态栏，控制条只剩「适应」这类与画布尺寸相关的动作
+    expect(wrapper.text()).not.toContain('100%')
+    expect(wrapper.findAll('button').map((item) => item.text())).not.toContain('−')
+    expect(wrapper.findAll('button').map((item) => item.text())).not.toContain('＋')
   })
 
   it('适应 / 居中 / 折叠 / 展开 各自发出对应事件', async () => {
@@ -93,8 +85,8 @@ describe('MindMapControlBar', () => {
     const panel = mountBar({ variant: 'panel' })
     expect(panel.classes()).toContain('is-panel')
     // 形态只影响样式：分组标题在面板形态下可见，事件语义保持一致
-    expect(panel.text()).toContain('缩放')
-    expect(panel.text()).toContain('100%')
+    expect(panel.text()).toContain('视图')
+    expect(panel.text()).toContain('适应')
 
     await buttonOf(panel, '适应').trigger('click')
     expect(panel.emitted('fit')).toHaveLength(1)

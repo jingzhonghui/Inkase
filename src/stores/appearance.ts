@@ -170,13 +170,6 @@ export const useAppearanceStore = defineStore('appearance', () => {
     saveAppearance()
   }
 
-  /** Ctrl+滚轮缩放：在当前字号基础上步进 ±1，夹紧到允许范围 */
-  function zoomEditorFontSize(delta: number): void {
-    if (!Number.isFinite(delta) || delta === 0) return
-    const step = delta > 0 ? 1 : -1
-    setEditorFontSize(editorFontSize.value + step)
-  }
-
   function setEditorFontFamily(value: string): void {
     editorFontFamily.value = sanitizeFontFamily(value, DEFAULT_EDITOR_FONT_FAMILY)
     applyToDocument()
@@ -208,7 +201,6 @@ export const useAppearanceStore = defineStore('appearance', () => {
     editorLineHeight,
     setUiFontSize,
     setEditorFontSize,
-    zoomEditorFontSize,
     setEditorFontFamily,
     setEditorMonoFontFamily,
     setEditorLineHeight,
