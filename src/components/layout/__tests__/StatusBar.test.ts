@@ -98,6 +98,66 @@ describe('StatusBar 文档统计', () => {
     expect(readonlyButton.attributes('disabled')).toBeDefined()
   })
 
+  it('图片标签显示「图片」而不是纯文本，且不显示字数与行列', async () => {
+    setActivePinia(createPinia())
+    window.electronAPI = {
+      openFile: vi.fn(async (filePath: string) => ({
+        success: true,
+        data: {
+          document: createMdxDocument('pic', ''),
+          filePath,
+          format: 'image',
+          // 4 个 base64 字符 = 3 字节，用来看「文件大小」有没有按载荷还原
+          imageDataUrl: 'data:image/png;base64,AAAA'
+        }
+      })),
+      getVersion: vi.fn(async () => 'test')
+    } as unknown as typeof window.electronAPI
+
+    const store = useFileStore()
+    await store.openFile('C:/ws/pic.png')
+    const wrapper = mount(StatusBar)
+    await wrapper.vm.$nextTick()
+
+    // 回归：图片原本被标成「纯文本」（effectiveEditorMode 对一切非 Markdown 都返回 plain）
+    expect(wrapper.find('.mode-toggle-btn .mode-label').text()).toBe('图片')
+    expect(wrapper.text()).not.toContain('纯文本')
+    // 正文是空串：字数恒为 0、光标恒在 1 行 1 列，都是噪声
+    expect(wrapper.text()).not.toContain('字数')
+    expect(wrapper.text()).not.toContain('行 1, 列 1')
+    // 文件大小从 base64 载荷还原，不是 0 B
+    expect(wrapper.text()).toContain('文件大小: 3 B')
+  })
+
+  it('图表标签显示「图表」并统计图元，导图标签显示「思维导图」', async () => {
+    setActivePinia(createPinia())
+    window.electronAPI = {
+      openFile: vi.fn(async (filePath: string) => ({
+        success: true,
+        data: {
+          document: createMdxDocument('g', '<mxfile></mxfile>'),
+          filePath,
+          format: filePath.endsWith('.drawio') ? 'diagram' : 'mindmap'
+        }
+      })),
+      getVersion: vi.fn(async () => 'test')
+    } as unknown as typeof window.electronAPI
+
+    const store = useFileStore()
+    await store.openFile('C:/ws/flow.drawio')
+    const wrapper = mount(StatusBar)
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.find('.mode-toggle-btn .mode-label').text()).toBe('图表')
+    expect(wrapper.text()).toContain('图元:')
+    // 画布没有光标行列
+    expect(wrapper.text()).not.toContain('行 1, 列 1')
+
+    await store.openFile('C:/ws/map.inkmind')
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('.mode-toggle-btn .mode-label').text()).toBe('思维导图')
+  })
+
   it('右下角显示缩放读数，+/- 每次 25%，并按标签页各自保留', async () => {
     setActivePinia(createPinia())
     window.electronAPI = {

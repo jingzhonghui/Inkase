@@ -1,9 +1,17 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch, type Component } from 'vue'
-import { IconCode, IconColumns, IconFileText, IconFileTypePdf, IconSitemap } from '@tabler/icons-vue'
+import {
+  IconChartDots,
+  IconCode,
+  IconColumns,
+  IconFileText,
+  IconFileTypePdf,
+  IconPhoto,
+  IconSitemap
+} from '@tabler/icons-vue'
 import { useFileStore, type EditorMode } from '../../stores/file'
 import { useWorkspaceStore } from '../../stores/workspace'
-import { findCodeLanguage, languageDisplayName } from '../../utils/editor-language'
+import { resolveViewLabel } from '../../utils/view-label'
 import { resolveZoomProfile, useZoomStore } from '../../stores/zoom'
 import Tooltip from '../common/Tooltip.vue'
 import ZoomControl from './ZoomControl.vue'
@@ -42,6 +50,28 @@ const isMindMapActive = computed(() => fileStore.activeTab?.fileInfo?.format ===
 /** 当前标签是否为图表：内容是一坨 XML，字数统计对它没意义（store 里换成了图元数） */
 const isDiagramActive = computed(() => fileStore.activeTab?.fileInfo?.format === 'diagram')
 
+/** 当前标签是否为图片：只读查看，正文是空的 */
+const isImageActive = computed(() => fileStore.activeTab?.fileInfo?.format === 'image')
+
+/** 只读媒体（图片 / PDF）：没有正文、没有光标，`content` 恒为空串 */
+const isMediaActive = computed(() => isImageActive.value || fileStore.isPdfActiveTab)
+
+/** 画布类视图（导图 / 图表）：有统计意义，但没有光标行列 */
+const isCanvasActive = computed(() => isMindMapActive.value || isDiagramActive.value)
+
+/**
+ * 光标行列只对文本编辑器有意义。
+ *
+ * 图片 / PDF / 导图 / 图表上永远停在「行 1, 列 1」——那个 1 不是位置，是没人写过。
+ */
+const showsCursor = computed(() => !isMediaActive.value && !isCanvasActive.value)
+
+/**
+ * 字数：图片 / PDF 没有正文可数（`content` 是空串，统计出来恒为 0）。
+ * 导图数的是节点文字、图表数的是图元，两者都有意义，保留。
+ */
+const showsWordCount = computed(() => !isMediaActive.value)
+
 /** 计数标签名：图表统计的是图元个数 */
 const countLabel = computed(() => (isDiagramActive.value ? '图元' : '字数'))
 
@@ -57,12 +87,29 @@ const appLabel = computed(() => {
   return appVersion.value ? `Inkase v${appVersion.value}` : 'Inkase'
 })
 
+/**
+ * 文件大小。
+ *
+ * 文本按正文算——正文就是文件内容。图片 / PDF 的正文是空串（内容在
+ * `imageDataUrl` / `pdfBase64` 里），按正文算会显示成「0 B」，所以这两种从
+ * base64 载荷还原真实字节数：每 4 个字符 3 字节，末尾的 `=` 是补位。
+ */
 const fileSize = computed(() => {
-  const bytes = new Blob([fileStore.fileContent]).size
+  const bytes = isMediaActive.value ? mediaPayloadBytes() : new Blob([fileStore.fileContent]).size
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 })
+
+function mediaPayloadBytes(): number {
+  const tab = fileStore.activeTab
+  const payload = tab?.imageDataUrl ?? tab?.pdfBase64 ?? ''
+  if (!payload) return 0
+  const comma = payload.indexOf(',')
+  const body = comma >= 0 ? payload.slice(comma + 1) : payload
+  const padding = body.endsWith('==') ? 2 : body.endsWith('=') ? 1 : 0
+  return Math.max(0, Math.floor((body.length * 3) / 4) - padding)
+}
 
 const saveStatus = computed(() => {
   if (fileStore.isLoading) return '加载中...'
@@ -77,37 +124,32 @@ const saveStatusClass = computed(() => {
 })
 
 /**
- * 获取模式图标
+ * 只读标签的图标：按「当前是什么视图」选，与标签栏的文件图标保持一致
+ * （图片 `IconPhoto`、导图 `IconSitemap`、图表 `IconChartDots`，见 `utils/file-icons.ts`）。
  */
-const modeIcon = computed(() => {
-  if (fileStore.isPdfActiveTab) return 'pdf'
-  if (isMindMapActive.value) return 'mindmap'
-  const icons: Record<EditorMode, string> = {
-    split: 'split',
-    source: 'source',
-    ir: 'ir',
-    plain: 'source'
-  }
-  return icons[effectiveMode.value]
+const modeIconComponent = computed<Component>(() => {
+  if (fileStore.isPdfActiveTab) return IconFileTypePdf
+  if (isImageActive.value) return IconPhoto
+  if (isMindMapActive.value) return IconSitemap
+  if (isDiagramActive.value) return IconChartDots
+  if (effectiveMode.value === 'split') return IconColumns
+  if (effectiveMode.value === 'ir') return IconFileText
+  return IconCode
 })
 
 /**
- * 纯文本模式按后缀匹配到的语言展示名（如 Shell/INI），无匹配时回退“纯文本”
- */
-const plainLanguageLabel = computed<string | null>(() => {
-  const name = fileStore.activeTab?.fileInfo?.name
-  if (!name) return null
-  const desc = findCodeLanguage(name)
-  return desc ? languageDisplayName(desc) : null
-})
-
-/**
- * 获取模式展示名
+ * 获取模式展示名。
+ *
+ * 非 Markdown 的文件 `effectiveEditorMode` 一律是 `plain`，名字交给
+ * `resolveViewLabel` 按格式/后缀给出（图片、PDF、导图、图表都不该被叫成「纯文本」）。
  */
 const modeLabel = computed(() => {
-  if (fileStore.isPdfActiveTab) return 'PDF 预览'
-  if (isMindMapActive.value) return '思维导图'
-  if (effectiveMode.value === 'plain') return plainLanguageLabel.value ?? '纯文本'
+  if (effectiveMode.value === 'plain') {
+    return resolveViewLabel({
+      format: fileStore.activeTab?.fileInfo?.format,
+      name: fileStore.activeTab?.fileInfo?.name
+    })
+  }
   const labels: Record<Exclude<EditorMode, 'plain'>, string> = {
     split: '分屏预览',
     source: '源码编辑',
@@ -173,14 +215,19 @@ watch(
 
 <template>
   <footer class="status-bar">
+    <!-- 左侧统计：字数与光标行列只对「有正文 / 有光标」的视图有意义 -->
     <div class="status-left">
-      <span class="status-item">{{ countLabel }}: {{ fileStore.wordCount }}</span>
-      <span class="status-separator">|</span>
+      <template v-if="showsWordCount">
+        <span class="status-item">{{ countLabel }}: {{ fileStore.wordCount }}</span>
+        <span class="status-separator">|</span>
+      </template>
       <span class="status-item">文件大小: {{ fileSize }}</span>
-      <span class="status-separator">|</span>
-      <span class="status-item">
-        行 {{ fileStore.cursorLine }}, 列 {{ fileStore.cursorColumn }}
-      </span>
+      <template v-if="showsCursor">
+        <span class="status-separator">|</span>
+        <span class="status-item">
+          行 {{ fileStore.cursorLine }}, 列 {{ fileStore.cursorColumn }}
+        </span>
+      </template>
     </div>
 
     <div class="status-right">
@@ -205,7 +252,7 @@ watch(
           <span class="mode-label">{{ option.label }}</span>
         </button>
       </div>
-      <!-- 不可切换（PDF / 思维导图 / 纯文本）：展示当前形态，不再提供切换 -->
+      <!-- 不可切换（PDF / 图片 / 思维导图 / 图表 / 纯文本）：展示当前形态，不再提供切换 -->
       <Tooltip
         v-else
         :content="modeTooltip"
@@ -215,16 +262,7 @@ watch(
           :class="effectiveMode"
           disabled
         >
-          <!-- 分屏预览图标 -->
-          <IconColumns v-if="modeIcon === 'split'" />
-          <!-- 即时渲染图标 -->
-          <IconFileText v-else-if="modeIcon === 'ir'" />
-          <!-- PDF 预览图标 -->
-          <IconFileTypePdf v-else-if="modeIcon === 'pdf'" />
-          <!-- 思维导图图标 -->
-          <IconSitemap v-else-if="modeIcon === 'mindmap'" />
-          <!-- 源码编辑图标 -->
-          <IconCode v-else />
+          <component :is="modeIconComponent" />
           <span class="mode-label">{{ modeLabel }}</span>
         </button>
       </Tooltip>

@@ -28,7 +28,7 @@ import {
 } from '../../shortcuts/registry'
 import { dialogState, requestDialog } from '../../utils/dialog'
 import { isPromptOpen } from '../../utils/prompt'
-import { findCodeLanguage, languageDisplayName } from '../../utils/editor-language'
+import { resolveViewLabel } from '../../utils/view-label'
 import SyncPanel from './SyncPanel.vue'
 import SettingsDialog from '../settings/SettingsDialog.vue'
 import type { SettingsSectionId } from '../settings/types'
@@ -331,13 +331,13 @@ const canConvertToMindMap = computed(
   () => !isMindMapActiveTab.value && (fileStore.activeTab?.content ?? '').trim().length > 0
 )
 
-/** 纯文本模式按后缀匹配到的语言展示名（如 Shell/INI），无匹配时回退“纯文本” */
-const plainLanguageLabel = computed<string | null>(() => {
-  const name = fileStore.activeTab?.fileInfo?.name
-  if (!name) return null
-  const desc = findCodeLanguage(name)
-  return desc ? languageDisplayName(desc) : null
-})
+/** 只读标签的展示名：与状态栏共用一份判定（图片/PDF/导图/图表都不该叫「纯文本」） */
+const viewLabel = computed(() =>
+  resolveViewLabel({
+    format: fileStore.activeTab?.fileInfo?.format,
+    name: fileStore.activeTab?.fileInfo?.name
+  })
+)
 
 const viewMenu = computed<MenuItem[]>(() => [
   {
@@ -370,7 +370,7 @@ const viewMenu = computed<MenuItem[]>(() => [
         ? [
             {
               kind: 'item' as const,
-              label: fileStore.isPdfActiveTab ? 'PDF 预览' : (plainLanguageLabel.value ?? '纯文本'),
+              label: viewLabel.value,
               action: 'mode-plain',
               checked: true,
               disabled: true
