@@ -77,6 +77,17 @@ export interface TabInfo {
     /** 选区终点（文档偏移） */
     to: number
   }
+  /**
+   * PDF 的阅读位置（只对 format='pdf' 有意义；关闭标签即丢弃）。
+   *
+   * PDF 查看器不走 `savedEditorPosition`：那里存的是 Markdown 偏移与行号锚点，
+   * 而 PDF 的定位单位是「页码」。更要紧的是查看器切标签时会被 `:key` 整体销毁重建
+   * （pdfjs 文档与画布占内存，不适合 keep-alive），页码作为组件内 ref 会随之归零。
+   */
+  pdfPosition?: {
+    /** 当前页码（1 基） */
+    page: number
+  }
 }
 
 /**

@@ -224,6 +224,7 @@ src/
 ### 关键设计决策
 
 - **多标签页**: `fileStore.tabs` 数组 + `activeTabId`，向后兼容通过 computed 代理到 `activeTab`
+- **PDF 阅读位置寄存在标签上**: `PdfViewer` 与图片/导图/图表一样在 `EditorPanel` 里按 `:key="activeTabId"` 挂载，切标签时**整体卸载重建**（pdfjs 的文档与画布占内存，刻意不用 keep-alive），所以页码不能留在组件内——否则「读到第 30 页，切走再切回」会回到第一页。位置写进 `TabInfo.pdfPosition`，与 `savedEditorPosition` 同一套生命周期（关闭标签即丢弃，不需要额外清理）：滚动时在 `onScroll` 写回，`loadPdf` 末尾用 `restoreScroll` 恢复（页面高度随缩放变化，刚重建时布局可能还没就绪，一次性赋 `scrollTop` 会滚不到或滚过头）。恢复期间用 `restoringPage` 抑制写回，否则重试途中的中间位置会被记成新的阅读位置；`pages` 还没量出来时 `pageAtScroll` 恒为 1，同样不能写回。回归用例：`src/components/editor/__tests__/PdfViewer.position.test.ts`
 - **工作台双段**: 标签栏只有「文件 + 一个固定的家」。工作台内部是 `graph` / `ai` 两段，靠 `v-show` 保活（图谱的仿真坐标活在组件实例里，销毁重建会重新播种跳位），**默认落在图谱**——工作台的意义是「看你的库」，AI 是按需打开的第二段。AI 收起或关掉最后一个文档时都退回图谱段。曾经的「概览」段已移除。注意首屏跟着落在图谱时，会话恢复是异步的，`GraphView` 里有一个 `openedFolderPath` watcher 负责在 root 到位后补建索引（否则会停在「先打开一个文件夹」且不再自试）。
 - **`.mdx` 文件格式**: ZIP 压缩包，内含 `mdx.json`（元数据）+ `content.md` + `assets/images/`。打开时解压到系统临时目录，保存时重新打包
 - **图片处理**: 通过 `sharp` 库可选压缩，使用 `adm-zip` 打包进 MDX，读取时通过 IPC 获取 Buffer 转为 Data URL

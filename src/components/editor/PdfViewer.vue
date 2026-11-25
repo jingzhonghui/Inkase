@@ -15,6 +15,7 @@ import {
   type PageLayout
 } from '../../utils/pdf-viewer'
 import { PDF_ZOOM_PROFILE, useZoomStore } from '../../stores/zoom'
+import { restoreScroll } from '../../utils/editor-scroll'
 
 // pdfjs 依赖 DOMMatrix 等浏览器 API，且体积较大，按需惰性加载（jsdom 测试环境无法在模块顶层加载）
 type PdfjsModule = typeof import('pdfjs-dist')
@@ -92,10 +93,74 @@ let resizeObserver: ResizeObserver | null = null
 let scrollTimer: number | null = null
 /** 注销「适应宽度」动作 */
 let disposeFit: (() => void) | null = null
+/** 恢复阅读位置期间不写回，避免重试途中的中间位置被当成新的阅读位置 */
+let restoringPage = false
+/** 取消进行中的位置恢复（重载 / 卸载时调用） */
+let cancelPageRestore: (() => void) | null = null
+
+/**
+ * 把当前页码记回标签。
+ *
+ * 查看器在切标签时会被 `:key` 整体销毁重建（pdfjs 文档与画布占内存，不适合 keep-alive），
+ * 页码留在组件内就会归零——这正是「切走再切回回到第一页」的成因。
+ * 与编辑器同一套思路（见 `savedEditorPosition`）：位置寄存在标签上，关闭标签即丢弃。
+ */
+function rememberPage(page: number): void {
+  const tab = fileStore.tabs.find((t) => t.id === tabId.value)
+  if (!tab || tab.pdfPosition?.page === page) return
+  tab.pdfPosition = { page }
+}
+
+/** 读取标签上寄存的页码；没有记录返回 null */
+function savedPage(): number | null {
+  const tab = fileStore.tabs.find((t) => t.id === tabId.value)
+  const page = tab?.pdfPosition?.page
+  return typeof page === 'number' && page > 0 ? page : null
+}
+
+/**
+ * 把滚动容器定位到指定页。
+ *
+ * 用 `restoreScroll` 的重试机制而不是直接写 `scrollTop`：页面高度随缩放变化，
+ * 组件刚重建时布局快照可能还没就绪，一次性赋值会滚不到或滚过头。
+ */
+function restorePage(page: number): void {
+  const el = containerRef.value
+  if (!el || page <= 1) return
+  cancelPageRestore?.()
+  restoringPage = true
+  currentPage.value = page
+  pageInput.value = String(page)
+  cancelPageRestore = restoreScroll(
+    el,
+    {
+      resolve: () => {
+        const layouts = pages.map((p) => p.layout)
+        return layouts.length >= page ? scrollOffsetsForPage(layouts, page) : null
+      }
+    },
+    {
+      onDone: () => {
+        cancelPageRestore = null
+        restoringPage = false
+        // 兜底校准：落点被夹到末尾页时，页码读数应与实际位置一致
+        measureLayouts()
+        currentPage.value = pageAtScroll(pages.map((p) => p.layout), el.scrollTop, el.clientHeight)
+        pageInput.value = String(currentPage.value)
+        rememberPage(currentPage.value)
+        renderVisiblePages()
+      }
+    }
+  )
+}
 
 async function loadPdf(): Promise<void> {
   renderGeneration++
   const generation = renderGeneration
+  // 重新加载意味着换上另一份文档（或本标签重回前台），进行中的位置恢复作废
+  cancelPageRestore?.()
+  cancelPageRestore = null
+  restoringPage = false
   pdfDoc = null
   pages = []
   pageCount.value = 0
@@ -144,6 +209,9 @@ async function loadPdf(): Promise<void> {
     // 先填充布局快照，再渲染可见页（renderPage 依赖 pages 数组）
     measureLayouts()
     renderVisiblePages()
+    // 切标签回来时回到原来的阅读位置；首次打开没有记录，停在第一页
+    const page = savedPage()
+    if (page !== null && page > 1) restorePage(Math.min(page, pageCount.value))
   } catch (err) {
     if (generation === renderGeneration) {
       loading.value = false
@@ -293,6 +361,8 @@ function onScroll(): void {
   // 布局快照缺失时（如初始滚动早于测量）先补测，避免页码卡死
   if (pages.length === 0 && pdfDoc) measureLayouts()
   currentPage.value = pageAtScroll(pages.map((p) => p.layout), el.scrollTop, el.clientHeight)
+  // 布局还没量出来时 pageAtScroll 恒为 1，不能拿它覆盖已记录的位置
+  if (pages.length > 0 && !restoringPage) rememberPage(currentPage.value)
   if (scrollTimer !== null) return
   scrollTimer = window.setTimeout(() => {
     scrollTimer = null
@@ -389,6 +459,8 @@ watch(
 
 onUnmounted(() => {
   renderGeneration++
+  cancelPageRestore?.()
+  cancelPageRestore = null
   containerRef.value?.removeEventListener('wheel', onStageWheel)
   window.removeEventListener('inkase:outline-jump', handleOutlineJump)
   disposeFit?.()
